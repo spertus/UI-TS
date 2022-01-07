@@ -1,0 +1,1095 @@
+% last edited 12/28/2021
+\documentclass[12pt,runningheads]{llncs}
+\usepackage{longtable}
+\usepackage{booktabs}
+
+\bibliographystyle{splncs04}
+% LAYOUT
+%--------------------------------
+\usepackage[utf8]{inputenc}    % utf8 
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage[anythingbreaks]{breakurl}
+\usepackage{color}
+%--------------------------------
+
+
+\newcommand{\cI}{\mathcal{I}}
+\newcommand{\Var}{\ensuremath{\mathrm{Var}}}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\Bern}{\ensuremath{\mathrm{Bernoulli}}}
+\newcommand{\SPR}{\ensuremath{\mathrm{SPR}}}
+\newcommand{\todo}[1]{{\textcolor{red}{TO DO: #1}}}
+
+
+% DOCUMENT
+%--------------------------------
+
+\begin{document}
+
+\title {ALPHA: Audit that Learns from Previously Hand-Audited Ballots}
+
+\author{Philip B. Stark}
+
+\institute{University of California, Berkeley}
+
+\maketitle
+
+\abstract{
+     BRAVO \cite{lindemanEtal12} is currently the most widely used method for
+     risk-limiting election audits.
+     However, it cannot accommodate sampling without replacement or stratified sampling, which can improve efficiency 
+     and are sometimes required by law.
+     It applies only to ballot polling, which is simple to implement but less efficient than comparison audits.
+     It applies to plurality, majority, super-majority, proportional representation, and ranked-choice voting contests, 
+     but not to many other social choice 
+     functions for which there are RLA methods, such as approval voting, STAR-voting, Borda count, and general scoring rules.
+     And while BRAVO has the smallest expected sample size among sequentially valid ballot-polling-with-replacement
+     methods when the reported vote shares are exactly correct, BRAVO can require arbitrarily large samples
+     when the reported reported winner(s) really won but the reported vote shares are incorrect. 
+     ALPHA is a simple generalization of BRAVO that (i)~works for sampling with and without replacement, (ii)~can
+     be used with stratified sampling in the SUITE approach \cite{ottoboniEtal18},
+     (iii)~works for ballot-level and batch-level comparison audits and for all social choice functions covered by SHANGRLA \cite{stark20}, 
+     including approval voting, Borda count, and all scoring rules, 
+     and (iv)~requires smaller samples than BRAVO---five orders of magnitude in some examples---when the reported vote 
+     shares are wrong but the outcome is correct, in situations where both ALPHA and BRAVO apply.
+     ALPHA is also competitive with RiLACS \cite{waudby-smithEtal21}.
+     A Python implementation is provided.
+\\[3em] 
+\textbf{Keywords}: elections, risk-limiting audit, ballot-polling audit, comparison audit, martingale methods, SHANGRLA
+audit, SUITE audit
+
+
+\section{Introduction}
+A risk-limiting audit (RLA) is a procedure that has a known minimum probability of correcting the reported outcome of an election
+contest if the reported outcome is wrong.
+The risk limit of an RLA is the maximum chance that the RLA will not correct the electoral outcome, if the outcome is wrong.
+The \emph{outcome} means the political outcome---who or what won---not the numerical vote tallies, which are practically impossible
+to get exactly right.
+A RLA requires a trustworthy record of the validly cast votes:\footnote{%
+Generally, the record is a set of validly cast hand-marked paper ballots that has been kept demonstrably secure.
+Machine-marked ballots cannot be considered a trustworthy record of voter intent.
+See \cite{appelEtal20,appelStark20,starkWagner12}.
+}
+ a manual count of those records is the recourse to correct
+wrong outcomes.
+Establishing whether the record of votes is trustworthy is generically called a \emph{compliance audit}.
+RLAs are recommended by the National Academies of Science, Engineering, and Medicine \cite{nas18},
+the American Statistical Association \cite{asa10}, and other groups concerned with election integrity.
+They are in law in several U.S.\ states and have been piloted in roughly a dozen U.S.\ states and in Denmark.
+
+BRAVO \cite{lindemanEtal12} is a particularly
+simple method to conduct an RLA of plurality and supermajority contests.
+It relies on sampling ballots at random with replacement from all ballots validly cast in the contest.
+\cite{starkTeague14} showed how BRAVO can be used to audit proportional representation schemes such as D'Hondt.
+\cite{blomEtal18} showed how BRAVO can be used to audit ranked-choice voting as well.
+BRAVO is based on Wald's \cite{wald45} sequential probability ratio test (SPRT) of the simple hypothesis 
+$\theta = \mu$ against a simple alternative $\theta = \eta$ from IID $\Bern(\theta)$ observations.
+(A $\Bern(\theta)$ random variable takes the value $0$ with probability $1-\theta$ and the value $1$ with probability $\theta$;
+its expected value is $\theta$.)
+Because it requires IID $\Bern(\theta)$ observations, BRAVO is limited to ballot-polling audits and to using samples drawn with 
+replacement, both of which limit efficiency and applicability.
+
+BRAVO for a plurality contest involves using the SPRT to test a number of hypotheses:
+for each reported winner $w$ and each reported loser $\ell$, let $\theta_{w\ell}$ be the 
+the conditional probability that a ballot selected at random with replacement
+from all ballots validly cast in the contest shows a valid vote for $w$, given that it shows a valid vote for $w$ or for $\ell$,
+and let $\eta_{w\ell}$ be the number of votes reported for $w$, divided by the total votes reported for $w$ and $\ell$ combined.
+BRAVO tests the hypotheses $\theta_{w\ell} = 1/2$ against the alternatives $\theta_{w\ell} = \eta_{w\ell}$ for every $(w, \ell)$
+pair.
+
+BRAVO for a supermajority contest can be simpler or more involved than for a plurality
+contest. 
+Suppose that the contest requires a candidate to receive at least a fraction $\phi \in (0, 1)$ of the valid votes
+to be a winner.
+(We allow the possibility that $\phi < 1/2$, in which case ``supermajority'' is a misnomer and there can be more than one winner.)
+Suppose candidate $w$ is reported to be a winner.
+Let $\theta_w$ denote the conditional probability that a ballot selected
+at random from all ballots validly cast in the contest shows a valid vote for $w$, given that it shows a valid 
+vote for any candidate in the contest,
+and let $\eta_w$ be the number of votes reported for $w$, divided by the total valid votes reported in the contest.
+BRAVO uses the SPRT to test the hypothesis $\theta_w = \phi$ against the alternative $\theta_w = \eta_w$
+for each reported winner. 
+If the number of reported winners times $\phi$, if $w$ is reported to have won.
+(If $\phi > 1/2$, there can be only one such candidate. 
+If $\phi < 1/2$, there can be more than one, in which case
+that hypothesis needs to be tested for all candidates (not just the reported winners), to confirm that (only) the
+reported winner(s) won.
+If is is reported that no candidate received at least a fraction $\phi$ of the valid votes,  
+BRAVO tests the hypotheses that each candidate received $\phi$ of the valid votes
+against the alternative that each candidate received $\eta < \phi$ of the valid votes,
+to confirm that none received $\phi$ or more.
+
+Consider IID draws from a population $\{x_i\}_{i=1}^N$, where each $x_i \in \{0, 1\}$ (the population is binary).
+Let $\theta = \bar{x} := \frac{1}{N} \sum_{i=1}^N x_i$ be the population fraction of 1s.
+We sample with replacement from the population.
+Let $X_k$ be the value of $x_i$ selected on the $k$th draw. 
+Then $\Pr \{X_k = 1 \} = \theta$ and $\Pr \{X_k = 0 \} = 1-\theta$.
+By independence, the probability of a sequence $(X_k=y_k)_{k=1}^j$ is the product of the probabilities of the terms,
+which can be written 
+\begin{equation}
+\Pr \cap_j \{X_k = y_k \} = \prod_{k=1}^j \Pr \{X_k = y_k\} = \prod_{k=1}^j \left ( y_k \theta + (1-y_k)(1-\theta) \right ).
+\end{equation}
+The ratio of the probability of the sequence if $\theta = \eta$ to the probability if $\theta = \mu$ is
+\begin{equation}
+  \SPR_j = \prod_{k=1}^j \left ( y_k \frac{\eta}{\mu} + (1-y_k) \cdot \frac{1-\eta}{1-\mu} \right ).
+\end{equation}
+Wald's SPRT rejects the hypothesis that $\theta = \mu$ at significance level $\alpha$ if
+$\SPR_j \ge 1/\alpha$ for any $j$.
+That is, $\Pr_{\theta = \mu} \{\sup_j \SPR_j \ge 1/\alpha \} \le \alpha$: the SPRT is a \emph{sequentially valid} test.
+Moreover, $\min(1, 1/\SPR_j)$ is an \emph{anytime $P$-value} for the hypothesis $\theta = \mu$.
+That is, for any $p \in [0, 1]$, 
+$$\Pr_{\theta = \mu}  \left \{\inf_{j=1}^\infty (1/\SPR_j) \le p \right \} \le p.$$
+The SPRT is quite general; this is perhaps the simplest case.
+Wald's proof that the general SPRT is sequentially valid is complicated, but Ville's inequality \cite{ville39} yields a simple proof.
+Given a sequence of random variables $X_1, X_2, \ldots$, let $X^j$ denote the finite sequence $X_1, \ldots, X_j$.
+A sequence of absolutely integrable random variables $T_1, T_2, \ldots$ is a \emph{martingale} with respect to a sequence of
+random variables $X_1, X_2, \ldots$ if $\EE (T_j | X^{j-1}) = T_{j-1}$.
+It is a \emph{submartingale} if $\EE (T_j | X^{j-1}) \le T_{j-1}$.
+The expected value of every term of a martingale is the same.
+A (sub)martingale is nonnegative if $\Pr \{T_j \ge 0 \} = 1$ for all $j$.
+Ville's inequality is a version of Markov's inequality for submartingales:
+the chance that a nonnegative submartingale ever exceeds any multiple of its expected value is at most the reciprocal of that multiple.
+That is, if $T_j$, $j=1, \ldots$ is a nonnegative submartingale with respect to $X_j$, $j=1, \ldots$, then 
+$\Pr \{ \sup_j T_j \ge k\EE T_1\} \le 1/k$.
+
+The Bernoulli \SPR{} is a martingale with respect to $X_j$, $j=1, \ldots$ if $\theta = \mu$:
+\begin{eqnarray}
+\EE (\SPR_j | X^{j-1}) &=& \SPR_{j-1} \times \EE \left ( X_j \frac{\eta}{\mu} + (1-X_j) \frac{1-\eta}{1-\mu} \right ) \nonumber \\
+&=& \SPR_{j-1} \times \left ( \mu \frac{\eta}{\mu} + (1-\mu) \frac{1-\eta}{1-\mu} \right )  \nonumber \\
+&=& \SPR_{j-1} \times \left (\eta + (1-\eta) \right ) = \SPR_{j-1}.
+\end{eqnarray}
+Because $ \EE (\SPR_1) = 1$, Ville's inequality implies that $\Pr_{\theta = \mu} \{\sup_j \SPR_j \ge 1/\alpha \} \le \alpha$.
+(More generally, sequences of likelihood ratios are nonnegative martingales with respect to the distribution in the
+denominator.)
+
+Wald \cite{wald45} proved that among all sequentially valid tests of the hypothesis $\theta = \mu$, the SPRT with alternative
+$\theta = \eta$ has the smallest expected sample size to reject $\theta=\mu$ when in fact $\theta = \eta$.
+But when $\theta \in (\mu, \eta)$, the SPRT can fail to reject the null, continuing to sample forever,
+and when $\theta > \eta$, it can be very inefficient.
+As a result, when reported vote shares are incorrect but the reported winner(s) really won, BRAVO can require 
+enormous samples, even when the true margin is large.
+
+This paper introduces ALPHA, a simple adaptive extension of BRAVO.
+It is motivated by the SPRT for the Bernoulli and its optimality when the simple alternative is true.
+While BRAVO tests against the alternative that the true vote shares are equal to the reported vote shares,
+ALPHA combines the reported results with the audit sample to
+estimate the reported winner's share of the vote before the $j$th ballot is examined, given
+that the first $j-1$ ballots have shown. 
+ALPHA also generalizes BRAVO to situations where $\{x_j\}$ are not necessarily binary, 
+but merely nonnegative and bounded: the Bernoulli $\theta$ is just the population mean of a binary population,
+but the martingale property continues to hold when $\theta$ is the mean of a nonnegative, bounded population.
+That generalization allows ALPHA to be used with SHANGRLA to audit supermajority contests
+and to conduct comparison audits of a wide variety of social choice functions---any for which there is a
+SHANGRLA audit.
+In contrast, BRAVO requires the list elements to be binary-valued.
+Finally, ALPHA works for sampling with or without replacement, while BRAVO is specifically for sampling 
+with replacement (IID observations).
+(The SPRT for a population percentage using sampling without replacement is straightforward, but was not
+in the original BRAVO paper \cite{lindemanEtal12}.)
+
+\section{ALPHA and SHANGRLA}
+
+\subsection{SHANGRLA} \label{sec:shangrla}
+Before introducing ALPHA, we provide additional motivation for constructing a more general test than BRAVO: 
+the SHANGRLA framework for RLAs.
+SHANGRLA \cite{stark20} checks outcomes by testing \emph{half-average assertions}, each of which claims 
+that the mean of a finite list of
+numbers between $0$ and $u$ is greater than $1/2$.
+Each list of numbers result from applying an \emph{assorter} to the ballots.
+The assorter uses the votes and possibly other information (e.g., how the voting system interpreted the ballot)
+to assign a number between $0$ and $u$ to each ballot.
+For some assorters, the numbers are only $0$ and $1$, but for others, there are more possible values.
+
+The correctness of the outcomes under audit is implied by the intersection of a collection of such assertions;
+the assertions depends on the social choice function, the number of candidates, and other details \cite{stark20}.
+SHANGRLA tests the negation of each assertion, i.e., it tests the
+hypothesis that each assorter mean is not greater than $1/2$.
+If that complementary null hypothesis can be rejected for all assertions,
+the audit concludes that the outcome is correct.
+Otherwise, the audit expands, potentially to a full hand count.
+If every complementary null is tested at level $\alpha$, this results in a risk-limiting
+audit with risk limit $\alpha$: if the outcome is not correct, the chance the audit will stop
+shy of a full hand count is at most $\alpha$.
+No adjustment for multiple testing is needed \cite{stark20}.
+
+The core, canonical statistical problem in SHANGRLA is to test the hypothesis that $\bar{x} \le 1/2$ using a 
+sample from a finite population $\{x_i\}_{i=1}^N$, 
+where each $x_i \in [0, u]$, with $u$ known.
+The sample might be drawn with or without replacement; it might be drawn from the population as a unit (unstratified sampling), or the population might be divided into strata, each of which is sampled independently (stratified sampling).
+Or it might be drawn using Bernoulli sampling, where each item is included independently, with some common probability.
+An equivalent problem is to test the hypothesis that 
+$\bar{y} \le t$ using a sample from $\{y_i\}_{i=1}^N$, where each $y_i \in [0, 1]$ (let $y_i = x_i/u$ and set $t=1/(2u)$).
+
+For instance, consider one reported winner and one reported loser in a single-winner or multi-winner plurality 
+contest (any number of pairs can
+be audited simultaneously using the same sample \cite{stark20}).
+Let $N$ denote the number of ballots validly cast in the contest.
+The assorter assigns the $i$th ballot the value $x_i=1$ if the ballot has a valid vote for the reported winner, 
+the value $x_i=0$ if it has a valid vote for the reported loser, and the value $x_i=0$ otherwise.
+That reported winner really beat that reported loser if $\theta := \frac{1}{N}\sum_i x_i > 1/2$.
+In a multi-winner plurality contest with $w$ reported winners and $\ell$ reported losers,
+the reported winners really won if the mean of every one of the $w\ell$ lists for the (reported winner, reported loser) pairs
+is greater than $1/2$.
+
+\subsection{The ALPHA martingale test}
+
+We start by developing a one-sided test of the hypothesis $\theta = \mu$, then show the $P$-value is monotone in
+$\mu$, so the test is valid for the hypothesis $\theta \le \mu$, as SHANGRLA requires.
+Let $X^j := (X_1, \ldots, X_j)$.
+Assume $X_i \in [0, u]$ for some known $u$. 
+(For ballot-polling audits of plurality contests, $u=1$.)
+Let $\mu_j := \EE(X_j | X^{j-1})$ computed under the null hypothesis $\theta = \mu$. 
+Let $\eta_j = \eta_j(X^{j-1})$, $j=1, \ldots$, be a \emph{predictable sequence} in the sense that 
+$\eta_j$ may depend on $X^{j-1}$, but not on $X_k$ for $k \ge j$.
+We now define the ALPHA martingale $(T_j)$.
+Let $T_0 := 1$ and
+\begin{equation}
+    T_j := T_{j-1} u^{-1}\left ( X_j\frac{\eta_j}{\mu_j} + (u-X_j) \frac{u-\eta_j}{u-\mu_j} \right ), \;\; j=1, \ldots . \label{eq:alphaBRAVOdef}
+\end{equation}
+This can be rearranged to yield
+\begin{equation}
+    T_j := T_{j-1} \left ( \frac{X_j}{\mu_j} \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ). \label{eq:alphaMult}
+\end{equation}
+Under the null hypothesis that $\theta_j = \mu_j$, $T_j$ is nonnegative since $X_j$, $\mu_j$, and $\eta_j$
+are all in $[0, u]$.
+Also,
+\begin{eqnarray}
+    \EE (T_j | X^{j-1} ) &=& T_{j-1} \left ( \frac{\mu_j}{\mu_j} \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ) \nonumber \\
+    &=&  T_{j-1} \left ( \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ) \nonumber \\
+    &=& T_{j-1}.
+\end{eqnarray}
+Thus if $\theta = \mu$, $(T_j)_{j \in \mathbb{N}}$ is a nonnegative martingale with respect to $(X_j)_{j \in \mathbb{N}}$, starting at $1$.
+If $\theta < \mu$, then $\EE (X_j | X^{j-1}) < \mu_j$ and $r_j = \frac{\EE (X_j | X^{j-1})}{\mu_j} < 1$, so
+\begin{equation}
+    \EE (T_j | X^{j-1} ) = T_{j-1} \left ( r_j \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ) < T_{j-1}.
+\end{equation}
+Thus $(T_j)$ is a nonnegative submartingale starting at 1 if $\theta \le \mu$.
+It follows from Ville's inequality \cite{ville39} that if $\theta \le \mu$,
+\begin{equation} \label{eq:p-value-adapt}
+\Pr \{ \exists j :  T_j \ge \alpha^{-1} \} \le \alpha.
+\end{equation}
+That is, $\min(1, 1/T_j)$ is an ``anytime $P$-value'' for the null hypothesis $\theta = \mu$.
+This martingale is in the family of martingalse considered in \cite{waudby-smithEtal21}; see section~\ref{sec:rilacs} below.
+Note that this derivation did not use any information about $\{x_i\}$ other than $x_i \in [0, u]$:
+it applies to populations $\{x_i\}$ that are nonnegative and bounded, not merely binary populations.
+That means it can be used generically to test any SHANGRLA assertion, allowing it to be used to audit
+a wide variety of social choice functions (plurality, multi-winner plurality, super-majority, d'Hondt and other
+proportional representation schemes, Borda count, approval voting, STAR-Voting, arbitrary scoring rules, and IRV)
+using sampling with or without replacement, with or without stratification.
+
+\subsubsection{Sampling without replacement.}
+To use ALPHA with a sample drawn without replacement, we need $\EE(X_j | X^{j-1})$ computed on the assumption that
+$\theta =  \frac{1}{N} \sum_{i=1}^N x_i = \mu$.
+For sampling without replacement from a population with mean $\mu$, after draw $j-1$, the mean of the remaining numbers is $(N\mu - \sum_{k=1}^{j-1}X_k)/(N-j+1)$.
+Thus the conditional expectation of $X_j$ given $X^{j-1}$ under the null is $(N\mu - \sum_{k=1}^{j-1}X_k)/(N-j+1)$.
+If $N\mu - \sum_{k=1}^{j-1}X_k) < 0$ for any $k$, the null hypothesis $\theta = \mu$ is certainly false.
+
+\subsubsection{BRAVO is a special case of ALPHA.}
+BRAVO is ALPHA with the following restrictions:
+\begin{itemize}
+    \item the sample is drawn with replacement from ballots that do have a valid vote for the reported winner 
+    $w$ or the reported loser $\ell$ (ballots with votes for other candidates or non-votes are ignored)
+    \item  ballots are encoded as 0 or 1, depending on whether they have a valid vote
+    for the reported winner or for the reported loser;  $u=1$ and the only possible values of $x_i$ are 0 and 1
+    \item $\mu = 1/2$, and $\mu_j = 1/2$ for all $j$ since the sample is drawn with replacement
+    \item  $\eta_j = \eta_0 := N_w/(N_w+N_\ell)$, where $N_w$ is the number of votes reported for candidate $w$ 
+and $N_\ell$ is the number of votes reported for candidate $\ell$: $q$ is not updated as data are collected
+\end{itemize}
+It follows from \cite{wald45} that BRAVO minimizes the expected 
+sample size to reject the null hypothesis $\theta=1/2$ when when $w$ really received
+the share $\eta_0$ of the reported votes.
+The motivation for this paper is that $w$ almost never receives exactly their reported vote share, and
+BRAVO (and other RLA methods that rely on the reported vote share) may then have poor performance---even
+though they are still guaranteed to limit the risk that an incorrect result will become final to at most $\alpha$.
+
+When the reported vote shares are incorrect, using a method that
+adapts to the observed audit data can help, as we shall see.
+
+\subsection{Relationship to RiLACS} \label{sec:rilacs}
+\cite{waudby-smithRamdas21,waudby-smithEtal21} present a class of martingale-based tests and
+confidence sequences that adapt to the observations, including RiLACS, an RLA method based on confidence 
+sequences rather than hypothesis tests. 
+Some of the sequences have optimality properties, established through a connection between
+portfolio optimization and betting martingales.
+While those martingales are efficient to compute, they were derived for two scenarios: one where there is no
+prior information about the population mean, and one that relies on the reported outcome being correct,
+like BRAVO does. 
+
+RiLACS \cite{waudby-smithEtal21} uses martingales of the form
+\begin{equation} \label{eq:lambda-rilacs}
+M_j := \prod_{i=1}^j (1 + \lambda_j (X_j- \mu_j)),
+\end{equation}
+where, as above, $\mu_j := \EE(X_j | X_{j-1})$ computed on the assumption that the null hypothesis is true.
+The ALPHA martingale is of the form
+\begin{eqnarray} \label{eq:lambda-form}
+T_j &=& \prod_{i=1}^j \left ( \frac{X_j}{\mu_j} \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ) \nonumber \\
+&=& \prod_{i=1}^j \frac{X_j (\eta_j/\mu_j -1) + u - \eta_j}{u-\mu_j} \nonumber \\
+&=& \prod_{i=1}^j \left ( 1 + \frac{X_j (\eta_j/\mu_j -1) + \mu_j - \eta_j}{u-\mu_j} \right ) \nonumber \\
+&=&  \prod_{i=1}^j \left ( 1 + \frac{\eta_j/\mu_j -1}{u-\mu_j} \cdot (X_j - \mu_j) \right ).
+\end{eqnarray}
+This has the same functional form as \ref{eq:lambda-rilacs},  identifying $\lambda_j \equiv \frac{\eta_j/\mu_j -1}{u-\mu_j}$.
+Choosing $\lambda_j$ is equivalent to choosing $\eta_j$:
+\begin{equation}
+\lambda_j = \frac{\eta_j/\mu_j -1}{u-\mu_j} \;\; \Longleftrightarrow \;\; \eta_j = \mu_j \left ( 1 + \lambda_j (u-\mu_j) \right ).
+\end{equation}
+As $\eta_j$ ranges from $\mu_j$ to $u$, $\frac{\eta_j/\mu_j -1}{u-\mu_j}$ ranges continuously from
+0 to $1/\mu_j$, exactly the range of values of $\lambda_j$ permitted in the RiLACS martingales:
+selecting $\lambda_j$ is equivalent to selecting a method for estimating $\theta_j$.
+\cite{waudby-smithEtal21} consider two general types of strategy for picking $\lambda_j$.
+One is approximately optimal if $\theta$ is known, much like BRAVO is optimal 
+when the reported vote shares are correct.
+The other type of strategy does not use any prior information about $\theta$.
+They mention the possibility of a hybrid strategy that selects weights using prior knowledge
+but hedges \cite[Sec. 3]{waudby-smithEtal21}.
+The ALPHA formulation provides a family of tradeoffs between those extremes, using different estimates
+of $\theta_j$ based on $\eta$ and $X^{j-1}$.
+Parametrizing the selection of $\lambda_j$ in terms of an estimate $\eta_j$ of $\theta_j$ may aid intuition in developing
+sharper martingale tests.
+The performance the test depends on the accuracy of the estimator $\eta_j$: both its bias and variance matter. 
+
+\subsection{Setting $\eta_j$ to be an estimate of $\theta_j$}
+Since the SPRT minimizes the expected sample size to reject the null when the alternative is true,
+we might be able to construct an efficient test by using as the alternative an estimate of $\theta$
+based on the audit data and the reported results.
+Any estimate $\eta_j$ of $\theta_j$ that does not depend on $X_i$ for $i \ge j$ preserves the martingale property, 
+and the auditor has the freedom ``change horses'' and use a different estimator
+at will as the sample evolves. 
+For example, $\eta_j$ might be constant, as it is in BRAVO.
+Or it could be constant for the first 100 draws, then switch to the unbiased estimate of $\theta_j$ 
+based on $X^{j-1}$ once $j \ge 100$.
+Or it could be a Bayes estimate of $\theta_j$ using data $X^{j-1}$ and a prior concentrated on
+$[\mu_0, u]$, centered at the value of $\theta$ implied by the reported results.
+(The $P$-value of the test is still a frequentist $P$-value; the estimate $\eta_j$ affects the power.)
+Or it could give $\bar{X^{j-1}}$ weight that depends on the sample variance or the standard error of the sample mean, 
+giving it more weight when the variability is small.
+Or it could be the estimate implied by choosing $\lambda_j$ using one of the methods for selecting $\lambda_j$.
+described by \cite{waudby-smithRamdas21}.
+
+\subsubsection{Optimizing $\eta_j$ to maximize $\EE (T_j| X^{j-1})$ does not work.}
+Suppose that $\theta_j := \EE (X_j | X^{j-1}) > \mu_j$, i.e., that the alternative hypothesis is true. 
+What value of $\eta_j$ maximizes $\EE (T_j | X_{j-1})$?
+\begin{eqnarray}
+\EE \left ( \left . \frac{X_j}{\mu_j} \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right | X^{j-1} \right ) &=&
+\frac{\theta_j}{\mu_j} \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \nonumber \\
+&=& \eta_j \left ( \frac{\frac{\theta_j}{\mu_j} - 1}{u-\mu_j} \right ) + \frac{u-\theta_j}{u-\mu_j}.
+\end{eqnarray}
+This is monotone increasing in $\eta_j$, so it is maximized for $\eta_j = u$, for a single draw.
+But if $\eta_j=u$ and $X_j = 0$, then $T_k = 0$ for all $k \ge j$, and the test will never reject the null
+hypothesis, no matter how many more data are collected.
+This is essentially the observation made by Kelly \cite{kelly56} in his development of the
+Kelly criterion.
+Keeping $\eta_j < u$ hedges against that possibility.
+
+Instead of picking $\eta_j$ to maximize the next term $T_j$, one can pick it to maximize the rate at which $T$ grows.
+In the binary data case, the Kelly criterion \cite{kelly56}, discussed by \cite{waudby-smithRamdas21}, leads to the
+optimal choice when $\theta$ is known.
+For sampling with replacement, this is $\lambda = 2(N_w-N_\ell)/(N_w+N_\ell) = 4\theta$, since $N_w/(N_w+N_\ell) = \theta$.
+This corresponds to $\eta =  (1/2) \left ( 1 + 4\theta  (1-1/2) \right ) = \theta+1/2$. 
+
+\subsubsection{Illustration: a simple way to select $\eta_j$.}
+Any choice of $\eta_j \in (\mu_j, u)$ that depends only on $X^{j-1}$ preserves the martingale property and thus
+the validity of the ALPHA test.
+To show the potential of ALPHA, the simulations reported below are based on setting $\eta_j$ to be a simple 
+``truncated shrinkage'' estimate of $\theta_j$.
+The estimator shrinks towards the reported result as if the reported
+result were the mean of 
+$d>0$ draws ($d$ is not necessarily an integer). 
+To ensure that the alternative hypothesis corresponds to the reported
+winner really winning, we need $\eta_j > \mu_j$, and to keep the estimate consistent with the
+constraint that $x_i \in [0, u]$, we need $\eta_j \le u$.
+The following estimate $\eta_j$ of $\theta_j$ meets both requirements:
+\begin{equation} \label{eq:etaDef}
+\eta_j :=  \left ( \frac{d\eta_0 + \sum_{i=1}^{j-1}X_i }{d+j-1} \vee (\mu_j+\epsilon_j ) \right )
+\wedge u.
+\end{equation}
+
+{\bf Choosing $\eta_0$.}
+The starting value $\eta_0$ could be the value of $\theta$ implied by the reported results,
+for instance, the reported margin in a plurality contest. 
+But the procedure could be made ``fully adaptive'' by starting with,
+say, $\eta_0 = (u+\mu)/2$ or $\eta_0 = u$.
+
+{\bf Choosing $d$.}
+As $d \rightarrow \infty$, the sample size for ALPHA approaches that of BRAVO (in the binary data case).
+The larger $d$ is, the more strongly anchored the estimate is to the reported vote shares, and
+the smaller the penalty ALPHA pays when the reported results are exactly correct.
+Using a small value of $d$ is particularly helpful when the true population mean is far from the reported results.
+The smaller $d$ is, the faster the method adapts to the true population mean, but the higher the variance is.
+Whatever $d$ is, the relative weight of the reported vote shares decreases as the sample size increases.
+
+{\bf Choosing $\epsilon_j$.}
+To allow the estimated winner's share $\eta_j$ to approach
+$\mu_j$ as the sample grows (if the sample mean approaches $\mu_j$ or less),
+we shall take $\epsilon_j := c/\sqrt{d+j-1}$ for a nonnegative constant $c$,
+for instance $c=(\eta_0-\mu)/2$.
+The estimate $\eta_j$ is thus the sample mean,
+shrunk towards $\eta_0$ and truncated to the interval $[\mu_j + \epsilon_j, 1)$, where
+$\epsilon_j \rightarrow 0$ as the sample size grows.
+
+\section{Pseudo-algorithm for ALPHA SHANGRLA}
+
+A SHANGRLA \emph{assorter} assigns values between $0$ and some known upper bound $u$ to
+each ballot. 
+A SHANGRLA \emph{assertion} is that the mean value of an assorter is greater than $1/2$.
+The correctness of an election outcome (for a large class of social choice functions)
+can be written as the intersection of a set of assertions.
+We write the algorithm for a single assertion, but the audit can be conducted in parallel
+for any number of assertions using the same sampled ballots; no multiplicity adjustment for the number
+of assertions is needed.
+
+\begin{itemize}
+   \item Set audit parameters:
+       \begin{itemize}
+          \item select the risk limit $\alpha \in (0, 1)$; decide whether to sample with or without replacement
+          \item set $u$ as appropriate for the assertion under audit
+          \item $N$ is the number of ballot cards in the population from which the sample is drawn
+          \item $\eta_0$ is the reported mean value of the assorter. (For instance, for the assertion corresponding
+          to checking whether $w$ got more votes than $\ell$,  $\eta_0 = (N_w + N_c/2)/N$, where $N_w$ is the number of
+          votes reported for $w$, $N_\ell$ is the number of votes reported for $\ell$, and $N_c = N-N_w-N_\ell$ is the number
+          of ballot cards reported to have a vote for some other candidate or no valid vote in the contest.)
+          \item define the function to update $\eta$ based on the sample, e.g., \\
+          $\eta(j, X^{j-1}) = \left ( (d\eta_0 + S)/(d+j-1) \vee (\epsilon(j)+ \mu_j) \right ) \wedge u$, where
+          $S = \sum_{i=1}^{j-1}X_i$ is the sample sum of the first $j-1$ draws and $\epsilon(j) = c/\sqrt{d+j-1}$;
+          set any free parameters in the function (e.g., $d$ and $c$ in this example).
+          The only requirement is that $\eta(j, X^{j-1}) \in (\mu_j, u)$, where $\mu_j := \EE (X_j | X^{j-1})$ is computed under the null.
+      \end{itemize}
+    \item Initialize variables
+        \begin{itemize}
+          \item $j \leftarrow 0$: sample number
+          \item $T \leftarrow 1$: test statistic
+          \item $S \leftarrow 0$: sample sum
+          \item $m = 1/2$: population mean under the null
+      \end{itemize}
+   \item While $T < 1/\alpha$ and not all ballots have been audited:
+   \begin{itemize}
+        \item draw a ballot at random
+        \item $j \leftarrow j+1$
+        \item determine $X_j$ by applying the assorter to the selected ballot
+        \item if $m < 0$, $T \leftarrow \infty$. Otherwise, $T \leftarrow T u^{-1} \left ( X_j\frac{\eta(j, S)}{m} + (u-X_j) \frac{u-\eta(j,S)}{u-m} \right )$; 
+        \item $S \leftarrow S+X_j$
+        \item If the sample is drawn without replacement, $m \leftarrow (N/2 - S)/(N-j+1)$
+        \item if desired, break and conduct a full hand count instead of continuing to audit
+    \end{itemize}
+\end{itemize}
+
+\section{Simulations}
+
+\subsection{Sampling with replacement}
+Table~\ref{tab:results} reports mean sample sizes of ALPHA and BRAVO for the same true vote shares $\theta$,
+with the same choices of $\eta$, using the truncated shrinkage estimate of $\eta_j$, for a variety of choices of $d$,
+all for a risk limit of 5\%.
+Results are based on 1,000 replications for each true $\theta$.
+Sample sizes were limited to 10~million ballots: if a method required a sample bigger than that in any of the 1,000
+replications, the result is listed as `---'.
+As expected, BRAVO is best (or tied for best) when $\eta = \theta$, i.e., when the reported vote shares are exactly right.
+ALPHA with a small value of $d$ is best when $|\eta - \theta|$ is large; and ALPHA with a small value of $d$ is
+best when $|\eta - \theta|>0$ is small, with a few exceptions, where BRAVO beats ALPHA with $d=1000$ when $\theta > \eta$ and
+$|\theta - \eta|$ is small.
+When $\theta$ is large, ALPHA often does as well as BRAVO even when $\theta=\eta$.
+When vote shares are wrong---and the reported winner still won---ALPHA often reduces
+average sample sizes substantially, even when the true margin is large.
+Indeed, in many cases, the sample size for BRAVO exceeded 10~million ballots in some runs, while the average for ALPHA was
+up to five orders of magnitude lower.
+
+The SPRT is known to perform poorly---sometimes never leading to a decision---when $\mu < \theta < \eta$.
+In such cases, ALPHA did much better for all choices of $d$ when $\theta \ge 0.51$, and for $d= 10$ and $d=100$
+when $\theta=0.505$.
+
+The simulations show that the performance of BRAVO can also be poor when $\eta < \theta$.
+In most of those cases, ALPHA performed better than BRAVO for all choices of $d$.
+For instance, when $\theta=0.6$ (a margin of 20\%) and $\eta=0.7$,  ALPHA mean sample sizes were 204--353, but BRAVO sample sizes
+exceeded $10^7$ for some runs.
+
+\begin{table}
+\centering
+\tiny
+\begin{tabular}{lr|rrrr|r}
+  \multicolumn{2}{c|}{}    & \multicolumn{4}{|c|}{ALPHA with $d=$} & \multicolumn{1}{c}{} \\ 
+ %          \cline{3-6}
+\multicolumn{1}{c}{$\theta$}     &  \multicolumn{1}{c|}{$\eta$}   &  10 & 100 & 500 & 1000 & \multicolumn{1}{c}{BRAVO} \\
+\hline
+0.505 & 0.505 & 102,883 & 91,420 & 84,462 & 81,302  & \bf{59,558} \\
+      & 0.51 & 103,141 & 92,571 & 85,672 & \bf{82,237}  & --- \\
+      & 0.52 & 103,826 & 94,232 & 89,208 & \bf{88,041}  & --- \\
+      & 0.53 & 105,133 & \bf{96,549} & 97,729 & 102,483  & --- \\
+      & 0.54 & 105,874 & \bf{100,713} & 110,534 & 126,792  & --- \\
+      & 0.55 & 105,968 & \bf{104,004} & 126,230 & 160,061  & --- \\
+      & 0.6 & \bf{110,437} & 136,735 & 269,428 & 441,381  & --- \\
+      & 0.65 & \bf{118,065} & 186,215 & 516,032 & 917,257  & --- \\
+      & 0.7 & \bf{128,208} & 261,326 & 851,577 &  1,578,188  & --- \\
+\hline
+0.51 & 0.505 & 24,980 & 22,396 & 20,818 & \bf{20,332}  & 20,383 \\
+     & 0.51 & 25,056 & 22,549 & 20,661 & 20,009  & \bf{15,634} \\
+     & 0.52 & 25,255 & 22,995 & 21,065 & \bf{20,128}  & --- \\
+     & 0.53 & 25,501 & 23,480 & 22,444 & \bf{22,332}  & --- \\
+     & 0.54 & 25,636 & \bf{24,192} & 24,434 & 26,158  & --- \\
+     & 0.55 & 25,835 & \bf{24,691} & 27,087 & 31,927  & --- \\
+     & 0.6 & \bf{27,060} & 31,271 & 58,834 & 94,221  & --- \\
+     & 0.65 & \bf{28,565} & 43,806 & 115,567 & 207,667  & --- \\
+     & 0.7 & \bf{31,011} & 61,975 & 198,829 & 373,838  & --- \\
+\hline
+0.52 & 0.505 & 5,587 & 4,979 & \bf{4,887} & 4,948  & 8,629 \\
+     & 0.51 & 5,600 & 4,956 & 4,726 & \bf{4,629}  & 4,973 \\
+     & 0.52 & 5,628 & 4,903 & 4,464 & 4,268  & \bf{3,814} \\
+     & 0.53 & 5,650 & 4,929 & 4,408 & \bf{4,204}  & 5,029 \\
+     & 0.54 & 5,666 & 4,993 & 4,517 & \bf{4,441}  & --- \\
+     & 0.55 & 5,693 & 5,107 & \bf{4,846} & 5,038  & --- \\
+     & 0.6 & \bf{5,924} & 6,217 & 10,410 & 16,362  & --- \\
+     & 0.65 & \bf{6,263} & 8,709 & 23,041 & 41,197  & --- \\
+     & 0.7 & \bf{6,910} & 13,172 & 43,082 & 80,895  & --- \\
+\hline
+0.53 & 0.505 & 2,490 & \bf{2,270} & 2,335 & 2,457  & 5,485 \\
+     & 0.51 & 2,495 & 2,255 & \bf{2,219} & 2,267  & 3,036 \\
+     & 0.52 & 2,502 & 2,228 & 2,033 & 1,971  & \bf{1,892} \\
+     & 0.53 & 2,501 & 2,207 & 1,920 & 1,824  & \bf{1,716} \\
+     & 0.54 & 2,510 & 2,201 & 1,899 & \bf{1,832}  & 1,924 \\
+     & 0.55 & 2,532 & 2,202 & 1,955 & \bf{1,934}  & 3,242 \\
+     & 0.6 & 2,610 & \bf{2,549} & 3,482 & 4,933  & --- \\
+     & 0.65 & \bf{2,748} & 3,421 & 8,275 & 14,579  & --- \\
+     & 0.7 & \bf{2,955} & 5,175 & 16,476 & 30,849  & --- \\
+\hline
+0.54 & 0.505 & 1,258 & \bf{1,186} & 1,321 & 1,470  & 3,934 \\
+     & 0.51 & 1,262 & \bf{1,169} & 1,238 & 1,328  & 2,094 \\
+     & 0.52 & 1,264 & 1,139 & \bf{1,099} & 1,113  & 1,219 \\
+     & 0.53 & 1,266 & 1,106 & 1,007 & 996  & \bf{966} \\
+     & 0.54 & 1,274 & 1,086 & 966 & 933  & \bf{898} \\
+     & 0.55 & 1,272 & 1,079 & 958 & \bf{927}  & 944 \\
+     & 0.6 & 1,285 & 1,179 & 1,430 & 1,756  & --- \\
+     & 0.65 & 1,358 & 1,555 & 3,202 & 5,605  & --- \\
+     & 0.7 & 1,458 & 2,314 & 7,347 & 14,113  & --- \\
+\hline
+0.55 & 0.505 & 829 & \bf{814} & 948 & 1,074  & 3,145 \\
+     & 0.51 & 828 & \bf{794} & 891 & 973  & 1,660 \\
+     & 0.52 & 828 & \bf{766} & 785 & 815  & 937 \\
+     & 0.53 & 827 & 748 & 718 & 714  & 719 \\
+     & 0.54 & 828 & 727 & 673 & 661  & \bf{639} \\
+     & 0.55 & 827 & 715 & 648 & 631  & \bf{611} \\
+     & 0.6 & 840 & \bf{748} & 823 & 938  & --- \\
+     & 0.65 & \bf{884} & 945 & 1,681 & 2,601  & --- \\
+     & 0.7 & \bf{941} & 1,363 & 3,806 & 7,185  & --- \\
+\hline
+0.6 & 0.505 & \bf{205} & 244 & 355 & 440  & 1,548 \\
+     & 0.51 & \bf{205} & 237 & 326 & 388  & 799 \\
+     & 0.52 &\bf{202} & 223 & 281 & 314  & 423 \\
+     & 0.53 & \bf{201} & 210 & 244 & 262  & 301 \\
+     & 0.54 & 200 & \bf{198} & 216 & 224  & 240 \\
+     & 0.55 & 199 & \bf{189} & 196 & 200  & 204 \\
+     & 0.6 & 195 & 168 & 157 & \bf{156}  & \bf{156} \\
+     & 0.65 & 198 & \bf{170} & 180 & 187  & 218 \\
+     & 0.7 & \bf{204} & 208 & 287 & 353  & --- \\
+\hline
+0.65 & 0.505 & \bf{90} & 127 & 210 & 268  & 1,016 \\
+     & 0.51 & \bf{90} & 123 & 192 & 238  & 520 \\
+     & 0.52 & \bf{89} & 114 & 162 & 189  & 270 \\
+     & 0.53 & \bf{88} & 107 & 139 & 154  & 187 \\
+     & 0.54 & \bf{87} & 101 & 122 & 130  & 145 \\
+     & 0.55 & \bf{86} & 95 & 108 & 114  & 120 \\
+     & 0.6 & 82 & \bf{76} & \bf{76} & \bf{76}  & \bf{76} \\
+     & 0.65 & 81 & 71 & \bf{68} & \bf{68}  & \bf{68} \\
+     & 0.7 & 81 & \bf{73} & 76 & 78  & 82 \\
+\hline
+0.7 & 0.505 & \bf{52} & 83 & 147 & 191  & 759 \\
+     & 0.51 & \bf{52} & 80 & 134 & 168  & 385 \\
+     & 0.52 & \bf{51} & 74 & 113 & 133  & 197 \\
+     & 0.53 & \bf{50} & 69 & 97 & 108  & 134 \\
+     & 0.54 & \bf{50} & 65 & 84 & 91  & 103 \\
+     & 0.55 & \bf{48} & 61 & 74 & 78  & 85 \\
+     & 0.6 & \bf{45} & 47 & 49 & 49  & 50 \\
+     & 0.65 & 44 & \bf{40} & \bf{40} & \bf{40}  & \bf{40} \\
+     & 0.7 & 42 & 38 & \bf{37} & \bf{37}  & \bf{37}
+\end{tabular}
+\caption{\protect \label{tab:results} Estimated sample sizes to confirm the outcome in sampling
+with replacement for a risk limit of $0.05$, for ALPHA (with a variety of choices of
+$d$) versus BRAVO.
+$\theta$: actual vote share for winner.
+$\eta$: reported vote share for winner.
+Average of 1,000 replications.
+``--'' indicates that in at least one replication, the sample size exceeded 10~million.
+}
+\end{table}
+
+\subsection{Sampling without replacement}
+Table~\ref{tab:finite-population} compares several methods for ballot-polling without replacement, again in a two-candidate
+plurality contest with no invalid votes or votes for other candidates, based on $10^5$ iterations.
+The columns labeled $n=2000$ are comparable to the ``uncalibrated'' portion of Table~2 in \cite{huangEtal20}.
+(Interpreting the mean sample size for $n=2000$ when the power is less than 100\% is subtle: caution is advised.)
+The methods listed include the best-performing method in RiLACS \cite{waudby-smithEtal21} 
+that uses an explicit alternative value $\eta$ (a priori Kelly), and
+that does not use a pre-specified alternative (SqKelly), 
+Wald's SPRT for sampling without replacement, and
+ALPHA with the truncated shrinkage estimator for a variety of values of
+$d$. 
+Methods that use an explicit alternative (a priori Kelly, SPRT, ALPHA) were tested using a variety of values of $\eta$.
+Kaplan's martingale \cite{stark20} was not included because it is expensive to compute, numerically unstable, and
+performs comparably to some of the methods studied by \cite{waudby-smithEtal21}, such as dKelly.
+The election parameters $N$, $\theta$, and $\eta$ were chosen to make the simulations comensurable with \cite{huangEtal20}.
+In particular, the power to detect that the outcome is correct after no more than 2,000 ballots are inspected was estimated,
+along with the expected sample size for audits that terminate by the 2,000th sample. 
+Interpreting mean sample size results for $n=2000$ when the power of the method is less than 100\% is subtle; those
+results are given primarily for comparison with \cite{huangEtal20}.
+Because the sample is drawn without replacement from a population of size 20,000, the audits are guaranteed to reject the
+null hypothesis by the time the sample size is 20,000: the power is 100\%.
+Table~\ref{tab:finite-population} also shows the expected sample size of audits when they are allowed to continue to a full hand count.
+
+Many of the methods perform comparably. 
+SqKelly is often the best method when $\theta$ is not equal to $\eta$ for any of the methods that
+use $\eta$.
+A priori Kelly with $\eta=0.7$, the SPRT with $\eta=0.7$, and ALPHA with $\eta=0.7$ and $d=1000$
+work relatively well against a broad range of alternatives.
+ALPHA is broadly competitive, despite the fact that no effort has gone into optimizing the estimator $\eta_j$.
+
+\begin{table}
+\centering
+\tiny
+\begin{tabular}{llr|rrrrrr|rrrrrrr|rrrrrrr}
+&&& \multicolumn{13}{|c|}{$n=2000$} &  \multicolumn{7}{|c}{$n=N$} \\ 
+Method &$\eta$ &$d$ & \multicolumn{6}{c}{power $\theta=$} & \multicolumn{7}{c|}{mean sample size $\theta=$}  & \multicolumn{7}{|c}{mean sample size $	\theta=$ }\\ 
+& && .505 & .51 & .52 & .55 & .6 & .64 &  .505 & .51 & .52 & .55 & .6 & .64 & .7 & .505 & .51  & .52 & .55 & .6 & .64 & .7  \\ 
+\hline
+sqKelly && &\bf{8} &  \bf{14} &  \bf{37} &  \bf{98} &  \bf{100} &  \bf{100}  & 637 &  723 &  852 &  562 &  180 &  110 &  67 & 17,911 &  14,269 &  4,852 &  585 &  \bf{180} &  110 &  67  \\ 
+\hline
+a priori Kelly & $0.51$ && 0 &  0 &  3 &  84 &  \bf{100} &  \bf{100}  & 1,759 &  1,748 &  1,728 &  1,469 &  773 &  547 &  380 & 13,808 &  8,374 &  4,194 &  1,590 &  773 &  547 &  380  \\ 
+&  $0.55$ && \bf{8} &  \bf{14} & \bf{37} & \bf{98} &  \bf{100} &  \bf{100} & 642 &  707 &  817 &  550 &  199 &  130 &  85 & 18,065 &  14,921 &  5,457 &  \bf{576} &  199 &  130 &  85  \\ 
+&  $0.7$ && 5 &  5 &  8 &  19 &  86 &  \bf{100} &  \bf{38} &  \bf{40} &  \bf{46} &  \bf{72} &  289 &  97 &  \bf{37} & 18,785 &  18,474 &  17,679 &  12,913 &  708 &  97 &  \bf{37}   \\ 
+\hline
+SPRT & $0.51$ && 0 &  1 &  9 &  93 &  \bf{100} &  \bf{100} & 1,698 &  1,686 &  1,660 &  1,326 &  671 &  474 &  328 & \bf{13,078} &  \bf{7,708} &  3,748 &  1,389 &  671 &  474 &  328  \\  
+& $0.55$ && \bf{8} &  \bf{14} &  36 & \bf{98} &  \bf{100} &  \bf{100}  & 627 &  703 &  807 &  548 &  198 &  129 &  84 & 18,023 &  15,759 &  6,330 &  \bf{576} &  198 &  129 &  84  \\  
+& $0.7$ && 5 &  5 &  7 &  19 &  84 &  99 & 39 &  41 &  \bf{46} &  \bf{72} &  274 &  97 &  \bf{37} & 18,799 &  18,479 &  17,709 &  14,257 &  892 &  97 &  \bf{37}   \\  
+\hline
+ALPHA & $0.51$ & $10$ & 4 &  7 &  23 &  96 &  \bf{100} &  \bf{100}  &  513 &  684 &  936 &  724 &  195 &  101 &  51 &  14,832 &  9,505 &  4,034 &  779 &  195 &  101 &  51  \\ 
+&  & $100$ & 4 &  8 &  27 &  97 &  \bf{100} &  \bf{100}  & 818 &  922 &  1,055 &  715 &  226 &  134 &  80 &  14,401 &  8,921 &  3,680 &  748 &  226 &  134 &  80  \\ 
+& & $500$ & 3 &  7 &  27 & \bf{98} &  \bf{100} &  \bf{100} &  1,138 &  1,182 &  1,223 &  813 &  311 &  203 &  132 &  14,093 &  8,543 &  3,536 &  838 &  311 &  203 &  132  \\ 
+& & $1000$ & 2 &  6 &  25 & \bf{98} &  \bf{100} &  \bf{100}  &  1,278 &  1,301 &  1,317 &  891 &  369 &  247 &  164 &  13,932 &  8,377 &  \bf{3,518} &  916 &  369 &  247 &  164  \\ 
+& $0.55$ & $10$ & 4 &  7 &  23 &  96 &  \bf{100} &  \bf{100}  &  447 &  626 &  903 &  721 &  190 &  97 &  48 &  14,921 &  9,618 &  4,089 &  778 &  190 &  97 &  48  \\ 
+& &$100$ & 5 &  10 &  29 &  97 &  \bf{100} &  \bf{100}  &  572 &  702 &  904 &  638 &  182 &  104 &  61 &  14,707 &  9,231 &  3,726 &  674 &  182 &  104 &  61  \\ 
+& & $500$ & 7 &  13 &  35 &  \bf{98} &  \bf{100} &  \bf{100}  &  651 &  740 &  880 &  583 &  189 &  118 &  74 &  15,032 &  9,384 &  3,543 &  607 &  189 &  118 &  74  \\ 
+& & $1000$ & 7 &  13 &  36 & \bf{98} &  \bf{100} &  \bf{100}  &  657 &  739 &  865 &  569 &  192 &  122 &  78 &  15,579 &  9,906 &  3,626 &  592 &  192 &  122 &  78  \\ 
+& $0.7$ & $10$ & 4 &  6 &  18 &  94 &  \bf{100} &  \bf{100}  &  223 &  390 &  770 &  776 &  194 &  92 &  42 &  15,680 &  10,604 &  4,678 &  872 &  194 &  92 &  42  \\ 
+& & $100$ & 5 &  6 &  10 &  78 &  \bf{100} &  \bf{100}  &  61 &  99 &  289 &  841 &  197 &  \bf{84} &  38 &  17,470 &  13,826 &  7,170 &  1,222 &  197 &  \bf{84} &  38  \\ 
+& & $500$ & 5 &  5 &  8 &  30 &  99 &  \bf{100}  &  40 &  43 &  53 &  418 &  268 &  88 &  \bf{37} &  18,509 &  17,090 &  12,606 &  2,960 &  268 &  88 &  \bf{37}   \\ 
+& & $1000$ & 5 &  5 &  8 &  22 &  99 &  \bf{100}  &  39 &  42 &  48 &  150 &  317 &  91 &  \bf{37} &  18,700 &  17,848 &  14,756 &  4,687 &  324 &  91 &  \bf{37}  \\ 
+\hline
+Bayesian & & & & & 17 & 93 & \bf{100} & \bf{100}& & & 1,785 & 864 & 198 & 95 & 44 \\
+\hline
+BRAVO & 0.51 &&&& 6 & 89 & \bf{100} &\bf{100}&&& 1,985 & 1,505 & 760 & 542 & 377 \\
+            & 0.55 &&&& \bf{37} & \bf{98} & \bf{100} &\bf{100}&&& 1,561 & 572 & 200 & 131 & 86 \\
+            & 0.7 & &&& 8 & 20 & 83 &\bf{100}&&& 1,846 & 1,621 & 552 & 99 & 38  \\
+ClipAudit &  & &&& 34 & \bf{98} & \bf{100} &\bf{100}&&& 1,618 & 628 & \bf{167} & 88 & 45 
+\end{tabular} 
+\caption{\protect \label{tab:finite-population}
+Estimated workload and power for martingale tests for sampling without replacement from a population of size 20,000 at
+risk limit 5\%.
+Because the sample is drawn without replacement, all these methods are guaranteed to reject the null hypothesis by the time
+the sample size is $N=20,000$, if the null is false.
+`SqKelly' does not require an explicit alternative value for $\theta$; it optimizes against a mixture of possibilities that assigns higher weight
+to smaller margins.
+`A priori Kelly' is the optimal strategy when $\theta = \eta$.
+Samples are drawn without replacement from a population of size 20,000 of which a fraction $\theta$ are 1 and a fraction $(1-\theta)$
+are zero, so the population mean is $\theta$.
+SPRT is Wald's sequential probability ratio test for sampling without replacement from a binary population. 
+It is equivalent to ALPHA using the estimate 
+Under the null hypothesis, $\theta=1/2$. 
+ALPHA, a priori Kelly, and the SPRT use an alternative value, $\eta > 1/2$, such as the reported population mean. 
+Results are given for $10^5$ simulations for each value of $\theta$.
+Columns 2:6 give the fraction of simulations for which the method rejected the null in the first $2,000$ draws, i.e., the power if the sample size is limited to $2,000$.
+All methods had 100\% power at $2,000$ draws when $\theta=0.7$ or above.
+Columns 7:11 give the mean sample sizes for the runs that rejected the null with a sample size of $2,000$ or less.
+Columns 12:16 give the mean sample sizes to reject the null when the sample is allowed to
+expand to comprise the whole population.
+The five bottom rows are copied from \cite{huangEtal20}.
+The ``Bayesian'' method uses a risk-maximizing prior \cite{vora19} (in this case, a point mass at $1/2$ mixed with a uniform on $(1/2, 1]$), which makes it risk-limiting.
+ClipAudit \cite{rivest17} is calibrated in a way that almost limits the risk; in simulations it was $5.1\%$ \cite{huangEtal20}.
+The ``best'' values in each column are in bold font.
+}
+\end{table}
+
+\subsection{Sampling without replacement when some ballots do not have a valid vote for either candidate}
+As discussed above, BRAVO relies on testing conditional probabilities
+rather than unconditional probabilities when there are ballots with no valid vote for either candidate.
+For sampling without replacement (and for stratified sampling), that approach does not work.
+Here, we estimate expected sample sizes for sampling without replacement from populations of different sizes
+with different fractions of ballots with no valid vote for either candidate, using the SHANGRLA assorter for plurality
+contests described in section~\ref{sec:shangrla}, which assigns such ballots the value $1/2$.
+Tables~\ref{tab:without-replacement-blanks-1} and \ref{tab:without-replacement-blanks-2} show the
+ results for the tests that can work with nonbinary data:
+the RiLACS martingales SqKelly and a priori Kelly, and the ALPHA martingales. 
+Kaplan's martingale, the Kaplan-Wald test, and the Kaplan-Kolmogorov test \cite{stark09b,stark20} could also be used, but we do not explore their performance here.
+
+The smallest expected sample sizes are generally for a priori Kelly with $\eta=\theta$, with non-adaptive ALPHA (corresponding to
+$d=\infty$) nearly tied and sometimes winning.
+SqKelly does nearly as well when $\theta \ge 0.55$.
+
+\begin{table}
+\tiny
+\begin{tabular}{lll|rrrr|rrrr|rrrr} 
+& & & \multicolumn{4}{|c|}{$N=$10,000, \%blank} &  \multicolumn{4}{|c|}{$N=$100,000 \%blank} & \multicolumn{4}{|c}{$N=$500,000 \%blank} \\ 
+$\theta$ & Method & params & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  \\
+\hline 0.51 & sqKelly & & 7,271  & 7,420  & 7,568  & \bf{8,124}  & 73,038  & 71,845  & 73,009  & 72,056  & 363,029  & 357,717  & 348,645  & 359,587  \\
+\cline{2-15} & apKelly & $\eta=$0.51 & 6,464  & 7,092  & 8,047  & 9,500  & \bf{13,565}  & \bf{16,001}  & \bf{21,784}  & 35,756  & \bf{16,007}  & \bf{19,459}  & 27,831  & \bf{52,930}  \\
+& ALPHA & $\eta=$0.51 $d=$10 & 6,299  & 6,742  & 7,557  & 9,131  & 19,190  & 21,973  & 30,928  & 56,423  & 24,656  & 29,591  & 45,372  & 113,200  \\
+& ALPHA & $\eta=$0.51 $d=$100 & 6,101  & 6,636  & 7,559  & 9,142  & 17,616  & 20,921  & 30,526  & 56,335  & 22,423  & 27,878  & 44,243  & 112,691  \\
+& ALPHA & $\eta=$0.51 $d=$1000 & 5,882  & 6,561  & 7,572  & 9,172  & 16,318  & 19,758  & 29,917  & 56,669  & 20,239  & 25,785  & 43,134  & 112,720  \\
+ & ALPHA & $\eta=$0.51 $d=\infty$ & 5,738  & 6,456  & 7,659  & 9,229  & 13,597  & 17,015  & 27,581  & 57,048  & 16,232  & 20,833  & 36,886  & 107,289  \\
+\cline{2-15} & apKelly & $\eta=$0.52 & 5,567  & 6,035  & \bf{6,781}  & 8,441  & 18,181  & 20,142  & 24,734  & 35,393  & 35,299  & 40,859  & 50,814  & 78,117  \\
+& ALPHA & $\eta=$0.52 $d=$10 & 6,316  & 6,755  & 7,551  & 9,122  & 19,273  & 22,016  & 30,912  & 56,370  & 24,697  & 29,632  & 45,343  & 113,145  \\
+& ALPHA & $\eta=$0.52 $d=$100 & 6,114  & 6,617  & 7,545  & 9,136  & 17,710  & 20,851  & 30,431  & 56,281  & 22,665  & 27,905  & 44,039  & 112,467  \\
+& ALPHA & $\eta=$0.52 $d=$1000 & 5,739  & 6,365  & 7,443  & 9,143  & 16,127  & 19,060  & 29,078  & 55,927  & 19,976  & 25,012  & 41,469  & 110,359  \\
+ & ALPHA & $\eta=$0.52 $d=\infty$ & \bf{5,409}  & \bf{5,919}  & 7,061  & 9,062  & 16,744  & 16,308  & 21,381  & 45,460  & 27,708  & 23,414  & \bf{27,769}  & 69,592  \\
+\cline{2-15} & apKelly & $\eta=$0.55 & 7,533  & 7,680  & 7,754  & 8,195  & 76,065  & 75,215  & 75,949  & 75,372  & 380,262  & 378,095  & 366,818  & 372,439  \\
+& ALPHA & $\eta=$0.55 $d=$10 & 6,344  & 6,779  & 7,546  & 9,114  & 19,353  & 22,139  & 30,822  & 56,285  & 25,073  & 29,736  & 45,233  & 112,895  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 6,160  & 6,579  & 7,482  & 9,124  & 18,447  & 21,068  & 30,236  & 55,953  & 23,611  & 28,339  & 43,925  & 111,532  \\
+& ALPHA & $\eta=$0.55 $d=$1000 & 6,093  & 6,285  & 7,099  & 9,042  & 19,929  & 20,219  & 27,638  & 53,716  & 26,766  & 28,005  & 39,823  & 104,767  \\
+ & ALPHA & $\eta=$0.55 $d=\infty$ & 7,511  & 6,927  & 6,491  & 8,508  & 75,777  & 63,078  & 33,149  & \bf{33,375}  & 378,113  & 320,065  & 115,558  & 53,085  \\
+\cline{2-15} & apKelly & $\eta=$0.6 & 8,995  & 9,013  & 8,993  & 9,109  & 89,704  & 89,383  & 90,428  & 90,761  & 443,372  & 443,368  & 442,370  & 454,296  \\
+& ALPHA & $\eta=$0.6 $d=$10 & 6,390  & 6,803  & 7,536  & 9,095  & 19,888  & 22,401  & 30,791  & 56,085  & 25,744  & 30,084  & 45,487  & 112,322  \\
+& ALPHA & $\eta=$0.6 $d=$100 & 6,432  & 6,757  & 7,409  & 9,079  & 21,162  & 22,480  & 30,362  & 55,477  & 27,946  & 30,524  & 44,388  & 110,516  \\
+& ALPHA & $\eta=$0.6 $d=$1000 & 7,769  & 7,289  & 7,073  & 8,846  & 39,612  & 32,069  & 29,570  & 51,156  & 63,007  & 49,029  & 44,598  & 98,189  \\
+ & ALPHA & $\eta=$0.6 $d=\infty$ & 8,908  & 8,724  & 7,809  & 7,923  & 89,693  & 87,238  & 77,499  & 40,805  & 437,070  & 422,657  & 374,677  & 123,981  \\
+\cline{2-15} & apKelly & $\eta=$0.7 & 9,158  & 9,295  & 9,292  & 9,326  & 93,616  & 92,513  & 92,282  & 92,748  & 457,138  & 458,308  & 461,919  & 467,296  \\
+& ALPHA & $\eta=$0.7 $d=$10 & 6,607  & 6,922  & 7,540  & 9,084  & 21,665  & 23,586  & 31,005  & 55,797  & 28,478  & 31,676  & 46,147  & 111,138  \\
+& ALPHA & $\eta=$0.7 $d=$100 & 7,550  & 7,394  & 7,444  & 9,010  & 32,442  & 29,283  & 32,106  & 54,742  & 47,198  & 43,017  & 48,973  & 109,200  \\
+& ALPHA & $\eta=$0.7 $d=$1000 & 8,973  & 8,775  & 7,891  & 8,488  & 71,161  & 60,914  & 44,962  & 49,333  & 178,684  & 136,603  & 81,945  & 95,380  \\
+ & ALPHA & $\eta=$0.7 $d=\infty$ & 9,168  & 9,160  & 8,963  & 8,133  & 93,152  & 90,213  & 89,918  & 76,044  & 458,483  & 449,651  & 430,631  & 375,378  \\
+\hline 0.52 & sqKelly & & 3,363  & 3,568  & 4,182  & 5,412  & 14,206  & 14,824  & 17,121  & 22,542  & 42,832  & 46,824  & 52,361  & 60,997  \\
+\cline{2-15} & apKelly & $\eta=$0.51 & 3,953  & 4,433  & 5,687  & 7,968  & 5,271  & 6,394  & 9,290  & 17,416  & 5,455  & 6,632  & 9,982  & 19,539  \\
+& ALPHA & $\eta=$0.51 $d=$10 & 3,428  & 3,706  & 4,966  & 7,491  & 5,565  & 6,937  & 11,125  & 26,708  & 6,115  & 7,590  & 12,715  & 35,982  \\
+& ALPHA & $\eta=$0.51 $d=$100 & 3,203  & 3,649  & 4,949  & 7,534  & 5,079  & 6,549  & 10,881  & 26,750  & 5,532  & 7,109  & 12,525  & 35,938  \\
+& ALPHA & $\eta=$0.51 $d=$1000 & 3,193  & 3,693  & 5,114  & 7,668  & 4,914  & 6,454  & 11,055  & 27,551  & 5,223  & 6,883  & 12,700  & 36,943  \\
+ & ALPHA & $\eta=$0.51 $d=\infty$ & 3,430  & 4,037  & 5,575  & 7,987  & 5,512  & 7,489  & 13,935  & 35,006  & 5,805  & 8,005  & 16,551  & 54,203  \\
+\cline{2-15} & apKelly & $\eta=$0.52 & 2,805  & 3,162  & 4,137  & 6,142  & \bf{3,910}  & \bf{4,720}  & \bf{6,805}  & 12,552  & \bf{4,086}  & \bf{4,987}  & \bf{7,670}  & \bf{14,533}  \\
+& ALPHA & $\eta=$0.52 $d=$10 & 3,437  & 3,710  & 4,957  & 7,485  & 5,554  & 6,933  & 11,111  & 26,690  & 6,126  & 7,605  & 12,712  & 35,915  \\
+& ALPHA & $\eta=$0.52 $d=$100 & 3,174  & 3,601  & 4,916  & 7,521  & 5,064  & 6,506  & 10,808  & 26,632  & 5,517  & 7,069  & 12,431  & 35,759  \\
+& ALPHA & $\eta=$0.52 $d=$1000 & 2,952  & 3,438  & 4,896  & 7,581  & 4,536  & 5,920  & 10,372  & 26,766  & 4,769  & 6,355  & 11,842  & 35,701  \\
+ & ALPHA & $\eta=$0.52 $d=\infty$ & \bf{2,749}  & 3,251  & 4,798  & 7,631  & 3,970  & 5,073  & 9,050  & 25,451  & 4,142  & 5,303  & 9,925  & 32,217  \\
+\cline{2-15} & apKelly & $\eta=$0.55 & 3,526  & 3,702  & 4,277  & \bf{5,407}  & 19,069  & 19,841  & 21,540  & 25,870  & 82,385  & 87,206  & 89,912  & 90,137  \\
+& ALPHA & $\eta=$0.55 $d=$10 & 3,445  & 3,706  & 4,945  & 7,471  & 5,598  & 6,943  & 11,082  & 26,609  & 6,196  & 7,646  & 12,694  & 35,756  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 3,174  & 3,555  & 4,828  & 7,473  & 5,029  & 6,382  & 10,571  & 26,317  & 5,571  & 7,064  & 12,186  & 35,244  \\
+& ALPHA & $\eta=$0.55 $d=$1000 & 2,900  & 3,173  & 4,372  & 7,307  & 4,864  & 5,552  & 8,973  & 24,511  & 5,123  & 5,955  & 10,264  & 32,109  \\
+ & ALPHA & $\eta=$0.55 $d=\infty$ & 3,372  & \bf{3,146}  & \bf{3,740}  & 6,568  & 15,210  & 8,528  & 6,922  & 14,956  & 49,297  & 12,643  & 8,097  & 17,074  \\
+\cline{2-15} & apKelly & $\eta=$0.6 & 7,618  & 7,566  & 7,521  & 7,507  & 75,123  & 75,165  & 75,671  & 75,233  & 388,951  & 398,193  & 409,237  & 376,675  \\
+& ALPHA & $\eta=$0.6 $d=$10 & 3,493  & 3,722  & 4,924  & 7,455  & 5,757  & 7,028  & 11,043  & 26,471  & 6,343  & 7,679  & 12,695  & 35,526  \\
+& ALPHA & $\eta=$0.6 $d=$100 & 3,397  & 3,613  & 4,704  & 7,382  & 5,776  & 6,709  & 10,499  & 25,769  & 6,445  & 7,382  & 11,989  & 34,458  \\
+& ALPHA & $\eta=$0.6 $d=$1000 & 4,560  & 3,908  & 4,124  & 6,837  & 10,361  & 8,587  & 8,874  & 21,580  & 12,328  & 9,585  & 10,181  & 27,985  \\
+ & ALPHA & $\eta=$0.6 $d=\infty$ & 7,521  & 6,376  & 4,348  & 5,473  & 73,847  & 64,498  & 24,041  & \bf{12,355}  & 360,781  & 331,957  & 105,495  & 15,220  \\
+\cline{2-15} & apKelly & $\eta=$0.7 & 8,923  & 8,994  & 9,086  & 9,200  & 87,874  & 88,613  & 89,373  & 90,906  & 421,391  & 424,162  & 431,879  & 445,461  \\
+& ALPHA & $\eta=$0.7 $d=$10 & 3,736  & 3,834  & 4,908  & 7,429  & 6,378  & 7,340  & 11,076  & 26,083  & 6,974  & 7,991  & 12,762  & 35,000  \\
+& ALPHA & $\eta=$0.7 $d=$100 & 4,653  & 4,256  & 4,720  & 7,239  & 9,719  & 9,156  & 10,841  & 24,961  & 11,112  & 9,908  & 12,680  & 33,264  \\
+& ALPHA & $\eta=$0.7 $d=$1000 & 7,768  & 6,909  & 5,147  & 6,161  & 36,020  & 26,275  & 14,702  & 19,056  & 53,921  & 34,696  & 17,864  & 24,748  \\
+ & ALPHA & $\eta=$0.7 $d=\infty$ & 8,847  & 8,696  & 7,700  & 5,383  & 87,682  & 85,635  & 77,122  & 26,659  & 427,590  & 408,390  & 374,378  & 96,470  \\
+\hline 0.55 & sqKelly & & 637  & 726  & 1,067  & 1,882  & 655  & 822  & 1,185  & 2,406  & 675  & 860  & 1,201  & 2,405  \\
+\cline{2-15} & apKelly & $\eta=$0.51 & 1,672  & 1,952  & 2,767  & 4,693  & 1,838  & 2,223  & 3,264  & 6,394  & 1,848  & 2,221  & 3,310  & 6,592  \\
+& ALPHA & $\eta=$0.51 $d=$10 & 832  & 984  & 1,603  & 3,599  & 896  & 1,139  & 1,947  & 5,837  & 922  & 1,179  & 2,017  & 6,133  \\
+& ALPHA & $\eta=$0.51 $d=$100 & 826  & 1,001  & 1,666  & 3,693  & 885  & 1,151  & 2,012  & 6,019  & 902  & 1,187  & 2,098  & 6,324  \\
+& ALPHA & $\eta=$0.51 $d=$1000 & 1,004  & 1,227  & 1,993  & 4,098  & 1,106  & 1,442  & 2,513  & 6,938  & 1,132  & 1,473  & 2,600  & 7,427  \\
+ & ALPHA & $\eta=$0.51 $d=\infty$  & 1,421  & 1,779  & 2,868  & 5,242  & 1,941  & 2,719  & 5,410  & 15,739  & 2,020  & 2,841  & 6,073  & 21,750  \\
+\cline{2-15} & apKelly & $\eta=$0.52 & 987  & 1,144  & 1,656  & 2,950  & 1,027  & 1,260  & 1,835  & 3,655  & 1,044  & 1,265  & 1,854  & 3,723  \\
+& ALPHA & $\eta=$0.52 $d=$10 & 830  & 983  & 1,600  & 3,593  & 896  & 1,135  & 1,939  & 5,828  & 920  & 1,177  & 2,009  & 6,123  \\
+& ALPHA & $\eta=$0.52 $d=$100 & 799  & 981  & 1,638  & 3,667  & 860  & 1,121  & 1,973  & 5,965  & 873  & 1,152  & 2,051  & 6,256  \\
+& ALPHA & $\eta=$0.52 $d=$1000 & 865  & 1,081  & 1,817  & 3,964  & 920  & 1,251  & 2,263  & 6,583  & 950  & 1,272  & 2,322  & 7,010  \\
+ & ALPHA & $\eta=$0.52 $d=\infty$ & 985  & 1,265  & 2,232  & 4,717  & 1,103  & 1,543  & 3,157  & 10,509  & 1,136  & 1,572  & 3,284  & 12,084  \\
+\cline{2-15} & apKelly & $\eta=$0.55 & \bf{632}  & \bf{718}  & \bf{1,054}  & \bf{1,856}  & \bf{647}  & \bf{805}  & \bf{1,153}  & \bf{2,349}  & \bf{664}  & \bf{850}  & \bf{1,180}  & \bf{2,354} \\
+& ALPHA & $\eta=$0.55 $d=$10 & 828  & 978  & 1,588  & 3,582  & 893  & 1,129  & 1,927  & 5,802  & 916  & 1,173  & 1,989  & 6,090  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 740  & 911  & 1,548  & 3,585  & 790  & 1,033  & 1,847  & 5,804  & 805  & 1,075  & 1,913  & 6,087  \\
+& ALPHA & $\eta=$0.55 $d=$1000 & 662  & 820  & 1,450  & 3,567  & 687  & 913  & 1,693  & 5,625  & 699  & 941  & 1,740  & 5,907  \\
+ & ALPHA & $\eta=$0.55$d=\infty$  & 635  & 773  & 1,365  & 3,498  & 659  & 856  & 1,555  & 5,187  & 671  & 877  & 1,583  & 5,408  \\
+\cline{2-15} & apKelly & $\eta=$0.6 & 1,127  & 1,221  & 1,596  & 2,264  & 2,816  & 3,126  & 3,808  & 6,140  & 5,415  & 6,015  & 8,040  & 12,192  \\
+ & ALPHA & $\eta=$0.6 $d=\infty$ & 963  & 816  & 1,052  & 2,441  & 1,607  & 1,051  & 1,154  & 3,145  & 1,733  & 1,161  & 1,180  & 3,157  \\
+& ALPHA & $\eta=$0.6 $d=$10 & 822  & 974  & 1,566  & 3,554  & 901  & 1,120  & 1,903  & 5,752  & 924  & 1,167  & 1,963  & 6,038  \\
+& ALPHA & $\eta=$0.6 $d=$100 & 729  & 853  & 1,438  & 3,470  & 777  & 978  & 1,696  & 5,539  & 804  & 1,019  & 1,759  & 5,806  \\
+& ALPHA & $\eta=$0.6 $d=$1000 & 749  & 764  & 1,166  & 3,012  & 821  & 883  & 1,305  & 4,472  & 842  & 926  & 1,343  & 4,612  \\
+\cline{2-15} & apKelly & $\eta=$0.7 & 6,402  & 6,456  & 6,354  & 6,739  & 66,145  & 67,497  & 69,298  & 67,501  & 307,013  & 321,834  & 342,049  & 374,024  \\
+& ALPHA & $\eta=$0.7 $d=$10 & 868  & 995  & 1,545  & 3,512  & 950  & 1,134  & 1,868  & 5,652  & 977  & 1,193  & 1,934  & 5,939  \\
+& ALPHA & $\eta=$0.7 $d=$100 & 1,010  & 968  & 1,331  & 3,240  & 1,176  & 1,158  & 1,582  & 5,136  & 1,216  & 1,189  & 1,636  & 5,321  \\
+& ALPHA & $\eta=$0.7 $d=$1000 & 2,549  & 1,654  & 1,204  & 2,324  & 4,353  & 2,404  & 1,462  & 3,271  & 4,596  & 2,559  & 1,528  & 3,300  \\
+ & ALPHA & $\eta=$0.7 $d=\infty$ & 6,324  & 4,556  & 1,649  & 1,838  & 62,839  & 46,983  & 4,059  & 2,350  & 275,743  & 234,475  & 8,576  & 2,353 
+\end{tabular}
+ \caption{\protect \label{tab:without-replacement-blanks-1}
+Estimated workload for martingale tests for sampling without replacement from populations of ballots of which
+some contain no valid vote, for risk limit $5\%$.
+The populations contain 10,000, 100,000, or 500,000 ballots, of which a fraction 10\%, 25\%, 50\% or 75\% do not
+contain a valid vote for either of two candidates under consideration.
+The fraction of valid votes for the winner among valid votes is $\theta$. 
+Votes are encoded using the SHANGRLA assorter for plurality contests:
+A vote for the reported winner is ``1,'' a vote for the reported loser is ``0,'' and an invalid vote or vote for anyone else is ``1/2.''
+The population mean is thus $\theta' := \theta(1-b) + b/2$, where $b$ is the fraction of ballots with no
+vote for either of the two candidates.
+For a given $\theta$, $\theta'$ shrinks as the percentage of ballots with no valid vote grows.
+`apKelly' is a priori Kelly.
+The best result for each $\theta$, $N$, and percentage of non-votes is in bold font.
+}
+\end{table}
+
+\begin{table}
+\tiny
+\begin{tabular}{lll|rrrr|rrrr|rrrr} 
+& & & \multicolumn{4}{|c|}{$N=$10,000, \%blank} &  \multicolumn{4}{|c|}{$N=$100,000 \%blank} & \multicolumn{4}{|c}{$N=$500,000 \%blank} \\ 
+$\theta$ & Method & params & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  \\
+\hline 0.6 & sqKelly & & 192  & 237  & 362  & 671  & 204  & 249  & 363  & 712  & 197  & 242  & 364  & 740  \\
+\cline{2-15} & apKelly & $\eta=$0.51 & 825  & 997  & 1,458  & 2,663  & 877  & 1,059  & 1,561  & 3,103  & 873  & 1,052  & 1,563  & 3,146  \\
+& ALPHA & $\eta=$0.51 $d=$10 & 209  & 280  & 492  & 1,306  & 226  & 297  & 506  & 1,551  & 222  & 284  & 509  & 1,624  \\
+& ALPHA & $\eta=$0.51 $d=$100 & 247  & 327  & 566  & 1,434  & 264  & 344  & 591  & 1,708  & 261  & 337  & 600  & 1,781  \\
+& ALPHA & $\eta=$0.51 $d=$1000 & 399  & 520  & 849  & 1,917  & 437  & 562  & 949  & 2,423  & 442  & 558  & 949  & 2,511  \\
+ & ALPHA & $\eta=$0.51 $d=\infty$ & 691  & 911  & 1,556  & 3,198  & 928  & 1,306  & 2,677  & 8,157  & 955  & 1,370  & 2,981  & 10,793  \\
+\cline{2-15} & apKelly & $\eta=$0.52 & 441  & 543  & 793  & 1,499  & 462  & 561  & 832  & 1,645  & 466  & 555  & 828  & 1,679  \\
+& ALPHA & $\eta=$0.52 $d=$10 & 207  & 278  & 490  & 1,303  & 224  & 296  & 503  & 1,546  & 220  & 283  & 506  & 1,619  \\
+& ALPHA & $\eta=$0.52 $d=$100 & 233  & 312  & 550  & 1,414  & 250  & 329  & 574  & 1,681  & 245  & 322  & 580  & 1,754  \\
+& ALPHA & $\eta=$0.52 $d=$1000 & 331  & 443  & 763  & 1,820  & 358  & 472  & 841  & 2,274  & 362  & 469  & 837  & 2,353  \\
+ & ALPHA & $\eta=$0.52 $d=\infty$ & 441  & 617  & 1,151  & 2,777  & 503  & 711  & 1,508  & 5,292  & 511  & 722  & 1,552  & 5,941  \\
+\cline{2-15} & apKelly & $\eta=$0.55 & 214  & 264  & 398  & 743  & 223  & 272  & 398  & 788  & 218  & 267  & 401  & 811  \\
+& ALPHA & $\eta=$0.55 $d=$10 & 203  & 273  & 483  & 1,294  & 219  & 291  & 494  & 1,533  & 216  & 277  & 499  & 1,606  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 201  & 274  & 503  & 1,357  & 216  & 291  & 520  & 1,613  & 211  & 279  & 528  & 1,684  \\
+& ALPHA & $\eta=$0.55 $d=$1000 & 218  & 299  & 569  & 1,561  & 230  & 316  & 605  & 1,882  & 227  & 310  & 606  & 1,957  \\
+ & ALPHA & $\eta=$0.55 $d=\infty$ & 226  & 316  & 628  & 1,874  & 239  & 332  & 680  & 2,462  & 236  & 328  & 682  & 2,550  \\
+\cline{2-15} & apKelly & $\eta=$0.6 & \bf{157}  & \bf{196}  & \bf{301}  & \bf{537}  & \bf{167}  & \bf{206}  & \bf{303}  & \bf{583}  & \bf{164}  & \bf{195}  & \bf{306}  & \bf{631}  \\
+& ALPHA & $\eta=$0.6 $d=$10 & 198  & 265  & 473  & 1,275  & 213  & 281  & 482  & 1,511  & 211  & 268  & 486  & 1,584  \\
+& ALPHA & $\eta=$0.6 $d=$100 & 172  & 233  & 442  & 1,270  & 183  & 248  & 453  & 1,503  & 179  & 237  & 459  & 1,564  \\
+& ALPHA & $\eta=$0.6 $d=$1000 & 161  & 210  & 407  & 1,224  & 171  & 222  & 410  & 1,421  & 167  & 216  & 415  & 1,474  \\
+ & ALPHA & $\eta=$0.6 $d=\infty$ & 159  & 206  & 393  & 1,190  & 169  & 218  & 397  & 1,352  & 165  & 213  & 401  & 1,394  \\
+\cline{2-15} & apKelly & $\eta=$0.7 & 485  & 620  & 828  & 1,060  & 1,677  & 1,951  & 2,175  & 3,056  & 4,458  & 3,973  & 5,226  & 7,887  \\
+& ALPHA & $\eta=$0.7 $d=$10 & 199  & 258  & 457  & 1,241  & 213  & 273  & 465  & 1,472  & 210  & 260  & 467  & 1,540  \\
+& ALPHA & $\eta=$0.7 $d=$100 & 184  & 217  & 374  & 1,114  & 199  & 232  & 377  & 1,303  & 195  & 217  & 376  & 1,356  \\
+& ALPHA & $\eta=$0.7 $d=$1000 & 236  & 230  & 310  & 838  & 266  & 245  & 311  & 931  & 272  & 223  & 312  & 961  \\
+ & ALPHA & $\eta=$0.7 $d=\infty$ & 320  & 256  & 301  & 734  & 476  & 282  & 303  & 787  & 573  & 267  & 306  & 810  \\
+\hline 0.7 & sqKelly & & 74  & 91  & 135  & 266  & 75  & 90  & 135  & 279  & 75  & 89  & 138  & 278  \\
+\cline{2-15} & apKelly & $\eta=$0.51 & 416  & 498  & 739  & 1,416  & 430  & 511  & 766  & 1,530  & 426  & 508  & 770  & 1,530  \\
+& ALPHA & $\eta=$0.51 $d=$10 & 58  & 77  & 135  & 397  & 59  & 76  & 135  & 422  & 58  & 74  & 140  & 427  \\
+& ALPHA & $\eta=$0.51 $d=$100 & 90  & 115  & 196  & 501  & 92  & 117  & 198  & 535  & 92  & 114  & 201  & 536  \\
+& ALPHA & $\eta=$0.51 $d=$1000 & 182  & 230  & 379  & 856  & 194  & 243  & 403  & 960  & 192  & 240  & 406  & 964  \\
+ & ALPHA & $\eta=$0.51 $d=\infty$  & 346  & 456  & 799  & 1,790  & 456  & 636  & 1,332  & 4,149  & 467  & 667  & 1,474  & 5,410  \\
+\cline{2-15} & apKelly & $\eta=$0.52 & 216  & 258  & 388  & 758  & 221  & 263  & 395  & 790  & 218  & 260  & 396  & 790  \\
+& ALPHA & $\eta=$0.52 $d=$10 & 58  & 76  & 134  & 395  & 58  & 75  & 134  & 420  & 57  & 73  & 139  & 425  \\
+& ALPHA & $\eta=$0.52 $d=$100 & 85  & 109  & 188  & 492  & 86  & 110  & 191  & 524  & 86  & 108  & 193  & 526  \\
+& ALPHA & $\eta=$0.52 $d=$1000 & 150  & 195  & 336  & 807  & 156  & 203  & 357  & 901  & 155  & 200  & 357  & 904  \\
+ & ALPHA & $\eta=$0.52 $d=\infty$ & 217  & 297  & 579  & 1,514  & 242  & 341  & 740  & 2,647  & 241  & 342  & 765  & 2,930  \\
+\cline{2-15} & apKelly & $\eta=$0.55 & 94  & 114  & 171  & 336  & 95  & 114  & 172  & 349  & 95  & 112  & 173  & 348  \\
+& ALPHA & $\eta=$0.55 $d=$10 & 56  & 73  & 131  & 390  & 56  & 72  & 130  & 415  & 55  & 70  & 136  & 421  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 70  & 93  & 169  & 466  & 71  & 94  & 170  & 495  & 71  & 92  & 173  & 497  \\
+& ALPHA & $\eta=$0.55 $d=$1000 & 92  & 127  & 243  & 678  & 95  & 129  & 254  & 741  & 95  & 126  & 252  & 745  \\
+ & ALPHA & $\eta=$0.55 $d=\infty$  & 102  & 143  & 299  & 977  & 104  & 146  & 319  & 1,206  & 104  & 145  & 319  & 1,225  \\
+\cline{2-15} & apKelly & $\eta=$0.6 & 55  & 67  & 99  & 197  & 55  & 66  & 98  & 205  & 54  & 65  & 102  & 207  \\
+& ALPHA & $\eta=$0.6 $d=$10 & 52  & 70  & 126  & 382  & 53  & 69  & 126  & 406  & 52  & 66  & 131  & 412  \\
+& ALPHA & $\eta=$0.6 $d=$100 & 55  & 75  & 141  & 425  & 55  & 74  & 141  & 451  & 54  & 72  & 145  & 455  \\
+& ALPHA & $\eta=$0.6 $d=$1000 & 58  & 80  & 162  & 518  & 58  & 80  & 164  & 554  & 57  & 79  & 166  & 556  \\
+ & ALPHA & $\eta=$0.6 $d=\infty$ & 58  & 82  & 169  & 586  & 59  & 82  & 172  & 637  & 58  & 80  & 173  & 642  \\
+\cline{2-15} & apKelly & $\eta=$0.7 & \bf{41}  & \bf{51}  & \bf{76}  & \bf{144}  & \bf{41}  & \bf{50}  & \bf{75}  & \bf{154}  & \bf{41}  & \bf{48}  & \bf{78}  & \bf{158}  \\
+& ALPHA & $\eta=$0.7 $d=$10 & 48  & 64  & 117  & 367  & 48  & 62  & 116  & 390  & 47  & 59  & 121  & 396  \\
+& ALPHA & $\eta=$0.7 $d=$100 & 43  & 56  & 106  & 356  & 43  & 55  & 106  & 376  & 42  & 53  & 109  & 381  \\
+& ALPHA & $\eta=$0.7 $d=$1000 & 42  & 54  & 100  & 337  & 41  & 53  & 99  & 356  & 41  & 51  & 103  & 356 \\
+& ALPHA & $\eta=$0.7 $d=\infty$ & 42  & 54  & 99  & 331  & 41  & 53  & 98  & 349  & 41  & 51  & 102  & 347  \\
+
+\end{tabular} 
+\caption{\protect \label{tab:without-replacement-blanks-2}
+Same as table \ref{tab:without-replacement-blanks-1} for other values of $\theta$.
+}
+\end{table}
+
+Table~\ref{tab:summary} summarizes tables~\ref{tab:without-replacement-blanks-1} and \ref{tab:without-replacement-blanks-2},
+using the geometric mean of the ratio of the average sample size to the 
+average sample size of the best method for each combination of $\theta$, $N$, and percentage of blanks, a total
+of 60 conditions.
+ALPHA with $\eta=0.6$ and $d=100$ was best overall by that measure, with a geometric mean ratio of 1.54.
+Several other parameter combinations in ALPHA performed similarly.
+
+\begin{table}
+\begin{tabular}{llc}\\ 
+Method & Parameters & Geometric mean ratio to best\\
+\hline SqKelly & & 1.89 \\ 
+ \hline a priori Kelly 
+ & $\eta=$0.51 & 2.91 \\
+ & $\eta=$0.52 & 1.98 \\
+ & $\eta=$0.55 & 2.14 \\
+ & $\eta=$0.6 & 2.98 \\
+ & $\eta=$0.7 & 7.48 \\
+\hline ALPHA 
+ & $\eta=$0.51 $d=$10 & 1.62 \\ 
+ & $\eta=$0.51 $d=$100 & 1.77 \\ 
+ & $\eta=$0.51 $d=$1000 & 2.29 \\ 
+ & $\eta=$0.51 $d=\infty$ & 3.81 \\
+\cline{2-3}
+ & $\eta=$0.52 $d=$10 & 1.61 \\ 
+ & $\eta=$0.52 $d=$100 & 1.73 \\ 
+ & $\eta=$0.52 $d=$1000 & 2.08 \\ 
+ & $\eta=$0.52 $d=\infty$ & 2.63 \\
+\cline{2-3}
+ & $\eta=$0.55 $d=$10 & 1.60 \\ 
+ & $\eta=$0.55 $d=$100 & 1.63 \\ 
+ & $\eta=$0.55 $d=$1000 & 1.71 \\ 
+ & $\eta=$0.55 $d=\infty$ & 2.16 \\
+\cline{2-3}
+ & $\eta=$0.6 $d=$10 & 1.58 \\ 
+ & $\eta=$0.6 $d=$100 & \bf{1.54} \\ 
+ & $\eta=$0.6 $d=$1000 & 1.60 \\ 
+ & $\eta=$0.6 $d=\infty$ & 2.40 \\
+\cline{2-3}
+ & $\eta=$0.7 $d=$10 & 1.57 \\ 
+ & $\eta=$0.7 $d=$100 & 1.57 \\ 
+ & $\eta=$0.7 $d=$1000 & 1.99 \\ 
+ & $\eta=$0.7 $d=\infty$ & 3.90 \end{tabular}
+\caption{\protect \label{tab:summary}
+Summary of tables~\ref{tab:without-replacement-blanks-1} and \ref{tab:without-replacement-blanks-2}:
+the geometric mean of the ratio of the mean sample size for each method in each experimental condition to
+that of the method with the smallest mean sample size for that condition.
+The smallest is in bold font.
+}
+\end{table}
+
+
+\section{Discussion}
+
+\subsection{Non-adaptive ALPHA versus BRAVO}
+BRAVO works with the conditional probability that a vote is for $w$, given that it is for $w$ or $\ell$,
+using sampling with replacement.
+That amounts to ignoring ballots that have valid votes for other candidates or that do not have a valid 
+vote in the contest.
+ ALPHA reduces to BRAVO in that situation, but because ALPHA can handle non-binary
+values, it can also work with the unconditional population mean instead of ignoring those ballots.
+In particular, if such ballots are assigned the value $1/2$ as in SHANGRLA, we can still audit by testing the
+null hypothesis $\theta \le 1/2$.
+Suppose we mimic BRAVO in every other respect: the sample is drawn with replacement, $u=1$, 
+$\mu = 1/2 = \mu_j$ for all $j$, and $\eta_0 = \eta_j$ for all $j$.
+What happens when we draw a ballot that does not contain a vote for $w$ or $\ell$, i.e., if $X_j = 1/2$?
+The value of $T_j$ is the value of $T_{j-1}$ multiplied by
+\begin{equation}
+   \frac{1}{2} \cdot \frac{\eta_j}{1/2} + \frac{1}{2} \cdot \frac{1-\eta_j}{1/2} =  1.
+\end{equation}
+It follows that if, instead of ignoring ballots that do not have a valid vote for $w$ or for $\ell$, we treat such ballots as
+$1/2$ in \ref{eq:alphaBRAVOdef}, the resulting test is identical to BRAVO, with one difference: the value of $\eta$
+corresponding to the reported results.
+For BRAVO, $\eta = N_w/(N_w+N_\ell)$, while for the SHANGRLA assorter,  $\eta = (N_w + (N-N_w-N_\ell)/2)/N \le N_w/(N_w+N_\ell)$.
+
+Non-adaptive ALPHA for sampling without replacement in a two-candidate contest with no invalid votes is equivalent
+to Wald's SPRT for the population mean using sampling without replacement from a binary population.
+
+\subsection{ALPHA works with SUITE and Batch-Level Comparison Audits}
+It can be useful to use stratified sampling in RLAs \cite{stark08a,higginsEtal11,ottoboniEtal18,stark20}.
+For instance, the strata might correspond to election jurisdictions: each county might draw its audit sample independently, 
+either as a matter of law or for logistical efficiency.
+Or the strata might comprise ballots tabulated using different technologies that can be audited most efficiently
+using different strategies, for instance, if some ballots are tabulated using equipment that can report how it
+interpreted each ballot and some are not.
+\cite{ottoboniEtal18} introduce a method for using stratified sampling to solve that problem, combining a ballot-polling
+approach in one stratum with a ballot-level comparison approach in another stratum.
+BRAVO does not work in that context, because it makes inferences about the votes for one candidate as a fraction of
+the votes that are either for that candidate or one other candidate.
+That suffices to tell who won a plurality contest---by auditing every (reported winner, reported loser) pair--if all the ballots are in a single stratum, but not when the sample is stratified.
+In that case, what is needed is an inference about the \emph{number} of votes in the stratum for each candidate.
+To solve that problem, \cite{ottoboniEtal18} used a test based on the multinomial distribution, maximizing the $P$-value
+over a nuisance parameter, the number of ballots in the stratum with no valid vote for either candidate.
+In contrast, ALPHA can be used with SHANGRLA in stratified audits without the need to maximize over nuisance
+parameters.
+
+Many jurisdictions have voting systems that can report subtotals for physically identifiable batches of ballots (such
+as those cast in a particular precinct on election day), but cannot report how they interpreted individual identifiable ballots.
+In such cases, auditing by comparing machine and hand tabulations of the votes in batches may be helpful.
+If batches of ballots are selected for audit with probability proportional to a bound on the amount by which miscount in that
+batch could have overstated the margin of $w$ over $\ell$ (or could have affected the value of a SHANGRLA assorter),
+the ``taint'' transformation \cite{stark09b} translates batch-level comparison audits into the problem of drawing an 
+inference about the mean of a finite bounded population---a problem ALPHA can solve.
+
+
+\subsection{Other studies of ballot-polling RLA sample sizes}
+There have been comparisons of ballot-polling sample sizes in the simplest case:
+two-candidate plurality contests with no invalid votes.
+For instance,
+\cite{huangEtal20} compare previous methods for ballot-polling audits of, including BRAVO, ClipAudit \cite{rivest17}, the Kaplan martingale \cite{stark20}, 
+Kaplan-Wald \cite{stark20}, Kaplan-Markov \cite{stark09,stark20}, and Bayesian audits \cite{rivestShen12,rivest18} 
+(calibrated to be risk limiting).
+Similarly, \cite{waudby-smithEtal21} compare several martingale-based methods (including BRAVO), some of which
+rely on the reported results, and some of which do not.
+
+\subsection{Round-by-round ballot-polling RLAs}
+In practice, ballots are not selected and inspected one at a time in RLAs.
+(That strategy might require retrieving and opening the same storage container of ballots repeatedly, for instance, and it does not allow
+multiple teams to divide the work.)
+Instead, for logistical efficiency, an initial sample is drawn that is expected to be large enough to confirm the outcome if the 
+reported results are approximately correct.
+Those ballots are retrieved and examined.
+If they do not suffice to confirm the results (if the measured risk is larger than the risk limit), 
+the sample is expanded by an amount that is expected to be large enough
+to confirm the outcome, and so on.
+(The auditors can decide to conduct a full hand count at any point in the process, rather than continuing to sample.)
+Thus, individual ballot-by-ballot sequential validity may not be required.
+Indeed, the first RLA methods did not use sequentially valid tests \cite{stark08a,stark09a},
+instead prescribing a schedule of ``round sizes,'' and spending the total Type~I error budget across rounds.
+
+\cite{zagorskiEtal21} note that this ``round-by-round'' sampling structure might make it possible to have tests that 
+use smaller samples than tests that ensure ballot-by-ballot sequentially validity, and in particular smaller sample sizes than BRAVO
+requires.
+They show that in a two-candidate plurality contest with no invalid votes or non-votes, that is indeed
+possible.
+However, their method, Minerva, requires the sample to be IID Bernoulli:
+it only applies to  two-candidate plurality contest with no invalid votes or non-votes.
+It cannot be implemented efficiently in real elections, because the number of ballots that contain a vote for the winner or the
+loser in a random sample of a given size cannot be predicted in advance: some ballots have votes for other candidates or no valid vote in the contest or do not contain the contest.
+Nor is the method conducive to auditing contests with more than two candidates or more than one contest at a time.
+
+To see why, suppose that the first round is intended to contain $n_1$ ballot cards that have a valid vote either
+for candidate $w$ or candidate $\ell$.  
+How can auditors draw a random sample that guarantees that will happen, when some ballot cards do not contain
+the contest, when there are invalid votes, and when there are other candidates in the contest?
+If they draw a sample of size $n_1$, they will get a random number $N_1 \le n_1$ of cards that contain a valid vote either
+for $w$ or for $\ell$, depending on the luck of the draw.
+If they draw a sample large enough to have a large chance that $N_1 \ge n_1$, examining that larger sample could easily 
+offset any savings from forfeiting ballot-by-ballot validity, if the proportion of ballots with a valid vote for $w$ or $\ell$ is
+small.
+Moreover, there is still some chance that $N_1 < n_1$, and another round of sampling will need to happen before the attained risk can be calculated.
+And if $N_1 > n_1$, the $N_1-n_1$ ``extras'' cannot be used in the risk calculation in that round, because the round size is pre-specified.
+If many (winner, loser) pairs are to be audited using the same sample, or if more than one contest is to be audited
+using the same sample, the problem is exacerbated.
+
+It is an open question whether there is a round-by-round method that can accommodate non-votes and votes
+for other candidates and is more efficient than the methods in \cite{waudby-smithEtal21,stark20} and here.
+It might be possible to maximize the $P$-value over a nuisance parameter (the number of non-votes and votes
+for other candidates in the population), as in SUITE \cite{ottoboniEtal18}, or to use the SHANGRLA assorter
+for plurality contests, which takes into account ballots with no valid vote in the contest and ballots with
+a vote for other candidates in the contest, but Minerva does not have an obvious extension in either direction
+because its approach requires that the population mean by itself determines the probability distribution of
+the sample.
+While that is true for a binary population, it is not true when the population contains more than two values, e.g., the value $1/2$ that
+SHANGRLA assorters assign to ballots with no valid vote in the contest, in addition to the values $0$ and $1$.
+
+\subsection{Future work}
+In many tests herein---two-candidate plurality contests with no invalid ballots or votes for other candidates, using
+sampling with or without replacement---ALPHA with a shrinkage and truncation estimator is competitive with other methods.
+It would be interesting
+to explore a broader variety of estimates of $\theta_j$ based on $\eta$ and $X^{j-1}$and their operating characteristics.
+Future work will study the efficiency of these methods in elections where there are ballots with no
+valid vote in the contest and ballots with votes for other candidates in the contest,
+when the sample is stratified, and for batch-level and ballot-level comparison audits.
+There are few competing methods that work so generally and guarantee sequential validity: the 
+Kaplan-Wald and Kaplan-Markov methods and Kaplan's martingale \cite{stark09,stark20},
+and the betting martingales in \cite{waudby-smithEtal21}.
+
+\section{Conclusions}
+BRAVO is based on Wald's sequential probability ratio test for $p$ from IID $\Bern(p)$ observations, for a simple (i.e., ``point'') null hypothesis against a simple alternative.
+Bernoulli can easily be generalized in a way that has a number of advantages:
+\begin{itemize}
+   \item in situations where BRAVO can be applied, it can be tuned to perform comparably to BRAVO when the reported vote shares are correct, and to perform far better than BRAVO when the reported vote shares are incorrect but the reported winner(s) really won
+   \item it works for sampling with and without replacement
+   \item it can be used with stratified sampling
+   \item it works for populations that are not binary, but merely bounded, allowing it to be used to test any SHANGRLA assertion,
+   including assertions for ballot-level and batch-level comparison audits, not just ballot-polling audits
+   \end{itemize}
+This generalization, ALPHA, tests the hypothesis that the mean of a finite, bounded population is less than
+$t$.
+It has a great deal of freedom to be optimized for different situations, parametrized by
+estimators of the population mean after the $j$th sample has been drawn.
+ALPHA is computationally efficient, far faster than some competing methods, such as the Kaplan martingale \cite{stark20}.
+Its statistical performance is competitive with that of the betting martingales introduced for RLAs in \cite{waudby-smithEtal21},
+better in some cases and worse in others.
+Like the Kaplan-Wald \cite{stark20}, Kaplan-Kolmogorov \cite{stark20}, Kaplan martingale \cite{stark20}, RiLACS \cite{waudby-smithEtal21}, and BRAVO \cite{linedmanEtal12}, it is based on Ville's inequality for nonnegative martingales.
+Unlike all of those except some flavors of RiLACS, it adapts to the audit data, leading to increased power when the reported vote shares
+are wrong but the reported outcomes are correct.
+Overall, in the simulations involving sampling without replacement in conditions where some ballots do not contain a valid
+vote, ALPHA with the truncated shrinkage estimator using $\eta=0.6$ and $d=100$ perfomed best, as measured by the
+geometric mean of the ratios between the mean sample sizes and the best mean sample size, across conditions.
+A reference Python implementation is available at \url{https://github.com/pbstark/alpha}.
+
+\bibliography{bib}
+
+\end{document}
