@@ -1,4 +1,4 @@
-% last edited 12/28/2021
+% last edited 1/17/2022
 \documentclass[12pt,runningheads]{llncs}
 \usepackage{longtable}
 \usepackage{booktabs}
@@ -35,7 +35,7 @@
 
 \author{Philip B. Stark}
 
-\institute{University of California, Berkeley}
+\institute{University of California, Berkeley \\ \today}
 
 \maketitle
 
@@ -603,8 +603,8 @@ exceeded $10^7$ for some runs.
      & 0.65 & 44 & \bf{40} & \bf{40} & \bf{40}  & \bf{40} \\
      & 0.7 & 42 & 38 & \bf{37} & \bf{37}  & \bf{37}
 \end{tabular}
-\caption{\protect \label{tab:results} Estimated sample sizes to confirm the outcome in sampling
-with replacement for a risk limit of $0.05$, for ALPHA (with a variety of choices of
+\caption{\protect \label{tab:results} Estimated sample sizes for a ballot-polling audit using sampling with replacement
+to confirm the outcome at a risk limit of $0.05$, for ALPHA (with a variety of choices of
 $d$) versus BRAVO.
 $\theta$: actual vote share for winner.
 $\eta$: reported vote share for winner.
@@ -682,8 +682,8 @@ BRAVO & 0.51 &&&& 6 & 89 & \bf{100} &\bf{100}&&& 1,985 & 1,505 & 760 & 542 & 377
 ClipAudit &  & &&& 34 & \bf{98} & \bf{100} &\bf{100}&&& 1,618 & 628 & \bf{167} & 88 & 45 
 \end{tabular} 
 \caption{\protect \label{tab:finite-population}
-Estimated workload and power for martingale tests for sampling without replacement from a population of size 20,000 at
-risk limit 5\%.
+Estimated workload and power for martingale tests for a ballot-polling audit using sampling without replacement from a population of 
+size 20,000 at risk limit 5\%.
 Because the sample is drawn without replacement, all these methods are guaranteed to reject the null hypothesis by the time
 the sample size is $N=20,000$, if the null is false.
 `SqKelly' does not require an explicit alternative value for $\theta$; it optimizes against a mixture of possibilities that assigns higher weight
@@ -708,7 +708,8 @@ The ``best'' values in each column are in bold font.
 }
 \end{table}
 
-\subsection{Sampling without replacement when some ballots do not have a valid vote for either candidate}
+\subsection{Sampling without replacement when some ballots do not have a valid vote for either candidate} \label{sec:blanks}
+
 As discussed above, BRAVO relies on testing conditional probabilities
 rather than unconditional probabilities when there are ballots with no valid vote for either candidate.
 For sampling without replacement (and for stratified sampling), that approach does not work.
@@ -725,6 +726,7 @@ $d=\infty$) nearly tied and sometimes winning.
 SqKelly does nearly as well when $\theta \ge 0.55$.
 
 \begin{table}
+\centering
 \tiny
 \begin{tabular}{lll|rrrr|rrrr|rrrr} 
 & & & \multicolumn{4}{|c|}{$N=$10,000, \%blank} &  \multicolumn{4}{|c|}{$N=$100,000 \%blank} & \multicolumn{4}{|c}{$N=$500,000 \%blank} \\ 
@@ -809,9 +811,9 @@ $\theta$ & Method & params & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  & 10 & 25 &
  & ALPHA & $\eta=$0.7 $d=\infty$ & 6,324  & 4,556  & 1,649  & 1,838  & 62,839  & 46,983  & 4,059  & 2,350  & 275,743  & 234,475  & 8,576  & 2,353 
 \end{tabular}
  \caption{\protect \label{tab:without-replacement-blanks-1}
-Estimated workload for martingale tests for sampling without replacement from populations of ballots of which
-some contain no valid vote, for risk limit $5\%$.
-The populations contain 10,000, 100,000, or 500,000 ballots, of which a fraction 10\%, 25\%, 50\% or 75\% do not
+Estimated sample sizes for a ballot-polling audit using sampling without replacement from populations of ballots of which
+some contain no valid vote to confirm outcomes at a risk limit of $5\%$.
+The populations contain 10,000, 100,000, or 500,000 ballots, of which 10\%, 25\%, 50\% or 75\% do not
 contain a valid vote for either of two candidates under consideration.
 The fraction of valid votes for the winner among valid votes is $\theta$. 
 Votes are encoded using the SHANGRLA assorter for plurality contests:
@@ -825,6 +827,7 @@ The best result for each $\theta$, $N$, and percentage of non-votes is in bold f
 \end{table}
 
 \begin{table}
+\centering
 \tiny
 \begin{tabular}{lll|rrrr|rrrr|rrrr} 
 & & & \multicolumn{4}{|c|}{$N=$10,000, \%blank} &  \multicolumn{4}{|c|}{$N=$100,000 \%blank} & \multicolumn{4}{|c}{$N=$500,000 \%blank} \\ 
@@ -896,6 +899,8 @@ ALPHA with $\eta=0.6$ and $d=100$ was best overall by that measure, with a geome
 Several other parameter combinations in ALPHA performed similarly.
 
 \begin{table}
+\centering
+\tiny
 \begin{tabular}{llc}\\ 
 Method & Parameters & Geometric mean ratio to best\\
 \hline SqKelly & & 1.89 \\ 
@@ -938,6 +943,286 @@ The smallest is in bold font.
 }
 \end{table}
 
+\subsection{Simulations for comparison audits} \label{sec:comparison-audits}
+
+For comparison audits, SHANGRLA assorters take nonnegative, bounded values, but generally have  several points of 
+support, depending on the social choice function.
+A ballot with the maximum possible overstatement error for the social choice function will be assigned the value 0.
+A ballot with the maximum possible understatement error will be assigned the maximum value of the assorter.
+Again, the statistical null hypothesis is that the mean value of the assorter is not greater than 1/2, and rejecting that
+hypothesis is (a piece of) evidence that the reported result is correct, at least with respect to that assertion.
+
+Several martingales can be used to test such a hypothesis from samples with or without replacement, including the 
+``Kaplan-Wald'' martingale \cite{stark09b}, the ``Kaplan-Kolmogorov'' martingale \cite{starkEvans19,stark20}, Kaplan's martingale 
+\cite{starkEvans19,stark20},
+the betting martingales in RiLACS \cite{waudby-smithEtal21}, and the ALPHA martingales.
+
+As before, let $\theta_j$ denote the mean of the population just before the $j$th draw, if the null hypothesis is true.
+For sampling with replacement, $\theta_j = \theta$, the hypothesized mean, and for sampling without replacement,
+$\theta_j = (N\theta-S_{j-1})/(N-j+1)$.
+The Kaplan-Wald martingale is $t_j := \prod_{k=1}^j \left (g(X_j/\theta_j - 1)+1 \right )$.
+The tuning parameter $g \in [0, 1]$ does not affect the validity of the test, but hedges against the possibility that some $X_j = 0$.
+Kaplan's martingale is the Kalpan-Wald martingale integrated with respect to $g$ over the interval $[0, 1]$.
+The Kaplan-Kolmogorov martingale is $T_j := \prod_{k=1}^j (X_j+g)/(\theta_j+g)$, 
+Again, the tuning parameter $g \ge 0$ does not affect the validity of the test, but hedges against the possibility that some $X_j = 0$.
+It is straightforward to verify that under the null, these are nonnegative martingales with expected value 1.
+
+In this problem, a reference alternative value $\eta$ for ALPHA and a priori Kelly could be derived from assumptions about the 
+frequency with which
+various errors occur, for instance, the assumption that errors that swap votes from a reported lower to a reported winner occur
+in about 1 in 1,000 ballots, errors that turn a valid vote for a loser into an undervote occur in about 1 in 100 ballots, etc.
+
+To assess the relative performance of these martingale tests for comparison audits, they were applied to
+simulations for nonnegative populations that had mass $0.001$ at zero, mass $m \in \{0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99\}$
+at $1$, and the remain mass uniformly distributed on $[0, 1]$.
+The results are in table \ref{tab:comparison-1} for $m \in \{0.99, 0.9, 0.75\}$ and 
+in tables\ref{tab:comparison-2} for $m \in \{0.25, 0.1, 0.01\}$,
+for a variety of choices of $\eta$ for methods that use it, and a variety of choices of some of the other parameters
+in the methods.
+ALPHA is competitive.
+Table~\ref{tab:comparison-summary} shows the geometric mean of the ratio of each method's average sample size
+to the smallest average sample size for each combination of $m$ and $N$.
+ALPHA with $\eta=0.9$ and $d=10$ had the lowest geometric mean ratio of all the methods tested,
+and ALPHA with $\eta=0.99$ and $d=10$ was a close second.
+
+\begin{table}
+\centering
+\tiny
+\begin{tabular}{lll|rrr} 
+ mass at 1 & method & params & $N=$10,000 &  $N=$100,000 & $N=$500,000 \\
+\hline 0.99 & sqKelly & & 22  & 22  & 22  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & \bf{4}  & \bf{4}  & \bf{4}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & \bf{4}  & \bf{4}  & \bf{4}  \\
+& ALPHA & $\eta=$0.99 $d=$100 & \bf{4}  & \bf{4}  & \bf{4}  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & 5  & 5  & 5  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & \bf{4}  & \bf{4}  & \bf{4}  \\
+& ALPHA & $\eta=$0.9 $d=$100 & 5  & 5  & 5  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 7  & 7  & 7  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 6  & 6  & 6  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 7  & 7  & 7  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 31  & 31  & 31  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 10  & 10  & 10  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 18  & 18  & 18  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & \bf{4}  & \bf{4}  & \bf{4}  \\
+ & Kaplan-Kolmogorov & g=0.1 & \bf{4}  & \bf{4}  & \bf{4}  \\
+ & Kaplan-Kolmogorov & g=0.2 & 5  & 5  & 5  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & \bf{4}  & \bf{4}  & \bf{4}  \\
+ & Kaplan-Wald & g=0.9 & \bf{4}  & \bf{4}  & \bf{4}  \\
+ & Kaplan-Wald & g=0.8 & 5  & 5  & 5  \\
+\hline 0.90 & sqKelly & & 25  & 25  & 25  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & \bf{5}  & \bf{5}  & \bf{5}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & \bf{5}  & \bf{5}  & \bf{5}  \\
+& ALPHA & $\eta=$0.99 $d=$100 & \bf{5}  & \bf{5}  & \bf{5}  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & 6  & 6  & 6  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & \bf{5}  & \bf{5}  & \bf{5}  \\
+& ALPHA & $\eta=$0.9 $d=$100 & 6  & 6  & 6  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 8  & 8  & 8  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 7  & 7  & 7  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 8  & 8  & 8  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 35  & 35  & 35  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 11  & 11  & 11  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 21  & 21  & 21  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & \bf{5}  & \bf{5}  & \bf{5}  \\
+ & Kaplan-Kolmogorov & g=0.1 & \bf{5}  & \bf{5}  & \bf{5}  \\
+ & Kaplan-Kolmogorov & g=0.2 & 6  & 6  & 6  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & \bf{5}  & \bf{5}  & \bf{5}  \\
+ & Kaplan-Wald & g=0.9 & \bf{5}  & \bf{5}  & \bf{5}  \\
+ & Kaplan-Wald & g=0.8 & 6  & 6  & 6  \\
+\hline 0.75 & sqKelly & & 30  & 31  & 30  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & \bf{7}  & \bf{7}  & \bf{7}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & \bf{7}  & \bf{7}  & \bf{7}  \\
+& ALPHA & $\eta=$0.99 $d=$100 & \bf{7}  & \bf{7}  & \bf{7}  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & \bf{7}  & \bf{7}  & \bf{7}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & \bf{7}  & \bf{7}  & \bf{7}  \\
+& ALPHA & $\eta=$0.9 $d=$100 & \bf{7}  & \bf{7}  & \bf{7}  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 10  & 10  & 10  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 9  & 9  & 9  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 10  & 10  & 10  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 42  & 42  & 42  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 15  & 15  & 15  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 26  & 26  & 26  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & \bf{7}  & \bf{7}  & \bf{7}  \\
+ & Kaplan-Kolmogorov & g=0.1 & \bf{7}  & \bf{7}  & \bf{7}  \\
+ & Kaplan-Kolmogorov & g=0.2 & 8  & 8  & 8  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & \bf{7}  & \bf{7}  & \bf{7}  \\
+ & Kaplan-Wald & g=0.9 & \bf{7}  & \bf{7}  & \bf{7}  \\
+ & Kaplan-Wald & g=0.8 & \bf{7}  & \bf{7}  & \bf{7}  \\
+\hline 0.50 & sqKelly & & 48  & 47  & 48  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & 15  & 15  & 15  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & 15  & 15  & 15  \\
+& ALPHA & $\eta=$0.99 $d=$100 & \bf{14}  & \bf{14}  & \bf{14}  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & \bf{14}  & \bf{14}  & \bf{14}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & 15  & 15  & 15  \\
+& ALPHA & $\eta=$0.9 $d=$100 & \bf{14}  & \bf{14}  & \bf{14}  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 17  & 17  & 17  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 18  & 18  & 18  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 17  & 17  & 17  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 64  & 64  & 64  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 27  & 27  & 27  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 42  & 42  & 42  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & 15  & 15  & 15  \\
+ & Kaplan-Kolmogorov & g=0.1 & \bf{14}  & \bf{14}  & \bf{14}  \\
+ & Kaplan-Kolmogorov & g=0.2 & \bf{14}  & \bf{14}  & \bf{14}  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & 16  & 16  & 16  \\
+ & Kaplan-Wald & g=0.9 & \bf{14}  & \bf{14}  & \bf{14}  \\
+ & Kaplan-Wald & g=0.8 & \bf{14}  & \bf{14}  & \bf{14}  \\
+ \end{tabular} 
+\caption{\protect \label{tab:comparison-1} Mean sample sizes to reject the hypothesis that
+the mean is less than $1/2$ at significance level $0.05$ for various methods, in 10,000 simulations in which the
+population has mass 0.001 at zero, 
+mass $m$ at 1, and mass $1-m-0.001$ uniformly distributed on $[0, 1]$, for various values of $m$ between 0.99 and 0.5.
+The smallest mean sample size for each combination of $m$ and $N$ is in bold font.
+}
+\end{table}
+ 
+\begin{table}
+\centering
+\tiny
+\begin{tabular}{lll|rrr} 
+ mass at 1 & method & params & $N=$10,000 &  $N=$100,000 & $N=$500,000 \\
+\hline 0.25 & sqKelly & & 107  & 102  & 104  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & 736  & 4,146  & 66,221  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & 65  & 60  & 61  \\
+& ALPHA & $\eta=$0.99 $d=$100 & 79  & 71  & 72  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & 86  & 74  & 76  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & 62  & 57  & 58  \\
+& ALPHA & $\eta=$0.9 $d=$100 & 57  & 52  & 53  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & \bf{49}  & \bf{46}  & \bf{46}  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 67  & 62  & 63  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 52  & 48  & 49  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 138  & 133  & 134  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 89  & 84  & 85  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 107  & 102  & 103  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & 1,043  & 6,655  & 106,886  \\
+ & Kaplan-Kolmogorov & g=0.1 & 108  & 91  & 95  \\
+ & Kaplan-Kolmogorov & g=0.2 & 63  & 55  & 56  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & 1,340  & 9,496  & 126,938  \\
+ & Kaplan-Wald & g=0.9 & 219  & 225  & 252  \\
+ & Kaplan-Wald & g=0.8 & 87  & 74  & 76  \\
+\hline 0.10 & sqKelly & & 323  & 326  & 335  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & 7,186  & 76,174  & 383,505  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & 417  & 436  & 462  \\
+& ALPHA & $\eta=$0.99 $d=$100 & 702  & 783  & 832  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & 5,058  & 67,280  & 341,753  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & 384  & 398  & 418  \\
+& ALPHA & $\eta=$0.9 $d=$100 & 456  & 490  & 520  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 610  & 1,626  & 4,536  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 377  & 388  & 406  \\
+& ALPHA & $\eta=$0.75 $d=$100 & \bf{287}  & \bf{298}  & \bf{311}  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 375  & 376  & 387  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 436  & 450  & 468  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 413  & 423  & 440  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & 7,489  & 76,201  & 383,642  \\
+ & Kaplan-Kolmogorov & g=0.1 & 5,807  & 69,641  & 351,906  \\
+ & Kaplan-Kolmogorov & g=0.2 & 3,926  & 56,502  & 304,152  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & 7,632  & 76,556  & 385,645  \\
+ & Kaplan-Wald & g=0.9 & 6,643  & 73,212  & 368,479  \\
+ & Kaplan-Wald & g=0.8 & 5,411  & 67,280  & 341,753  \\
+\hline 0.01 & sqKelly & & \bf{9,327}  & 46,997  & 251,113  \\
+\cline{2-6} & apKelly & $\eta=$0.99 & 9,572  & 94,395  & 472,566  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.99 $d=$10 & 9,507  & 36,430  & 61,639  \\
+& ALPHA & $\eta=$0.99 $d=$100 & 9,556  & 64,436  & 157,303  \\
+\cline{2-6} & apKelly & $\eta=$0.9 & 9,565  & 94,010  & 469,693  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.9 $d=$10 & 9,532  & 33,523  & 54,738  \\
+& ALPHA & $\eta=$0.9 $d=$100 & 9,513  & 54,761  & 117,525  \\
+\cline{2-6} & apKelly & $\eta=$0.75 & 9,506  & 92,585  & 448,308  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.75 $d=$10 & 9,605  & 30,656  & 48,229  \\
+& ALPHA & $\eta=$0.75 $d=$100 & 9,449  & 38,546  & 69,074  \\
+\cline{2-6} & apKelly & $\eta=$0.55 & 9,322  & 53,131  & 283,869  \\
+\cline{2-6}
+& ALPHA & $\eta=$0.55 $d=$10 & 9,693  & 29,642  & 45,560  \\
+& ALPHA & $\eta=$0.55 $d=$100 & 9,646  & \bf{28,520}  & \bf{43,857}  \\
+\cline{2-6}
+ & Kaplan-Kolmogorov & g=0.01 & 9,573  & 94,405  & 472,566  \\
+ & Kaplan-Kolmogorov & g=0.1 & 9,563  & 94,079  & 470,535  \\
+ & Kaplan-Kolmogorov & g=0.2 & 9,548  & 93,941  & 467,761  \\
+\cline{2-6}
+ & Kaplan-Wald & g=0.99 & 9,573  & 94,445  & 472,962  \\
+ & Kaplan-Wald & g=0.9 & 9,555  & 94,297  & 472,071  \\
+ & Kaplan-Wald & g=0.8 & 9,564  & 94,010  & 469,693 
+\end{tabular}
+
+\caption{\protect \label{tab:comparison-2} Same as table \ref{tab:comparison-1} for values of
+$m$ between 0.25 and 0.01.}
+\end{table}
+
+\begin{table}
+\centering
+\tiny
+\begin{tabular}{llr}\\ 
+Method & Parameters & Score \\
+\hline SqKelly & & 3.03 \\ 
+ \hline a priori Kelly 
+ & $\eta=$0.99 & 5.12 \\
+ & $\eta=$0.9 & 2.83 \\
+ & $\eta=$0.75 & 1.92 \\
+ & $\eta=$0.55 & 3.91 \\
+\hline ALPHA 
+ & $\eta=$0.99 $d=$10 & 1.16 \\ 
+ & $\eta=$0.99 $d=$100 & 1.36 \\ 
+\cline{2-3}
+ & $\eta=$0.9 $d=$10 & \bf{1.14} \\ 
+ & $\eta=$0.9 $d=$100 & 1.27 \\ 
+\cline{2-3}
+ & $\eta=$0.75 $d=$10 & 1.34 \\ 
+ & $\eta=$0.75 $d=$100 & 1.33 \\ 
+\cline{2-3}
+ & $\eta=$0.55 $d=$10 & 1.85 \\ 
+ & $\eta=$0.55 $d=$100 & 2.57 \\ 
+\cline{2-3}
+\hline Kaplan-Kolmogorov
+ & $g=$0.01 & 5.46\\ 
+ & $g=$0.1 & 2.78\\ 
+ & $g=$0.2 & 2.68\\ 
+\hline Kaplan-Wald
+ & $g=$0.99 & 5.71\\ 
+ & $g=$0.9 & 3.17\\ 
+ & $g=$0.8 & 2.84\\ 
+\end{tabular}
+\caption{\protect \label{tab:comparison-summary}
+Summary of tables \ref{tab:comparison-1} and \ref{tab:comparison-2}: geometric mean of
+the ratio of the average sample size to the smallest average sample size across values of $m$ and $N$.
+Overall, the most efficient method (by this measure) is ALPHA with $\eta=0.9$ and $d=10$.}
+\end{table}
 
 \section{Discussion}
 
@@ -997,7 +1282,7 @@ There have been comparisons of ballot-polling sample sizes in the simplest case:
 two-candidate plurality contests with no invalid votes.
 For instance,
 \cite{huangEtal20} compare previous methods for ballot-polling audits of, including BRAVO, ClipAudit \cite{rivest17}, the Kaplan martingale \cite{stark20}, 
-Kaplan-Wald \cite{stark20}, Kaplan-Markov \cite{stark09,stark20}, and Bayesian audits \cite{rivestShen12,rivest18} 
+Kaplan-Wald \cite{stark09b,stark20}, Kaplan-Markov \cite{stark09b,stark20}, and Bayesian audits \cite{rivestShen12,rivest18} 
 (calibrated to be risk limiting).
 Similarly, \cite{waudby-smithEtal21} compare several martingale-based methods (including BRAVO), some of which
 rely on the reported results, and some of which do not.
@@ -1055,15 +1340,14 @@ SHANGRLA assorters assign to ballots with no valid vote in the contest, in addit
 
 \subsection{Future work}
 In many tests herein---two-candidate plurality contests with no invalid ballots or votes for other candidates, using
-sampling with or without replacement---ALPHA with a shrinkage and truncation estimator is competitive with other methods.
+sampling with or without replacement, and ballot-level comparison audits---ALPHA with a shrinkage and truncation 
+estimator is competitive with other methods, on average having the smallest sample size across a range of parameters.
 It would be interesting
-to explore a broader variety of estimates of $\theta_j$ based on $\eta$ and $X^{j-1}$and their operating characteristics.
-Future work will study the efficiency of these methods in elections where there are ballots with no
-valid vote in the contest and ballots with votes for other candidates in the contest,
-when the sample is stratified, and for batch-level and ballot-level comparison audits.
+to explore a broader variety of estimates of $\theta_j$ based on $\eta$ and $X^{j-1}$ and their operating characteristics.
+Future work will study the efficiency of these methods when the sample is stratified, and for batch-level comparison audits.
 There are few competing methods that work so generally and guarantee sequential validity: the 
-Kaplan-Wald and Kaplan-Markov methods and Kaplan's martingale \cite{stark09,stark20},
-and the betting martingales in \cite{waudby-smithEtal21}.
+Kaplan-Wald and Kaplan-Markov methods and Kaplan's martingale \cite{stark09a,stark20},
+and the betting martingales in \cite{waudby-smithEtal21}, as examined in sections~\ref{sec:blanks} and \ref{sec:comparison-audits}.
 
 \section{Conclusions}
 BRAVO is based on Wald's sequential probability ratio test for $p$ from IID $\Bern(p)$ observations, for a simple (i.e., ``point'') null hypothesis against a simple alternative.
@@ -1073,21 +1357,25 @@ Bernoulli can easily be generalized in a way that has a number of advantages:
    \item it works for sampling with and without replacement
    \item it can be used with stratified sampling
    \item it works for populations that are not binary, but merely bounded, allowing it to be used to test any SHANGRLA assertion,
-   including assertions for ballot-level and batch-level comparison audits, not just ballot-polling audits
+   including assertions for ballot-level comparison audits and batch-level comparison audits, not just ballot-polling audits
+   \item its sample sizes are competitive with those of all known methods, for ballot polling with and without replacement and for ballot-level comparison audits
    \end{itemize}
 This generalization, ALPHA, tests the hypothesis that the mean of a finite, bounded population is less than
 $t$.
 It has a great deal of freedom to be optimized for different situations, parametrized by
 estimators of the population mean after the $j$th sample has been drawn.
-ALPHA is computationally efficient, far faster than some competing methods, such as the Kaplan martingale \cite{stark20}.
+ALPHA is computationally efficient, far faster than some competing methods, such as the Kaplan martingale \cite{starkEvans19,stark20}.
 Its statistical performance is competitive with that of the betting martingales introduced for RLAs in \cite{waudby-smithEtal21},
-better in some cases and worse in others.
-Like the Kaplan-Wald \cite{stark20}, Kaplan-Kolmogorov \cite{stark20}, Kaplan martingale \cite{stark20}, RiLACS \cite{waudby-smithEtal21}, and BRAVO \cite{linedmanEtal12}, it is based on Ville's inequality for nonnegative martingales.
+better against some alternatives and worse against others.
+For comparison audits, it improves substantially on the Kaplan-Wald and Kaplan-Kolmogorov methods.
+Like the Kaplan-Wald \cite{stark09b,stark20}, Kaplan-Kolmogorov \cite{stark20}, Kaplan martingale \cite{starkEvans19,stark20}, RiLACS \cite{waudby-smithEtal21}, and BRAVO \cite{lindemanEtal12}, it is based on Ville's inequality for nonnegative martingales.
 Unlike all of those except some flavors of RiLACS, it adapts to the audit data, leading to increased power when the reported vote shares
 are wrong but the reported outcomes are correct.
-Overall, in the simulations involving sampling without replacement in conditions where some ballots do not contain a valid
+Overall, in the simulations involving sampling without replacement when some ballots do not contain a valid
 vote, ALPHA with the truncated shrinkage estimator using $\eta=0.6$ and $d=100$ perfomed best, as measured by the
 geometric mean of the ratios between the mean sample sizes and the best mean sample size, across conditions.
+In simulations involving sampling without replacement from populations that correspond to ballot-level comparison audits,
+ALPHA with the truncated shrinkage estimator using $\eta=0.9$ and $d=10$ performed best by the same measure.
 A reference Python implementation is available at \url{https://github.com/pbstark/alpha}.
 
 \bibliography{bib}
