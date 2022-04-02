@@ -32,7 +32,7 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     m = (N*mu-S)/(N-j+1) if np.isfinite(N) else mu   # mean of population after (j-1)st draw, if null is true 
     etaj = estim(x, N, mu, eta, u) 
     with np.errstate(divide='ignore',invalid='ignore'):
-        terms = np.cumprod((x*etaj/m + (1-x)*(u-etaj)/(u-m))/u)
+        terms = np.cumprod((x*etaj/m + (u-x)*(u-etaj)/(u-m))/u)
     terms[m<0] = np.inf
     return terms
 
