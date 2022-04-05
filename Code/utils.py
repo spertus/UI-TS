@@ -39,7 +39,7 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
 def sprt_mart(x : np.array, N : int, mu : float=1/2, eta: float=1-np.finfo(float).eps, \
               u: float=1, random_order = True):
     '''
-    Finds the p value for the hypothesis that the population 
+    Finds the SPRT supermartingale sequence to test the hypothesis that the population 
     mean is less than or equal to mu against the alternative that it is eta,
     for a population of size N of values in the interval [0, u].
     
@@ -65,6 +65,11 @@ def sprt_mart(x : np.array, N : int, mu : float=1/2, eta: float=1-np.finfo(float
     random_order : Boolean
         if the data are in random order, setting this to True can improve the power.
         If the data are not in random order, set to False
+        
+    Returns
+    -------
+    terms : np.array
+        sequence of terms that would be a supermartingale under the null
     '''
     if any((xx < 0 or xx > u) for xx in x):
         raise ValueError(f'Data out of range [0,{u}]')
