@@ -206,7 +206,7 @@ def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.arr
     if np.sum(available) == 0:
         raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
     geomean = gmean(running_T[available])
-    if any(np.isposinf(running_T)):
+    if any(np.isposinf(running_T) & available):
         ratios = np.where(np.isposinf(running_T), 1, 0)
     else:
         ratios = running_T/geomean
