@@ -143,6 +143,7 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     with np.errstate(divide='ignore',invalid='ignore'):
         terms = np.cumprod((x*etaj/m + (u-x)*(u-etaj)/(u-m))/u)
     terms[m<0] = np.inf
+    terms[m>u] = 0
     return terms
 
 def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
@@ -183,7 +184,11 @@ def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
         running_n[next_s] += 1
         running_T[next_s] = marts[next_s][int(running_n[next_s])]
         strata = np.append(strata, next_s)
-        T = np.append(T, np.prod(running_T))
+        if np.isposinf(running_T[next_s]):
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
+            break
+        else:
+            T = np.append(T, np.prod(running_T))
     return strata, T
 
 
