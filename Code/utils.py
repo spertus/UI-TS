@@ -236,6 +236,44 @@ def multinomial_selector(running_T : np.array, running_n : np.array, running_mu 
     #return multinomial.rvs(1, ratios/np.sum(ratios), random_state=prng)
 
 
+def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
+    '''
+    returns a P-value (maximized over nuisance parameter) for the global null hypothesis that the mean of a population with 2 strata is equal to 1/2
+
+    Parameters
+    ----------
+    strata: list of 2 np.arrays
+        each np.array contains the values of a population within a stratum, to be sampled by SRSing
+    u: np.array of length 2
+        each value is the upper bound in the corresponding stratum in strata (e.g. u[0] is the known upper bound of strata[0])
+    v: np.array of length 2
+        the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
+    rule: callable
+        the stratum selection rule to be used, e.g., multinomial_selector
+    '''
+    assert(len(strata) == 2) #only works for 2 strata, not clear how to scale efficiently yet
+
+    shuffled_1 = np.random.permutation(strata[0])
+    shuffled_2 = np.random.permutation(strata[1])
+    N = np.concatenate((np.array([len(shuffled_1)]), np.array([len(shuffled_2)])))
+    w = N/sum(N)
+    epsilon = 1 / (2*np.max(N))
+    theta_1_grid = np.arange(epsilon, u[0] - epsilon, epsilon) #sequence from epsilon to u[0] - epsilon
+    theta_2_grid = (1/2 - w[0] * theta_1_grid) / w[1]
+    selections = np.zeros((len(shuffled_1) + len(shuffled_2) - 1, len(theta_1_grid)))
+    intersection_marts = np.zeros((len(shuffled_1) + len(shuffled_2), len(theta_1_grid)))
+    for i in range(len(theta_1_grid)):
+        mart_1, mu_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = 1/(2-v[0]), f = .01, u = u[0])
+        mart_2, mu_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = 1/(2-v[1]), f = .01, u = u[1])
+        intersection_marts[:,i] = stratum_selector(
+            marts = [mart_1, mart_2],
+            mu = [mu_1, mu_2],
+            u = u,
+            rule = rule)[1]
+    minimized_martingale = intersection_marts.min(axis = 1)
+    p_value = 1 / np.maximum(1, minimized_martingale)
+    return p_value
+
 ##############################################################################
 
 def test_shrink_trunc():
