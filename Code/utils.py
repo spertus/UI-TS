@@ -143,16 +143,23 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     with np.errstate(divide='ignore',invalid='ignore'):
         terms = np.cumprod((x*etaj/m + (u-x)*(u-etaj)/(u-m))/u)
     terms[m<0] = np.inf
-    return terms
+    terms[m>u] = 0
+    return terms, m
 
-def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
+def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None) -> np.array:
     '''
     select the order of strata from which the samples will be drawn to construct the test SM
 
     Parameters
     ----------
     marts: list of np.arrays
-        each list is the test supermartingale for one stratum
+        each array is the test supermartingale for one stratum
+
+    mu: list of np.arrays
+        each array is the running null mean for a stratum
+
+    u: np.array
+        the known maximum values within each strata
 
     rule: callable
         maps three K-vectors (where K is the number of strata) to a value in {0, \ldots, K-1}, the stratum
@@ -173,21 +180,30 @@ def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
     T = np.array([1])
     running_T = np.ones(len(marts))  # current value of each stratumwise SM
     running_n = np.zeros(len(marts)) # current index of each stratumwise SM
+    running_mu = np.zeros(len(marts)) #current value of the conditional null mean
     ns = np.zeros(len(marts))        # assumes the martingales exhaust the strata, for testing
     for i in range(len(marts)):
         ns[i] = len(marts[i])
     t = 0
-    while any(running_n < ns-1):
+    while np.any(running_n < ns-1):
         t += 1
-        next_s = rule(running_T, running_n, ns)
+        next_s = rule(running_T, running_n, running_mu, u, ns)
         running_n[next_s] += 1
         running_T[next_s] = marts[next_s][int(running_n[next_s])]
+        running_mu[next_s] = mu[next_s][int(running_n[next_s])]
         strata = np.append(strata, next_s)
-        T = np.append(T, np.prod(running_T))
+        if np.isposinf(running_T[next_s]):
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities
+            break
+        elif np.all((running_mu >= u) | (running_n == ns-1)):
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale
+            break
+        else:
+            T = np.append(T, np.prod(running_T))
     return strata, T
 
 
-def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
+def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
     '''
     find the next stratum from which to take a term for the product supermartingale test
 
@@ -197,16 +213,20 @@ def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.arr
         the current value of each stratumwise SM
     running_n : np.array
         the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    u: np.array
+        the known upper bound in each stratum
     ns : np.array
         the total number of items in each stratum, or np.inf for sampling with replacement
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
-    available = (running_n < ns-1)  # strata that aren't exhausted
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
     if np.sum(available) == 0:
         raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
     geomean = gmean(running_T[available])
-    if any(np.isposinf(running_T)):
+    if any(np.isposinf(running_T) & available):
         ratios = np.where(np.isposinf(running_T), 1, 0)
     else:
         ratios = running_T/geomean
@@ -215,6 +235,44 @@ def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.arr
     return np.random.choice(len(ratios), p = probs)
     #return multinomial.rvs(1, ratios/np.sum(ratios), random_state=prng)
 
+
+def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
+    '''
+    returns a P-value (maximized over nuisance parameter) for the global null hypothesis that the mean of a population with 2 strata is equal to 1/2
+
+    Parameters
+    ----------
+    strata: list of 2 np.arrays
+        each np.array contains the values of a population within a stratum, to be sampled by SRSing
+    u: np.array of length 2
+        each value is the upper bound in the corresponding stratum in strata (e.g. u[0] is the known upper bound of strata[0])
+    v: np.array of length 2
+        the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
+    rule: callable
+        the stratum selection rule to be used, e.g., multinomial_selector
+    '''
+    assert(len(strata) == 2) #only works for 2 strata, not clear how to scale efficiently yet
+
+    shuffled_1 = np.random.permutation(strata[0])
+    shuffled_2 = np.random.permutation(strata[1])
+    N = np.concatenate((np.array([len(shuffled_1)]), np.array([len(shuffled_2)])))
+    w = N/sum(N)
+    epsilon = 1 / (2*np.max(N))
+    theta_1_grid = np.arange(epsilon, u[0] - epsilon, epsilon) #sequence from epsilon to u[0] - epsilon
+    theta_2_grid = (1/2 - w[0] * theta_1_grid) / w[1]
+    selections = np.zeros((len(shuffled_1) + len(shuffled_2) - 1, len(theta_1_grid)))
+    intersection_marts = np.zeros((len(shuffled_1) + len(shuffled_2), len(theta_1_grid)))
+    for i in range(len(theta_1_grid)):
+        mart_1, mu_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = 1/(2-v[0]), f = .01, u = u[0])
+        mart_2, mu_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = 1/(2-v[1]), f = .01, u = u[1])
+        intersection_marts[:,i] = stratum_selector(
+            marts = [mart_1, mart_2],
+            mu = [mu_1, mu_2],
+            u = u,
+            rule = rule)[1]
+    minimized_martingale = intersection_marts.min(axis = 1)
+    p_value = 1 / np.maximum(1, minimized_martingale)
+    return p_value
 
 ##############################################################################
 
