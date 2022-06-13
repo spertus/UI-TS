@@ -144,16 +144,22 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
         terms = np.cumprod((x*etaj/m + (u-x)*(u-etaj)/(u-m))/u)
     terms[m<0] = np.inf
     terms[m>u] = 0
-    return terms
+    return terms, m
 
-def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
+def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None) -> np.array:
     '''
     select the order of strata from which the samples will be drawn to construct the test SM
 
     Parameters
     ----------
     marts: list of np.arrays
-        each list is the test supermartingale for one stratum
+        each array is the test supermartingale for one stratum
+
+    mu: list of np.arrays
+        each array is the running null mean for a stratum
+
+    u: np.array
+        the known maximum values within each strata
 
     rule: callable
         maps three K-vectors (where K is the number of strata) to a value in {0, \ldots, K-1}, the stratum
@@ -174,25 +180,30 @@ def stratum_selector(marts : list, rule : callable, seed=None) -> np.array:
     T = np.array([1])
     running_T = np.ones(len(marts))  # current value of each stratumwise SM
     running_n = np.zeros(len(marts)) # current index of each stratumwise SM
+    running_mu = np.zeros(len(marts)) #current value of the conditional null mean
     ns = np.zeros(len(marts))        # assumes the martingales exhaust the strata, for testing
     for i in range(len(marts)):
         ns[i] = len(marts[i])
     t = 0
-    while any(running_n < ns-1):
+    while np.any(running_n < ns-1):
         t += 1
-        next_s = rule(running_T, running_n, ns)
+        next_s = rule(running_T, running_n, running_mu, u, ns)
         running_n[next_s] += 1
         running_T[next_s] = marts[next_s][int(running_n[next_s])]
+        running_mu[next_s] = mu[next_s][int(running_n[next_s])]
         strata = np.append(strata, next_s)
         if np.isposinf(running_T[next_s]):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities
+            break
+        elif np.all((running_mu >= u) | (running_n == ns-1)):
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale
             break
         else:
             T = np.append(T, np.prod(running_T))
     return strata, T
 
 
-def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
+def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
     '''
     find the next stratum from which to take a term for the product supermartingale test
 
@@ -202,12 +213,16 @@ def multinomial_selector(running_T : np.array, running_n : np.array, ns : np.arr
         the current value of each stratumwise SM
     running_n : np.array
         the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    u: np.array
+        the known upper bound in each stratum
     ns : np.array
         the total number of items in each stratum, or np.inf for sampling with replacement
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
-    available = (running_n < ns-1)  # strata that aren't exhausted
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
     if np.sum(available) == 0:
         raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
     geomean = gmean(running_T[available])
