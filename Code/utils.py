@@ -191,15 +191,17 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
         running_n[next_s] += 1
         running_T[next_s] = marts[next_s][int(running_n[next_s])]
         running_mu[next_s] = mu[next_s][int(running_n[next_s])]
-        strata = np.append(strata, next_s)
         if np.isposinf(running_T[next_s]):
             T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities
+            strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #stratum = inf if no sample is drawn
             break
         elif np.all((running_mu >= u) | (running_n == ns-1)):
             T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale
+            strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
             break
         else:
             T = np.append(T, np.prod(running_T))
+            strata = np.append(strata, next_s)
     return strata, T
 
 
@@ -250,6 +252,11 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
         the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
     rule: callable
         the stratum selection rule to be used, e.g., multinomial_selector
+
+    Returns
+    -------
+    p_value : np.array
+        the P-value for the entire sequence of samples comprised of the strata
     '''
     assert(len(strata) == 2) #only works for 2 strata, not clear how to scale efficiently yet
 
@@ -260,19 +267,27 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
     epsilon = 1 / (2*np.max(N))
     theta_1_grid = np.arange(epsilon, u[0] - epsilon, epsilon) #sequence from epsilon to u[0] - epsilon
     theta_2_grid = (1/2 - w[0] * theta_1_grid) / w[1]
-    selections = np.zeros((len(shuffled_1) + len(shuffled_2) - 1, len(theta_1_grid)))
+    strata_matrix = np.zeros((len(shuffled_1) + len(shuffled_2) - 1, len(theta_1_grid)))
     intersection_marts = np.zeros((len(shuffled_1) + len(shuffled_2), len(theta_1_grid)))
     for i in range(len(theta_1_grid)):
         mart_1, mu_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = 1/(2-v[0]), f = .01, u = u[0])
         mart_2, mu_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = 1/(2-v[1]), f = .01, u = u[1])
-        intersection_marts[:,i] = stratum_selector(
+        strata_matrix[:,i], intersection_marts[:,i] = stratum_selector(
             marts = [mart_1, mart_2],
             mu = [mu_1, mu_2],
             u = u,
-            rule = rule)[1]
-    minimized_martingale = intersection_marts.min(axis = 1)
+            rule = rule)
+    null_index = np.argmin(intersection_marts, axis = 1)
+    #stratum_selections = strata_matrix[1:sum(N), null_index]
+    #minimized_martingale = intersection_marts[1:sum(N), null_index]
+    minimized_martingale = np.ones(sum(N))
+    stratum_selections = np.ones(sum(N) - 1) * np.inf
+    for i in np.arange(sum(N) - 1):
+        minimized_martingale[i] = intersection_marts[i,null_index[i]]
+        stratum_selections[i] = strata_matrix[i,null_index[i]]
     p_value = 1 / np.maximum(1, minimized_martingale)
-    return p_value
+    null_selections = theta_1_grid[null_index]
+    return p_value, stratum_selections, null_selections
 
 ##############################################################################
 
