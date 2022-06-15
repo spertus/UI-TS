@@ -180,7 +180,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
     T = np.array([1])
     running_T = np.ones(len(marts))  # current value of each stratumwise SM
     running_n = np.zeros(len(marts)) # current index of each stratumwise SM
-    running_mu = np.zeros(len(marts)) #current value of the conditional null mean
+    running_mu = np.asarray([item[0] for item in mu]) #current value of the conditional null mean
     ns = np.zeros(len(marts))        # assumes the martingales exhaust the strata, for testing
     for i in range(len(marts)):
         ns[i] = len(marts[i])
@@ -196,7 +196,11 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #stratum = inf if no sample is drawn
             break
         elif np.all((running_mu >= u) | (running_n == ns-1)):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale and stop counting, that null is ture
+            strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
+            break
+        elif np.any(running_mu <= 0):
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities; that null is certainly false
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
             break
         else:
@@ -255,10 +259,14 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
 
     Returns
     -------
-    p_value : np.array
-        the P-value for the entire sequence of samples comprised of the strata
+    p_values: np.array of length N_1 + N_2
+        the P-values for the entire sequence of samples comprised of the strata
+    stratum_selections: np.array of length N_1 + N_2
+        the stratum selected at each sample in the P-value-maximizing martingale (a different null corresponds to each index)
+    null_selections: np.array
+        the P-value-maximizing null in stratum 1 at each sample size
     '''
-    assert(len(strata) == 2) #only works for 2 strata, not clear how to scale efficiently yet
+    assert len(strata) == 2, "Only works for 2 strata, input as list of 2 np.arrays." #only works for 2 strata, not clear how to scale efficiently yet
 
     shuffled_1 = np.random.permutation(strata[0])
     shuffled_2 = np.random.permutation(strata[1])
@@ -285,9 +293,19 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
     for i in np.arange(sum(N) - 1):
         minimized_martingale[i] = intersection_marts[i,null_index[i]]
         stratum_selections[i] = strata_matrix[i,null_index[i]]
-    p_value = 1 / np.maximum(1, minimized_martingale)
+    p_values = 1 / np.maximum(1, minimized_martingale)
     null_selections = theta_1_grid[null_index]
-    return p_value, stratum_selections, null_selections
+    return p_values, stratum_selections, null_selections
+
+def simulate_audits(strata: list, u: np.array, v: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
+    stopping_times = np.zeros(n_sims)
+    for i in np.arange(n_sims):
+        p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u = u, v = v, rule = rule)
+        if any(p_values < alpha):
+            stopping_times[i] = np.min(np.where(p_values < alpha))
+        else:
+            stopping_times[i] = np.inf
+    return stopping_times
 
 ##############################################################################
 
