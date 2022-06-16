@@ -298,6 +298,29 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
     return p_values, stratum_selections, null_selections
 
 def simulate_audits(strata: list, u: np.array, v: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
+    '''
+    simulates n_sims audits by wrapping get_global_pvalue and returns stopping times at level alpha
+
+    Parameters
+    ----------
+    strata: list of 2 np.arrays
+        each np.array contains the values of a population within a stratum, to be sampled by SRSing
+    u: np.array of length 2
+        each value is the upper bound in the corresponding stratum in strata (e.g. u[0] is the known upper bound of strata[0])
+    v: np.array of length 2
+        the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
+    rule: callable
+        the stratum selection rule to be used, e.g., multinomial_selector
+    n_sims: positive integer
+        the number of simulations to run
+    alpha: float in (0,1)
+        the risk limit for each simulated audit to stop
+
+    Returns
+    -------
+    stopping_times: np.array of length n_sims
+        the stopping time for each simulated audit
+    '''
     stopping_times = np.zeros(n_sims)
     for i in np.arange(n_sims):
         p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u = u, v = v, rule = rule)
