@@ -211,7 +211,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
 
 def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
     '''
-    find the next stratum from which to take a term for the product supermartingale test
+    find the next stratum by random choice with probability proportional to current value of martingale
 
     Parameters
     ----------
@@ -240,6 +240,33 @@ def multinomial_selector(running_T : np.array, running_n : np.array, running_mu 
     probs = ratios/sum(ratios)
     return np.random.choice(len(ratios), p = probs)
     #return multinomial.rvs(1, ratios/np.sum(ratios), random_state=prng)
+
+
+def round_robin(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
+    '''
+    find the next stratum by round robin: deterministic alloction proportional to the size of the strata
+
+    Parameters
+    ----------
+    running_t : np.array
+        the current value of each stratumwise SM
+    running_n : np.array
+        the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    u: np.array
+        the known upper bound in each stratum
+    ns : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
+    if np.sum(available) == 0:
+        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
+    return np.argmin(running_n / ns) #this breaks ties by selecting the first strata where true
+
+
 
 
 def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
