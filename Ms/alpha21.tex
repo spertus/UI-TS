@@ -1,18 +1,63 @@
-% last edited 2/1/2022
-\documentclass[12pt,runningheads]{llncs}
-\usepackage{longtable}
-\usepackage{booktabs}
+%% Template for the submission to:
+%%   The Annals of Applied Statistics [AOAS]
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% In this template, the places where you   %%
+%% need to fill in your information are     %%
+%% indicated by '???'.                      %%
+%%                                          %%
+%% Please do not use \input{...} to include %%
+%% other tex files. Submit your LaTeX       %%
+%% manuscript as one .tex document.         %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\bibliographystyle{splncs04}
-% LAYOUT
-%--------------------------------
-\usepackage[utf8]{inputenc}    % utf8 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{graphicx}
-\usepackage{epstopdf}
-\usepackage{geometry}
-\usepackage{hyperref}
+\documentclass[aoas]{imsart}
+
+%% Packages
+\RequirePackage{amsthm,amsmath,amsfonts,amssymb}
+\RequirePackage[authoryear]{natbib}
+\RequirePackage[colorlinks,citecolor=blue,urlcolor=blue]{hyperref}%% uncomment this for coloring bibliography citations and linked URLs
+\RequirePackage{graphicx}%% uncomment this for including figures
+
+
+\startlocaldefs
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                          %%
+%% Uncomment next line to change            %%
+%% the type of equation numbering           %%
+%%                                          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\numberwithin{equation}{section}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                          %%
+%% For Axiom, Claim, Corollary, Hypothesis, %%
+%% Lemma, Theorem, Proposition              %%
+%% use \theoremstyle{plain}                 %%
+%%                                          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\theoremstyle{plain}
+%\newtheorem{???}{???}
+%\newtheorem*{???}{???}
+%\newtheorem{???}{???}[???]
+%\newtheorem{???}[???]{???}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                          %%
+%% For Assumption, Definition, Example,     %%
+%% Notation, Property, Remark, Fact         %%
+%% use \theoremstyle{remark}                %%
+%%                                          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\theoremstyle{remark}
+%\newtheorem{???}{???}
+%\newtheorem*{???}{???}
+%\newtheorem{???}{???}[???]
+%\newtheorem{???}[???]{???}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Please put your definitions here:        %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\usepackage[utf8]{inputenc}    % utf8 
+%\usepackage{epstopdf}
+%\usepackage{geometry}
 \usepackage[anythingbreaks]{breakurl}
 \usepackage{color}
 %--------------------------------
@@ -30,26 +75,47 @@
 \renewcommand{\Pr}{\mathbb{P}}
 
 
-% DOCUMENT
-%--------------------------------
+\endlocaldefs
 
 \begin{document}
 
-\title {ALPHA: Audit that Learns from Previously Hand-Audited Ballots}
+\begin{frontmatter}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                          %%
+%% Enter the title of your article here     %%
+%%                                          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{ALPHA: Audit that Learns from Previously Hand-Audited Ballots}
+\runtitle{ALPHA Risk-Limiting Audits}
 
-\author{Philip B. Stark}
+%\title{A sample article title with some additional note\thanksref{T1}}
+%\thankstext{T1}{A sample of additional note to the title.}
 
-\institute{University of California, Berkeley \\ \today}
+\begin{aug}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Only one address is permitted per author. %%
+%% Only division, organization and e-mail is %%
+%% included in the address.                  %%
+%% Additional information can be included in %%
+%% the Acknowledgments section if necessary. %%
+%% ORCID can be inserted by command:         %%
+%% \orcid{0000-0000-0000-0000}               %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\author[A]{\fnms{Philip B.}~\snm{Stark}\ead[label=e1]{stark@stat.berkeley.edu} 
+%\orcid{0000-0002-3771-9604} % doesn't work: command not defined
+}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Addresses                                %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\address[A]{Department of Statistics, University of California, Berkeley\printead[presep={,\ }]{e1}}
+\end{aug}
 
-\maketitle
-
-\abstract{
-     A risk-limiting election audit (RLA) offers a statistical guarantee: if the reported electoral outcome
+\begin{abstract}
+  A risk-limiting election audit (RLA) offers a statistical guarantee: if the reported electoral outcome
      is incorrect, the audit has at most a known maximum chance (the risk limit)
      of not correcting it before it becomes final.
-     BRAVO \cite{lindemanEtal12}, based on Wald's sequential probability ratio test for the Bernoulli distribution, 
-     is the most widely tried method for RLAs.
-     It has limitations.
+     BRAVO \citep{lindemanEtal12}, based on Wald's sequential probability ratio test for the Bernoulli distribution, 
+     is the simplest and most widely tried method for RLAs, but it has limitations.
      It cannot accommodate sampling without replacement or stratified sampling, which can improve efficiency 
      and are sometimes required by law.
      It applies only to ballot-polling audits, which are less efficient than comparison audits.
@@ -57,25 +123,38 @@
      but not to many other social choice 
      functions for which there are RLA methods, such as approval voting, STAR-voting, Borda count, and general scoring rules.
      And while BRAVO has the smallest expected sample size among sequentially valid ballot-polling-with-replacement
-     methods when the reported vote shares are exactly correct, BRAVO can require arbitrarily large samples
+     methods when the reported vote shares are exactly correct, it can require arbitrarily large samples
      when the reported reported winner(s) really won but the reported vote shares are incorrect. 
-     ALPHA is a simple generalization of BRAVO that (i)~works for sampling with and without replacement; (ii)~can
-     be used with stratified sampling;
-     (iii)~works not only for ballot-polling but also for ballot-level comparison, batch-polling, and batch-level comparison audits,
-     sampling with or without replacement, uniformly or with weights proportional to a measure of size;
-     (iv)~works for all social choice functions covered by SHANGRLA \cite{stark20}, 
-     including approval voting, Borda count, and all scoring rules;
-     and (v)~in situations where both ALPHA and BRAVO apply, requires smaller samples than BRAVO
+     ALPHA is a simple generalization of BRAVO that (i)~works for sampling with and without replacement, with
+     and without weights, with and without stratification, and for Bernoulli sampling; (ii)~works not only for ballot-polling but also for ballot-level comparison, batch-polling, and batch-level comparison audits; 
+     (iii)~works for all social choice functions covered by SHANGRLA \citep{stark20}, 
+     including approval voting, IRV (using RAIRE, \citet{blomEtal18}), Borda count, and all scoring rules;
+     and (iv)~in situations where both ALPHA and BRAVO apply, requires smaller samples than BRAVO
      when the reported vote shares are wrong but the outcome is correct---five orders of 
      magnitude in some examples.
-     ALPHA includes the family of betting martingale tests in RiLACS \cite{waudby-smithEtal21}, with a different betting
-     strategy parametrized as an estimator of the population mean and the flexibility to accommodate sampling
+     ALPHA includes the family of betting martingale tests in RiLACS \citep{waudby-smithEtal21}, with a different betting
+     strategy parametrized as an estimator of the population mean and explicit flexibility to accommodate sampling
      weights and population bounds that change with each draw.
      A Python implementation is provided.
-\\[3em] 
-\textbf{Keywords}: elections, risk-limiting audit, ballot-polling audit, comparison audit, martingale methods, SHANGRLA
-audit, SUITE audit, RiLACS.
+\end{abstract}
 
+\begin{keyword}
+\kwd{risk-limiting audit}
+\kwd{elections}
+\kwd{supermartingale test}
+\kwd{Ville's Inequality}
+\kwd{SHANGRLA}
+\end{keyword}
+
+\end{frontmatter}
+% last edited 2/1/2022
+% LAYOUT
+%--------------------------------
+
+% DOCUMENT
+%--------------------------------
+
+\maketitle
 
 \section{Introduction}
 A risk-limiting audit (RLA) is a procedure that has a known minimum probability of correcting the reported outcome of an election
@@ -83,21 +162,22 @@ contest if the reported outcome is wrong.
 The risk limit of an RLA is the maximum chance that the RLA will not correct the electoral outcome, if the outcome is wrong.
 The \emph{outcome} means the political outcome---who or what won---not the numerical vote tallies, which are practically impossible
 to get exactly right.
-A RLA requires a trustworthy record of the validly cast votes:\footnote{%
+An RLA requires a trustworthy record of the validly cast votes:\footnote{%
 Generally, the record is a set of validly cast hand-marked paper ballot cards that has been kept demonstrably secure.
 Machine-marked ballot cards cannot be considered a trustworthy record of voter intent.
-See \cite{appelEtal20,appelStark20,starkWagner12}.
+See \citet{appelEtal20,appelStark20,starkWagner12}.
 }
 a manual count of those records is the recourse to correct
 wrong outcomes.
 Establishing whether the record of votes is trustworthy prior to conducting a risk-limiting audit is 
 generically called a \emph{compliance audit} 
-\cite{starkWagner12,appelStark20}.
-RLAs are recommended by the National Academies of Science, Engineering, and Medicine \cite{nas18},
-the American Statistical Association \cite{asa10}, and other groups concerned with election integrity.
-They are in law in several U.S.\ states and have been piloted in roughly a dozen U.S.\ states and in Denmark.
+\citep{starkWagner12,appelStark20}.
+RLAs are recommended by the National Academies of Science, Engineering, and Medicine \citep{nas18},
+the American Statistical Association \citep{asa10}, and other groups concerned with election integrity.
+As of this writing, RLAs are authorized or required by law in fifteen U.S.\ states and have been piloted in 
+roughly a dozen U.S.\ states and in Denmark.
 
-BRAVO \cite{lindemanEtal12} is a particularly
+BRAVO \citep{lindemanEtal12} is a particularly
 simple method to conduct an RLA of plurality and supermajority contests.
 It relies on sampling ballot cards\footnote{%
 In general, a ballot is comprised of one or more \emph{ballot cards}, each of which contains some of the contests
@@ -107,16 +187,16 @@ have ballots that comprise two or more
 ballot cards.
 }  
 uniformly at random with replacement from all ballot cards validly cast in the contest.
-\cite{starkTeague14} showed how BRAVO can be used to audit proportional representation schemes such as D'Hondt.
-\cite{blomEtal18} showed how BRAVO can be used to audit ranked-choice voting as well.
-BRAVO is based on Wald's \cite{wald45} sequential probability ratio test (SPRT) of the simple hypothesis 
+\citet{starkTeague14} showed how BRAVO can be used to audit proportional representation schemes such as D'Hondt.
+\citet{blomEtal18} showed how BRAVO can be used to audit ranked-choice voting as well.
+BRAVO is based on Wald's \citep{wald45} sequential probability ratio test (SPRT) of the simple hypothesis 
 $\theta = \mu$ against a simple alternative $\theta = \eta$ from IID $\Bern(\theta)$ observations.
 (A $\Bern(\theta)$ random variable takes the value $0$ with probability $1-\theta$ and the value $1$ with probability $\theta$;
 its expected value is $\theta$.)
 Because it requires IID $\Bern(\theta)$ observations, BRAVO is limited to \emph{ballot-polling} audits and to using samples drawn with 
 replacement, both of which limit efficiency and applicability.
 (A ballot-polling audit involves manually interpreting randomly selected ballots, but does not use the voting system's
-interpretation of individual ballot cards or groups of ballot cards, other than the reported results.
+interpretation of individual ballot cards or groups of ballot cards---just the reported outcome.
 As discussed below, \emph{comparison} audits, which compare the voting system's interpretation of ballot cards to
 manual interpretations of the same cards, can be more efficient.)
 
@@ -125,13 +205,16 @@ for each reported winner $w$ and each reported loser $\ell$, let $\theta_{w\ell}
 the conditional probability that a ballot selected at random with replacement
 from all ballot cards validly cast in the contest shows a valid vote for $w$, given that it shows a valid vote for $w$ or for $\ell$,
 and let $\eta_{w\ell}$ be the number of votes reported for $w$, divided by the total votes reported for $w$ and $\ell$ combined.
-BRAVO tests the hypotheses $\theta_{w\ell} = 1/2$ against the alternatives $\theta_{w\ell} = \eta_{w\ell}$ for every $(w, \ell)$
-pair.
+For every  $(w, \ell)$ pair,
+BRAVO tests the hypothesis $\theta_{w\ell} = 1/2$ against the alternative $\theta_{w\ell} = \eta_{w\ell}$.
+No multiplicity adjustment is needed because the audit proceeds to a full hand count unless \emph{every} null hypothesis
+is rejected.
 
 BRAVO for a supermajority contest can be simpler or more involved than for a plurality contest. 
 Suppose that the contest requires a candidate to receive at least a fraction $\phi \in (0, 1)$ of the valid votes
 to be a winner.
-(We allow the possibility that $\phi < 1/2$, in which case ``supermajority'' is a misnomer and there can be more than one winner.)
+(We allow the possibility that $\phi < 1/2$, in which case ``supermajority'' is a misnomer and there can be more than one winner;
+this social choice function is used to determine `viability' in some U.S.\ partisan primaries.)
 Suppose candidate $w$ is reported to be a winner.
 Let $\theta_w$ denote the conditional probability that a ballot selected
 at random from all ballot cards validly cast in the contest shows a valid vote for $w$, given that it shows a valid 
@@ -143,59 +226,59 @@ If $\phi > 1/2$, there can be only one reported winner.
 If $\phi < 1/2$, there can be more than one, in which case
 that hypothesis needs to be tested for all candidates (not just the reported winners), to confirm that (only) the
 reported winner(s) won.
-If is is reported that no candidate received at least a fraction $\phi$ of the valid votes,  
-BRAVO tests the hypotheses that each candidate received $\phi$ of the valid votes
-against the alternative that each candidate received $\eta < \phi$ of the valid votes,
+If it is reported that no candidate received at least a fraction $\phi$ of the valid votes,  
+BRAVO tests the hypotheses that each candidate $\ell$  received $\phi$ of the valid votes
+against the alternative that each candidate received $\eta_\ell < \phi$ of the valid votes,
 to confirm that none received $\phi$ or more.
 
-Consider independent, identically distributed (IID) draws from a population $\{x_i\}_{i=1}^N$, 
-where each $x_i \in \{0, 1\}$ (the population is binary).
+Consider independent, identically distributed (IID) draws from a binary population $\{x_i\}_{i=1}^N$, 
+where each $x_i \in \{0, 1\}$.
 Let $\theta = \bar{x} := \frac{1}{N} \sum_{i=1}^N x_i$ be the population fraction of 1s.
 We sample with replacement from the population.
-Let $X_k$ be the value of $x_i$ selected on the $k$th draw. 
+Let $X_k$ be the value selected on the $k$th draw. 
 Then $\Pr \{X_k = 1 \} = \theta$ and $\Pr \{X_k = 0 \} = 1-\theta$.
 By independence, the probability of a sequence $(X_k=y_k)_{k=1}^j$ is the product of the probabilities of the terms,
 which can be written 
 \begin{equation}
 \Pr \left \{ \cap_{k=1}^j \{X_k = y_k \} \right \}= \prod_{k=1}^j \Pr \{X_k = y_k\} = \prod_{k=1}^j \left ( y_k \theta + (1-y_k)(1-\theta) \right ).
 \end{equation}
-The ratio of the probability of the sequence if $\theta = \eta$ to the probability if $\theta = \mu$ is
+The ratio of the probability of the sequence $(X_k=y_k)_{k=1}^j$ if $\theta = \eta$ to its probability if $\theta = \mu$ is
 \begin{equation}
   \SPR_j = \prod_{k=1}^j \left ( y_k \frac{\eta}{\mu} + (1-y_k) \cdot \frac{1-\eta}{1-\mu} \right ).
 \end{equation}
 Wald's SPRT rejects the hypothesis that $\theta = \mu$ at significance level $\alpha$ if
 $\SPR_j \ge 1/\alpha$ for any $j$.
 That is, $\Pr_{\theta = \mu} \{\sup_j \SPR_j \ge 1/\alpha \} \le \alpha$: the SPRT is a \emph{sequentially valid} test.
-Moreover, $\min(1, 1/\SPR_j)$ is an \emph{anytime $P$-value} for the hypothesis $\theta = \mu$.
-That is, for any $p \in [0, 1]$, 
+Moreover, $\min(1, 1/\SPR_j)$ is an \emph{anytime $P$-value} for the hypothesis $\theta = \mu$:
+for any $p \in [0, 1]$, 
 $$\Pr_{\theta = \mu}  \left \{\inf_{j=1}^\infty (1/\SPR_j) \le p \right \} \le p.$$
 The SPRT is quite general; this is perhaps the simplest case.
-Wald's proof that the general SPRT is sequentially valid is complicated, but Ville's inequality \cite{ville39} yields a simple proof.
+
+Wald's proof that the general SPRT is sequentially valid is complicated, but Ville's inequality \citep{ville39} yields a simple proof.
 Given a sequence of random variables $X_1, X_2, \ldots$, let $X^j$ denote the finite sequence $X_1, \ldots, X_j$.
 A sequence of absolutely integrable random variables $T_1, T_2, \ldots$ is a \emph{martingale} with respect to a sequence of
 random variables $X_1, X_2, \ldots$ if $\EE (T_j | X^{j-1}) = T_{j-1}$.
 It is a \emph{supermartingale} if $\EE (T_j | X^{j-1}) \le T_{j-1}$.
 The expected value of every term of a martingale is the same.
-A (sub)martingale is nonnegative if $\Pr \{T_j \ge 0 \} = 1$ for all $j$.
-Ville's inequality is a version of Markov's inequality for supermartingales:
-the chance that a nonnegative supermartingale ever exceeds any multiple of its expected value is at most the reciprocal of that multiple.
-That is, if $T_j$, $j=1, \ldots$ is a nonnegative supermartingale with respect to $X_j$, $j=1, \ldots$, then 
-$\Pr \{ \sup_j T_j \ge k\EE T_1\} \le 1/k$.
+A (super)martingale is \emph{nonnegative} if $\Pr \{T_j \ge 0 \} = 1$ for all $j$.
 
-The Bernoulli \SPR{} is a martingale with respect to $X_j$, $j=1, \ldots$ if $\theta = \mu$:
+Ville's inequality is an extension of Markov's inequality to supermartingales:
+if $T_j$, $j=1, \ldots$, is a nonnegative supermartingale with respect to $X_j$, $j=1, \ldots$, then 
+$$\Pr \{ \sup_{j \in \mathbb{N}} T_j \ge k\EE T_1\} \le 1/k.$$
+The Bernoulli \SPR{} is a martingale with respect to $X_j$, $j=1, \ldots$, if $\theta = \mu$:
 \begin{eqnarray}
 \EE (\SPR_j | X^{j-1}) &=& \SPR_{j-1} \times \EE \left ( X_j \frac{\eta}{\mu} + (1-X_j) \frac{1-\eta}{1-\mu} \right ) \nonumber \\
 &=& \SPR_{j-1} \times \left ( \mu \frac{\eta}{\mu} + (1-\mu) \frac{1-\eta}{1-\mu} \right )  \nonumber \\
 &=& \SPR_{j-1} \times \left (\eta + (1-\eta) \right ) = \SPR_{j-1}.
 \end{eqnarray}
 Because $ \EE (\SPR_1) = 1$, Ville's inequality implies that $\Pr_{\theta = \mu} \{\sup_j \SPR_j \ge 1/\alpha \} \le \alpha$.
-(More generally, sequences of likelihood ratios are nonnegative martingales with respect to the distribution in the
-denominator.)
+More generally, sequences of likelihood ratios are nonnegative martingales with respect to the distribution in the
+denominator.
 
-Wald \cite{wald45} proved that among all sequentially valid tests of the hypothesis $\theta = \mu$, the SPRT with alternative
+\citet{wald45} proved that among all sequentially valid tests of the hypothesis $\theta = \mu$, the SPRT with alternative
 $\theta = \eta$ has the smallest expected sample size to reject $\theta=\mu$ when in fact $\theta = \eta$.
 But when $\theta \in (\mu, \eta)$, the SPRT can fail to reject the null, continuing to sample forever,
-and when $\theta > \eta$, it can be very inefficient.
+and when $\theta > \eta$, the SPRT can be very inefficient.
 As a result, when reported vote shares are incorrect but the reported winner(s) really won, BRAVO can require 
 enormous samples, even when the true margin is large.
 
@@ -204,7 +287,7 @@ It is motivated by the SPRT for the Bernoulli and its optimality when the simple
 While BRAVO tests against the alternative that the true vote shares are equal to the reported vote shares,
 ALPHA combines the reported results with the audit sample to
 estimate the reported winner's share of the vote before the $j$th ballot is examined, given
-that the first $j-1$ ballot cards have shown. 
+what the first $j-1$ ballot cards have shown. 
 ALPHA also generalizes BRAVO to situations where $\{x_j\}$ are not necessarily binary, 
 but merely nonnegative and bounded: the Bernoulli $\theta$ is just the population mean of a binary population,
 but the martingale property continues to hold when $\theta$ is the mean of a nonnegative, bounded population.
@@ -214,24 +297,24 @@ SHANGRLA audit.
 In contrast, BRAVO requires the list elements to be binary-valued.
 Finally, ALPHA works for sampling with or without replacement, while BRAVO is specifically for sampling 
 with replacement (IID observations).
-(The SPRT for a population percentage using sampling without replacement is straightforward, but was not
-in the original BRAVO paper \cite{lindemanEtal12}.)
+The SPRT for a population percentage using sampling without replacement is straightforward, but was not
+in the original BRAVO paper \citep{lindemanEtal12}.
 
 \section{ALPHA and SHANGRLA}
 
 \subsection{SHANGRLA} \label{sec:shangrla}
 Before introducing ALPHA, we provide additional motivation for constructing a more general test than BRAVO: 
 the SHANGRLA framework for RLAs.
-SHANGRLA \cite{stark20} checks outcomes by testing \emph{half-average assertions}, each of which claims 
+SHANGRLA \citep{stark20} checks outcomes by testing \emph{half-average assertions}, each of which claims 
 that the mean of a finite list of
 numbers between $0$ and $u$ is greater than $1/2$.
-Each list of numbers result from applying an \emph{assorter} to the ballot cards.
+Each list of numbers results from applying an \emph{assorter} to the ballot cards.
 The assorter uses the votes and possibly other information (e.g., how the voting system interpreted the ballot)
 to assign a number between $0$ and $u$ to each ballot.
 For some assorters, the numbers are only $0$ and $1$, but for others, there are more possible values.
 
 The correctness of the outcomes under audit is implied by the intersection of a collection of such assertions;
-the assertions depends on the social choice function, the number of candidates, and other details \cite{stark20}.
+the assertions depends on the social choice function, the number of candidates, and other details \citep{stark20}.
 SHANGRLA tests the negation of each assertion, i.e., it tests the
 \emph{complementary null hypothesis} that each assorter mean is not greater than $1/2$.
 If that hypothesis is rejected for every assertion,
@@ -240,7 +323,7 @@ Otherwise, the audit expands, potentially to a full hand count.
 If every null is tested at level $\alpha$, this results in a risk-limiting
 audit with risk limit $\alpha$: if the outcome is not correct, the chance the audit will stop
 shy of a full hand count is at most $\alpha$.
-No adjustment for multiple testing is needed \cite{stark20}.
+No adjustment for multiple testing is needed \citep{stark20}.
 
 The core, canonical statistical problem in SHANGRLA is to test the hypothesis that $\bar{x} \le 1/2$ using a 
 sample from a finite population $\{x_i\}_{i=1}^N$, 
@@ -249,26 +332,28 @@ An equivalent problem is to test the hypothesis that
 $\bar{y} \le t$ using a sample from $\{y_i\}_{i=1}^N$, where each $y_i \in [0, 1]$ (let $y_i = x_i/u$ and set $t=1/(2u)$).
 }
 This formulation unifies polling audits and comparison audits; the difference is only in how the 
-values $\{x_i\}$ are calculated; see section~\ref{sec:comparison-audits}.
-The sample might be drawn with or without replacement; it might be drawn from the population as a unit 
+values $\{x_i\}$ are calculated from the votes; see section~\ref{sec:comparison-audits}.
+The sample might be drawn with or without replacement.
+It might be drawn from the population as a whole 
 (unstratified sampling), or the population might be divided into strata, each of which is sampled independently (stratified sampling).
-Or it might be drawn using Bernoulli sampling, where each item is included independently, with some common probability.
-Or batches of ballot cards might be sampled instead of individual cards; see section~\ref{sec:batch-audits}.
+It might be drawn using Bernoulli sampling, where each item is included independently, with some common probability.
+Or batches of ballot cards might be sampled instead of individual cards (cluster sampling),
+with equal or unequal probabilities; see section~\ref{sec:batch-audits}.
 
 For instance, consider one reported winner and one reported loser in a single-winner or multi-winner plurality 
 contest (any number of pairs can
-be audited simultaneously using the same sample \cite{stark20}).
+be audited simultaneously using the same sample \citep{stark20}).
 Let $N$ denote the number of ballot cards validly cast in the contest.
 The assorter assigns the $i$th ballot the value $x_i=1$ if the ballot has a valid vote for the reported winner, 
-the value $x_i=0$ if it has a valid vote for the reported loser, and the value $x_i=0$ otherwise.
-That reported winner really beat that reported loser if $\theta := \frac{1}{N}\sum_i x_i > 1/2$.
-In a multi-winner plurality contest with $w$ reported winners and $\ell$ reported losers,
-the reported winners really won if the mean of every one of the $w\ell$ lists for the (reported winner, reported loser) pairs
+the value $x_i=0$ if it has a valid vote for the reported loser, and the value $x_i=1/2$ otherwise.
+The reported winner really beat the reported loser if $\theta := \frac{1}{N}\sum_i x_i > 1/2$.
+In a multi-winner plurality contest with $W$ reported winners and $L$ reported losers,
+the reported winners really won if the mean of each of the $WL$ lists for the (reported winner, reported loser) pairs
 is greater than $1/2$.
 
-\subsection{The ALPHA martingale test}
+\subsection{The ALPHA supermartingale test}
 
-We start by developing a one-sided test of the hypothesis $\theta = \mu$, then show the $P$-value is monotone in
+We start by developing a one-sided test of the hypothesis $\theta = \mu$, then show that the $P$-value is monotone in
 $\mu$, so the test is valid for the hypothesis $\theta \le \mu$, as SHANGRLA requires.
 Let $X^j := (X_1, \ldots, X_j)$.
 Assume $X_i \in [0, u]$ for some known $u$. 
@@ -276,7 +361,7 @@ Assume $X_i \in [0, u]$ for some known $u$.
 Let $\mu_j := \EE(X_j | X^{j-1})$ computed under the null hypothesis $\theta = \mu$. 
 Let $\eta_j = \eta_j(X^{j-1})$, $j=1, \ldots$, be a \emph{predictable sequence} in the sense that 
 $\eta_j$ may depend on $X^{j-1}$, but not on $X_k$ for $k \ge j$.
-We now define the ALPHA martingale $(T_j)$.
+We now define the ALPHA supermartingale $(T_j)_{j \in \mathbb{N}}$.
 Let $T_0 := 1$ and
 \begin{equation}
     T_j := T_{j-1} u^{-1}\left ( X_j\frac{\eta_j}{\mu_j} + (u-X_j) \frac{u-\eta_j}{u-\mu_j} \right ), \;\; j=1, \ldots . \label{eq:alphaBRAVOdef}
@@ -303,30 +388,30 @@ If $\theta < \mu$, then $\EE (X_j | X^{j-1}) < \mu_j$ and $r_j = \frac{\EE (X_j 
     \EE (T_j | X^{j-1} ) = T_{j-1} \left ( r_j \cdot \frac{\eta_j-\mu_j}{u-\mu_j} + \frac{u-\eta_j}{u-\mu_j} \right ) < T_{j-1}.
 \end{equation}
 Thus $(T_j)$ is a nonnegative supermartingale starting at 1 if $\theta \le \mu$.
-It follows from Ville's inequality \cite{ville39} that if $\theta \le \mu$,
+It follows from Ville's inequality \citep{ville39} that if $\theta \le \mu$,
 \begin{equation} \label{eq:p-value-adapt}
 \Pr \{ \exists j :  T_j \ge \alpha^{-1} \} \le \alpha.
 \end{equation}
-That is, $\min(1, 1/T_j)$ is an ``anytime $P$-value'' for the null hypothesis $\theta = \mu$.
+That is, $\min(1, 1/T_j)$ is an ``anytime $P$-value'' for the null hypothesis $\theta \le \mu$.
 
 Note that the derivation did not use any information about $\{x_i\}$ other than $x_i \in [0, u]$:
 it applies to populations $\{x_i\}$ that are nonnegative and bounded, not merely binary populations.
-That means it can be used generically to test any SHANGRLA assertion, allowing it to be used to audit
-a wide variety of social choice functions---including plurality, multi-winner plurality, super-majority, d'Hondt and other
+Hence, it can be used to test \emph{any} SHANGRLA assertion, including those for
+a wide variety of social choice functions---plurality, multi-winner plurality, super-majority, d'Hondt and other
 proportional representation schemes, Borda count, approval voting, STAR-Voting, arbitrary scoring rules, and 
 IRV---using sampling with or without replacement, with or without stratification.
-The ALPHA martingales comprise the same family of betting martingales studied by 
-\cite{waudby-smithRamdas21,waudby-smithEtal21}, but are parametrized
+The ALPHA supermartingales comprise the same family of betting supermartingales studied by 
+\citet{waudby-smithRamdas21,waudby-smithEtal21}, but are parametrized
 differently; see section~\ref{sec:rilacs} below.
 
-\subsubsection{Sampling without replacement.}
+\subsubsection{Sampling without replacement}
 To use ALPHA with a sample drawn without replacement, we need $\EE(X_j | X^{j-1})$ computed on the assumption that
-$\theta =  \frac{1}{N} \sum_{i=1}^N x_i = \mu$.
+$\theta :=  \frac{1}{N} \sum_{i=1}^N x_i = \mu$.
 For sampling without replacement from a population with mean $\mu$, after draw $j-1$, the mean of the remaining numbers is $(N\mu - \sum_{k=1}^{j-1}X_k)/(N-j+1)$.
 Thus the conditional expectation of $X_j$ given $X^{j-1}$ under the null is $(N\mu - \sum_{k=1}^{j-1}X_k)/(N-j+1)$.
 If $N\mu - \sum_{k=1}^{j-1}X_k < 0$ for any $k$, the null hypothesis $\theta = \mu$ is certainly false.
 
-\subsubsection{BRAVO is a special case of ALPHA.}
+\subsubsection{BRAVO is a special case of ALPHA}
 BRAVO is ALPHA with the following restrictions:
 \begin{itemize}
     \item the sample is drawn with replacement from ballot cards that do have a valid vote for the reported winner 
@@ -337,24 +422,24 @@ BRAVO is ALPHA with the following restrictions:
     \item  $\eta_i = \eta_0 := N_w/(N_w+N_\ell)$, where $N_w$ is the number of votes reported for candidate $w$ 
 and $N_\ell$ is the number of votes reported for candidate $\ell$: $\eta$ is not updated as data are collected
 \end{itemize}
-It follows from \cite{wald45} that BRAVO minimizes the expected 
-sample size to reject the null hypothesis $\theta=1/2$ when when $w$ really received
+It follows from \citet{wald45} that BRAVO minimizes the expected 
+sample size to reject the null hypothesis $\theta=1/2$ when $w$ really received
 the share $\eta_0$ of the reported votes.
-The motivation for this paper is that $w$ almost never receives exactly their reported vote share, and
+The motivation for this paper is that $w$ almost never receives \emph{exactly} their reported vote share, and
 BRAVO (and other RLA methods that rely on the reported vote share) may then have poor performance---even
-though they are still guaranteed to limit the risk that an incorrect result will become final to at most $\alpha$.
+though they are still guaranteed to limit the risk that the audit will not correct an incorrect result to at most $\alpha$.
 
 When the reported vote shares are incorrect, using a method that
 adapts to the observed audit data can help, as we shall see.
 
 \subsection{Relationship to RiLACS and Betting Martingales} \label{sec:rilacs}
-\cite{waudby-smithRamdas21,waudby-smithEtal21} develop tests and
+\citet{waudby-smithRamdas21,waudby-smithEtal21} develop tests and
 confidence sequences for the mean of a bounded population
-using ``betting'' martingales of the form
+using \emph{betting martingales} of the form
 \begin{equation} \label{eq:lambda-rilacs}
 M_j := \prod_{i=1}^j (1 + \lambda_i (X_i- \mu_i)),
 \end{equation}
-where, as above, $\mu_i := \EE(X_i | X_{i-1})$ computed on the assumption that the null hypothesis is true.
+where, as above, $\mu_i := \EE(X_i | X_{i-1})$, computed on the assumption that the null hypothesis is true.
 The sequence $(M_j)$ can be viewed as the fortune of a gambler in a series of wagers.
 The gambler starts with a stake of $1$ unit and bets a fraction $\lambda_i$ of their current wealth on the outcome
 of the $i$th wager.
@@ -362,7 +447,7 @@ The value $M_j$ is the gambler's wealth after the $j$th wager.
 The gambler is not permitted to borrow money, so to ensure that when $X_i = 0$ (corresponding to losing the $i$th bet)
 the gambler does not end up in debt ($M_i < 0$), $\lambda_i$ cannot exceed $1/\mu_i$.
 
-The ALPHA martingale is of the same form:
+The ALPHA supermartingale is of the same form:
 \begin{eqnarray} \label{eq:lambda-form}
 T_j &=& \prod_{i=1}^j \left ( \frac{X_i}{\mu_i} \cdot \frac{\eta_i-\mu_i}{u-\mu_i} + \frac{u-\eta_i}{u-\mu_i} \right ) \nonumber \\
 &=& \prod_{i=1}^j \frac{X_i (\eta_i/\mu_i -1) + u - \eta_i}{u-\mu_i} \nonumber \\
@@ -375,24 +460,24 @@ Choosing $\lambda_i$ is equivalent to choosing $\eta_i$:
 \lambda_i = \frac{\eta_i/\mu_i -1}{u-\mu_i} \;\; \Longleftrightarrow \;\; \eta_i = \mu_i \left ( 1 + \lambda_i (u-\mu_i) \right ).
 \end{equation}
 As $\eta_i$ ranges from $\mu_i$ to $u$, $\frac{\eta_i/\mu_i -1}{u-\mu_i}$ ranges continuously from
-0 to $1/\mu_i$, the same range of values of $\lambda_i$ permitted in \cite{waudby-smithRamdas21,waudby-smithEtal21}:
+0 to $1/\mu_i$, the same range of values of $\lambda_i$ permitted in \citet{waudby-smithRamdas21,waudby-smithEtal21}:
 selecting $\lambda_i$ is equivalent to selecting a method for estimating $\theta_i$.
-That is, the ALPHA martingales are identical to the betting martingales in \cite{waudby-smithRamdas21,waudby-smithEtal21};
+That is, the ALPHA supermartingales are identical to the betting martingales in \citet{waudby-smithRamdas21,waudby-smithEtal21};
 the difference is only in how $\lambda_i$ is chosen.
 (However, see section~\ref{sec:batch-audits} for a generalization to allow sampling weights and to allow $u$ to
 vary by draw.)
 
-\cite{waudby-smithRamdas21,waudby-smithEtal21} consider two classes of strategies for picking $\lambda_i$ 
+\citet{waudby-smithRamdas21,waudby-smithEtal21} consider two classes of strategies for picking $\lambda_i$ 
 intended to maximize the expected rate at which the gambler's wealth grows. 
 One of the classes is approximately optimal if $\theta$ is known (much like BRAVO is optimal when
 the reported results are correct); the other does not user prior information,
-instead adapting to the data.
+instead using the data to adapt to the true value of $\theta$.
 The ALPHA representation of the betting martingales provides a family of tradeoffs between those 
 extremes, using different estimates
 of $\theta_i$ based on $\eta$ and $X^{i-1}$.
 Parametrizing the selection of $\lambda_i$ in terms of an estimate $\eta_i$ of $\theta_i$ 
 may aid intuition in developing
-more powerful martingale tests (in the sense that they tend to reject sooner) 
+more powerful supermartingale tests (in the sense that they tend to reject sooner) 
 for particular applications---such as election audits.
 
 \subsection{Comparison audits} \label{sec:comparison-audits}
@@ -405,27 +490,29 @@ The only difference is the particular function that assigns numbers in $[0, u]$ 
 For polling audits, the number assigned to a card depends on the votes on that card as interpreted by a human (and on the social
 choice function and other parameters of the contest), but not on how the voting system interpreted the card.
 For comparison audits, the number also depends on how the system interpreted that card and on the reported ``assorter margin.''
-See \cite{stark20} for details.
+See \citet[Section 3.2]{stark20} for details.
 
 Because ALPHA can test the hypothesis that the mean of a bounded, nonnegative population is not greater than 1/2 
 (even for populations with more than two values), it works for comparison and polling audits with no modification.
 The interpretation of $\theta$ is different: instead of being related to vote shares, it is related to the amount of \emph{overstatement error}
-in the system's interpretation of the ballot card.
+in the system's interpretation of each ballot card.
 For comparison audits, the initial value for the alternative, $\eta_0$, could be chosen by making assumptions 
 about how often the system made errors of various kinds.
 The risk is rigorously limited even if those assumptions are wrong, but the choice affects the performance.
 
 To conduct a comparison RLA, auditors export subtotals or other vote records from the voting system and \emph{commit to them} 
 (e.g., by publishing them).
-Election auditors first check whether the exported records results agree with the overall reported contest outcomes.
+Election auditors first check whether applying the social choice function to the exported records gives the same outcome
+reported for each contest.
 If not, the election fails the audit: even according to the voting system, some
 reported outcome is wrong.
-If things add up, the audit next checks whether differences between the voting system's exported records and a human interpretation
+If the reported outcomes match those implied by the exported vote records, the audit next checks whether differences between the voting system's exported records and a human interpretation
 of the votes on ballot cards could have altered any reported outcome, by
 manually checking a random sample of the voting system's exported records against a manual interpretation of
 the votes on the corresponding physical batches of ballot cards.
 
-This is like checking an expense report. Committing to the subtotals is like submitting the expense report.
+This procedure is like checking an expense report. 
+Committing to the subtotals is like submitting the expense report.
 An auditor can check the accuracy of the report by first checking the addition 
 (checking whether the exported batch-level results produce the reported contest outcomes), then manually checking a sample of 
 the reported expenses against the physical paper receipts (checking the accuracy of the machine interpretation of the cards).
@@ -435,9 +522,9 @@ the reported expenses against the physical paper receipts (checking the accuracy
 Since the SPRT minimizes the expected sample size to reject the null when the alternative is true,
 we might be able to construct an efficient test by using as the alternative an estimate of $\theta$
 based on the audit data and the reported results.
-Any estimate $\eta_i$ of $\theta_i$ that does not depend on $X_k$ for $k \ge i$ preserves the (super)-martingale property
+Any estimate $\eta_i$ of $\theta_i$ that does not depend on $X_k$ for $k \ge i$ preserves the supermartingale property
 under the null, 
-and the auditor has the freedom ``change horses'' and use a different estimator
+and the auditor has the freedom to ``change horses'' and use a different estimator
 at will as the sample evolves. 
 For example, $\eta_i$ might be constant, as it is in BRAVO.
 Or it could be constant for the first 100 draws, then switch to the unbiased estimate of $\theta_i$ 
@@ -445,12 +532,11 @@ based on $X^{i-1}$ once $i \ge 100$.
 Or it could be a Bayes estimate of $\theta_i$ using data $X^{i-1}$ and a prior concentrated on
 $[\mu_0, u]$, centered at the value of $\theta$ implied by the reported results.
 (The $P$-value of the test is still a frequentist $P$-value; the estimate $\eta_i$ affects the power.)
-Or it could give $\bar{X^{i-1}}$ weight that depends on the sample variance or the standard error of the sample mean, 
-giving it more weight when the variability is small.
+Or it could give the sample mean a weight that grows as the sample standard deviation shrinks.
 Or it could be the estimate implied by choosing $\lambda_i$ using one of the methods for selecting $\lambda_i$.
-described by \cite{waudby-smithRamdas21}.
+described by \citet{waudby-smithRamdas21}.
 
-\subsubsection{Naively maximizing $\EE (T_i| X^{i-1})$ does not work.}
+\subsubsection{Naively maximizing $\EE (T_i| X^{i-1})$ does not work}
 Suppose that $\theta_i := \EE (X_i | X^{i-1}) > \mu_i$, i.e., that the alternative hypothesis is true. 
 What value of $\eta_i$ maximizes $\EE (T_i | X_{i-1})$?
 \begin{eqnarray}
@@ -461,18 +547,19 @@ What value of $\eta_i$ maximizes $\EE (T_i | X_{i-1})$?
 This is monotone increasing in $\eta_i$, so it is maximized for $\eta_i = u$, for a single draw.
 But if $\eta_i=u$ and $X_i = 0$, then $T_j = 0$ for all $j \ge i$, and the test will never reject the null
 hypothesis, no matter how many more data are collected.
-This is essentially the observation made by Kelly \cite{kelly56} in his development of the
+This is essentially the observation made by \citet{kelly56}, leading to the
 Kelly criterion.
 Keeping $\eta_i < u$ hedges against that possibility.
 
 Instead of picking $\eta_i$ to maximize the next term $T_i$, one can pick it to maximize the rate at which $T$ grows.
-In the binary data case, the Kelly criterion \cite{kelly56}, discussed by \cite{waudby-smithRamdas21}, leads to the
+In the binary data case, the Kelly criterion \citep{kelly56}, discussed by \citet{waudby-smithRamdas21}, leads to the
 optimal choice when $\theta$ is known.
 For sampling with replacement, this is $\lambda = 2(N_w-N_\ell)/(N_w+N_\ell) = 4\theta$, since $N_w/(N_w+N_\ell) = \theta$.
 This corresponds to $\eta =  (1/2) \left ( 1 + 4\theta  (1-1/2) \right ) = \theta+1/2$. 
 
-\subsubsection{Illustration: a simple way to select $\eta_i$.}
-Any choice of $\eta_i \in (\mu_i, u)$ that depends only on $X^{i-1}$ preserves the martingale property and thus
+\subsubsection{Illustration: a simple way to select $\eta_i$}
+Any choice of $\eta_i \in (\mu_i, u)$ that depends only on $X^{i-1}$ preserves the supermartingale property
+under the composite null, and thus
 the validity of the ALPHA test.
 To show the potential of ALPHA, the simulations reported below are based on setting $\eta_i$ to be a simple 
 ``truncated shrinkage'' estimate of $\theta_i$.
@@ -492,11 +579,11 @@ The following estimate $\eta_i$ of $\theta_i$ meets both requirements:
 The starting value $\eta_0$ could be the value of $\theta$ implied by the reported results.
 For a polling audit, that might be based on the reported margin in a plurality contest.
 For a comparison audit, that might be based on historical experience with tabulation error.
-But the procedure could be made ``fully adaptive'' by starting with,
+But the procedure could be made fully adaptive by starting with,
 say, $\eta_0 = (u+\mu)/2$ or $\eta_0 = u$.
 
 {\bf Choosing $d$.}
-As $d \rightarrow \infty$, the sample size for ALPHA approaches that of BRAVO (in the binary data case).
+As $d \rightarrow \infty$, the sample size for ALPHA approaches that of BRAVO, for binary data.
 The larger $d$ is, the more strongly anchored the estimate is to the reported vote shares, and
 the smaller the penalty ALPHA pays when the reported results are exactly correct.
 Using a small value of $d$ is particularly helpful when the true population mean is far from the reported results.
@@ -524,22 +611,22 @@ For comparison audits, the first step is to verify that the data exported from t
 reproduces the reported election outcome, that is, to check whether applying the social choice function to the
 cast vote records gives the same winners.
 We shall assume that a compliance audit has shown that the paper trail is trustworthy.
-For comparison audits, we assume that the system has exported a CVRs for very ballot card.
+For comparison audits, we assume that the system has exported a CVR for every ballot card.
 (For methods to deal with a mismatch between the number of ballot cards and the number of CVRs, see
-\cite{stark20}.)
+\citet{stark20}.)
 
 \begin{itemize}
    \item Set audit parameters:
        \begin{itemize}
-          \item select the risk limit $\alpha \in (0, 1)$; decide whether to sample with or without replacement
-          \item set $u$ as appropriate for the assertion under audit
-          \item $N$ is the number of ballot cards in the population of cards from which the sample is drawn
+          \item Select the risk limit $\alpha \in (0, 1)$; decide whether to sample with or without replacement.
+          \item Set $u$ as appropriate for the assertion under audit.
+          \item Set $N$ to the number of ballot cards in the population of cards from which the sample is drawn.
           \item Set $\eta_0$. For polling audits, $\eta_0$ could be the reported mean value of the assorter. (For instance, for the assertion corresponding
           to checking whether $w$ got more votes than $\ell$,  $\eta_0 = (N_w + N_c/2)/N$, where $N_w$ is the number of
           votes reported for $w$, $N_\ell$ is the number of votes reported for $\ell$, and $N_c = N-N_w-N_\ell$ is the number
           of ballot cards reported to have a vote for some other candidate or no valid vote in the contest.)
           For comparison audits, $\eta_0$ can be based on assumed or historical rates of overstatement errors.
-          \item define the function to update $\eta$ based on the sample, e.g., \\
+          \item Define the function to update $\eta$ based on the sample, e.g., \\
           $\eta(i, X^{i-1}) = \left ( (d\eta_0 + S)/(d+i-1) \vee (\epsilon(i)+ \mu_i) \right ) \wedge u$, where
           $S = \sum_{k=1}^{i-1}X_k$ is the sample sum of the first $i-1$ draws and $\epsilon(i) = c/\sqrt{d+i-1}$;
           set any free parameters in the function (e.g., $d$ and $c$ in this example).
@@ -554,14 +641,15 @@ For comparison audits, we assume that the system has exported a CVRs for very ba
       \end{itemize}
    \item While $T < 1/\alpha$ and not all ballot cards have been audited:
    \begin{itemize}
-        \item draw a ballot at random
+        \item Draw a ballot at random
         \item $j \leftarrow j+1$
-        \item determine $X_j$ by applying the assorter to the selected ballot card (and the CVR, for comparison audits)
-        \item if $m < 0$, $T \leftarrow \infty$. Otherwise, $T \leftarrow T u^{-1} \left ( X_j\frac{\eta(j, S)}{m} + (u-X_j) \frac{u-\eta(j,S)}{u-m} \right )$; 
+        \item Determine $X_j$ by applying the assorter to the selected ballot card (and the CVR, for comparison audits)
+        \item If $m < 0$, $T \leftarrow \infty$. Otherwise, $T \leftarrow T u^{-1} \left ( X_j\frac{\eta(j, S)}{m} + (u-X_j) \frac{u-\eta(j,S)}{u-m} \right )$; 
         \item $S \leftarrow S+X_j$
         \item If the sample is drawn without replacement, $m \leftarrow (N/2 - S)/(N-j+1)$
-        \item if desired, break and conduct a full hand count instead of continuing to audit
-    \end{itemize}
+        \item If desired, break and conduct a full hand count instead of continuing to audit. 
+     \end{itemize}
+     \item If a full hand count is conducted, its results replace the reported results if they differ.
 \end{itemize}
 
 \section{Batch-Polling and Batch-Level Comparison Audits} \label{sec:batch-audits}
@@ -571,10 +659,12 @@ which use only the manual interpretation of the sampled ballots, and \emph{ballo
 interpretation of the sampled ballot cards (CVRs).
 Ballot-level comparison audits are the most efficient strategy (measured by expected sample size) if the voting system can export CVRs in a
 way that the allows the corresponding physical ballot cards to be identified, retrieved, and interpreted manually.
-Legacy systems cannot.
+Legacy voting systems cannot: some do not create CVRs at all, and some that do create CVRs do not provide information to link
+each CVR to the corresponding physical card.
 Even with modern equipment, reporting CVRs linked to physical ballot cards while maintaining vote anonymity is hard
 if votes are tabulated in precincts or vote centers, because the order in which ballot cards are scanned, tabulated, and stored 
 can be nearly identical to the order in which they were cast. 
+(However, see \cite{stark22b}.)
 
 Many jurisdictions tabulate and store ballot cards in physical batches for which the voting system
 can report batch-level results.\footnote{%
@@ -587,8 +677,9 @@ Thus it can be desirable to sample and interpret \emph{batches} of ballot cards 
 \emph{Batch-polling} audits use human interpretation of the votes in the batches but not the voting system's tabulation (other than the system's report of who won, and possibly the reported vote totals).
 \emph{Batch-level comparison} audits compare human interpretation of the ballot cards in the sampled batches to the voting system's
 interpretation of the same cards.
-Batch-level comparison audits are operationally similar to existing, non-risk-limiting audits in many states,
-including California and New York---but RLAs provide statistical guarantees, unlike the statutory audits in California and New York.
+Batch-level comparison audits are operationally similar to existing audits in many states,
+including California and New York---but RLAs provide statistical guarantees that those statutory audits do not
+provide.
 
 For many social choice functions (including all scoring rules), knowing the total number of votes
 reported for each candidate in each batch is enough to conduct a batch-level comparison audit.
@@ -601,11 +692,11 @@ functions from ballot cards (and possibly additional information, such as the re
 and the system's interpretation of the votes on the ballot card) to $[0, u_j]$.
 The domain of assorter $j$ is $\cD_j$, which could comprise all ballot cards cast in the election
 or a smaller set, provided $\cD_j$ includes every card
-that contains the contest that the assorter $A_j$ is relevant for.
+that contains the contest that assorter $A_j$ is relevant for.
 Targeting audit sampling using information about which ballot cards purport to contain which contests (\emph{card style} data)
 can vastly improve audit efficiency while rigorously maintaining the risk limit even if the voting system misidentifies which
-cards contain which contests \cite{glazerEtal21}.
-There are also techniques for dealing with missing ballot cards \cite{banuelosStark12,stark20}.
+cards contain which contests \citep{glazerEtal21}.
+There are also techniques for dealing with missing ballot cards \citep{banuelosStark12,stark20}.
 
 Let $|\cD_j|$ denote the number of ballot cards in $\cD_j$.
 Every audited contest outcome is correct if every assorter mean is greater than $1/2$, i.e., if for all $j$,
@@ -648,11 +739,11 @@ and $\widetilde{u}_j := \max_{k \in \mc{K}} \widetilde{u}_{jk}$.
 Then $\{ \widetilde{A}_{jk} \}_{k \in \mc{K}_j}$ are in $[0, \widetilde{u}_j]$, so
 if we sample batches with equal probability (with or without replacement), testing whether the population mean $\bar{A}_{j}$
 is less than or equal to $1/2$ is an instance of the problem solved by ALPHA,
-the tests in \cite{waudby-smithRamdas21,waudby-smithEtal21}, and the Kaplan martingale test;
+the tests in \citet{waudby-smithRamdas21,waudby-smithEtal21}, and the Kaplan martingale test;
 for sampling with replacement, it is also solved by the Kaplan-Wald and Kaplan-Markov tests.
 
 However, because batch sizes may vary widely, using a single upper bound $\widetilde{u}_j$ for all batches may have a great 
-deal of slack for some batches, which can reduce the efficiency of the tests.
+deal of slack for some batches, which can reduce power.
 By sampling batches with unequal probabilities, we can transform the problem to one where the upper bounds on the
 batches are sharper. 
 This may lead to more efficient audits, depending on fixed costs related to retrieving batches; checking, recording, and opening seals; 
@@ -697,24 +788,209 @@ Let $\eta_{ji} \in (\mu_{ji}, \hat{u}_{ji}]$ be an estimate of $\theta_{ji}$ bas
 This generalizes ALPHA by allowing the population upper bound $\hat{u}_{ji}$ to vary from draw to draw, with a corresponding
 draw-dependent constraint on $\eta_{ji}$.
 As before, under the null hypothesis that $\theta_j \le \mu_j$,
-$\{T_i\}$ is a nonnegative supermartingale with expected value at most $1$:
+$\{T_i\}$ is a nonnegative supermartingale starting at $1$:
 $\eta_{ji} > \mu_{ji}$,
-$\EE (X_i | X^{i-1}) \le \mu_{ji}$, and $r_i := \EE (X_i | X^{i-1})/\mu_{ji} < 1$, so
+$\EE (X_i | X^{i-1}) \le \mu_{ji}$, and $r_i := \EE (X_i | X^{i-1})/\mu_{ji} \le 1$, so
 \begin{equation} \label{eq:supermartingale-batch}
-    \EE (T_i | X^{i-1} ) = T_{i-1} \left ( r_i \cdot \frac{\eta_{ji}-\mu_{ji}}{u_{ji}-\mu_{ji}} + \frac{u_{ji}-\eta_{ji}}{u_{ji}-\mu_{ji}} \right ) < T_{i-1}.
+    \EE (T_i | X^{i-1} ) = T_{i-1} \left ( r_i \cdot \frac{\eta_{ji}-\mu_{ji}}{u_{ji}-\mu_{ji}} + \frac{u_{ji}-\eta_{ji}}{u_{ji}-\mu_{ji}} \right ) \le T_{i-1}.
 \end{equation}
 Thus by Ville's inequality, if $\theta_j \le \mu_j$,
 \begin{equation}
 \Pr_{\theta_j \le \mu_j} \{ \max_k T_{jk} \ge \alpha^{-1} \} \le \alpha.
 \end{equation}
 
-\subsubsection{Auditing many assertions using the same weighted sample of batches.}
-To audit more than one assertion using the same sample of batches, the sampling weights---and thus the batch-level \emph{a priori} bounds---for the assertions need to be commensurable,
-in the sense that if batches $\cB_\ell$ and $\cB_m$ are relevant for assorters $A_j$ and $A_k$, then 
+\subsubsection{Auditing many assertions using the same weighted sample of batches}
+To audit more than one assertion using the same sample of batches, the sampling weights,
+and thus the batch-level \emph{a priori} bounds, need to be commensurable:
+if batches $\cB_\ell$ and $\cB_m$ are relevant for assorters $A_j$ and $A_k$, then we need
 $u_{j\ell}/u_{k \ell} = u_{jm}/u_{km}$.
 The easiest way to accomplish that is to take $u_{jm} = u_j |\cB_m|$ for $j = 1, \ldots, A$ and $m \in \cD_j$.
 Tighter bounds may be possible in some cases, depending on the batch-level reports for all the contests
 under audit.
+
+\section{Stratified Sampling} \label{sec:stratified}
+Stratified sampling---partitioning ballot cards into disjoint strata and sampling independently from those 
+strata---can be helpful in RLAs  \citep{stark08a,higginsEtal11,ottoboniEtal18,stark20}.
+For instance, some states (including California) require jurisdictions to draw audit samples independently.
+Auditing a cross-jurisdictional contest then involves stratified samples; each stratum consists of the ballot
+cards cast in one jurisdiction.
+Stratified sampling can also offer logistical advantages by making it possible to use different audit strategies 
+(polling, batch polling, ballot-level comparison, batch-level comparison) for 
+different subsets of ballot cards, for instance, if some ballot cards are tabulated using equipment that can report how it
+interpreted each ballot and some are not.
+
+Stratified batch-comparison RLAs were developed in the first paper on risk-limiting audits, \citet{stark08a}.
+The approach was tightened in \citet{higginsEtal11}.
+\citet{ottoboniEtal18} developed a more flexible approach, SUITE (Stratified Union-Intersection Tests of Elections),
+which does not require using the same sampling or audit strategy in different strata.
+In particular, SUITE allows using polling in some strata and ballot-level or batch-level comparisons in others.
+BRAVO does not work for auditing in the polling strata in that context, because it makes inferences about the votes 
+for one candidate as a fraction of the votes that are either for that candidate or one other candidate, that is, it
+conditions on the event that the selected card has a vote for either the reported winner or the reported loser.
+That suffices to tell who won a plurality contest---by auditing every (reported winner, reported loser) 
+pair---if all the ballot cards are in a single stratum, but not when the sample is stratified.
+
+When the sample is stratified, what is needed is an inference about the \emph{number} of votes in the stratum for each candidate.
+To solve that problem, \citet{ottoboniEtal18} used a test in the polling stratum based on the multinomial distribution, 
+maximizing the $P$-value over a nuisance parameter, the number of ballot cards in the stratum with no valid vote for either candidate.
+SUITE represents the hypothesis that the outcome is wrong as a union of intersections of hypotheses.
+The union is over all ways of partitioning outcome-changing errors across strata.
+The intersection is across strata for each partition in the union.
+For each partition, for each stratum, SUITE computes a $P$-value for the hypothesis that the error in that stratum
+exceeds its allocation, then combines those $P$-values across strata (using a combining
+function such as Fisher's combining function) to test the intersection hypothesis that the error in 
+every stratum exceeds its allocation in the partition.
+If the maximum $P$-value of that intersection hypothesis over all allocations of outcome-changing error is less
+than or equal to the risk limit, the audit stops. 
+\citet{stark20} extends the union-intersection approach to use SHANGRLA assorters,
+avoiding the need to maximize $P$-values over nuisance parameters in individual strata and
+permitting sampling with or without replacement.
+
+\subsection{ALPHA obviates the need to use a combining function across strata}
+Because ALPHA works with polling and comparison strategies, it can be the basis of the test in every stratum,
+whereas SUITE used completely different ``risk measuring functions'' for strata where the audit involves ballot polling and strata
+where the audit involves comparisons.
+We shall see that this obviates the need to use a combining function to combine $P$-values across
+strata: the test stupermartingales can just be multiplied, and the combined $P$-value is the reciprocal of their product.
+This is because (predictably) multiplying terms in the product representation of different sequences---each of which, under the nulls
+in the intersection, is a nonnegative supermartingale
+starting at one---yields a nonnegative supermartingale starting at one.
+Thus the product of the stratum-wise test statistics in any order (including interleaving terms across strata) is also a test statistic 
+with the property that the chance it is greater than or equal to $1/\alpha$ is at most $\alpha$ under the intersection null.
+Because Fisher's combining function adds two degrees of freedom to the chi-square distribution for each stratum, avoiding 
+the need for a combining function can substantially increase power as the number of strata grows.
+Table~\ref{tab:fisher} illustrates this increase: it shows the combined $P$-value for the intersection hypothesis when the 
+$P$-value in each
+stratum is $0.5$. 
+The number of strata ranges from $2$---which might arise in an audit in a single jurisdiction when
+stratifying on mode of voting (in-person versus absentee)---to 150---which might arise in auditing a cross-jurisdictional
+contest in a state with many counties.
+For instance, Georgia has 159 counties, Kentucky has 120, Texas has 254, and Virginia has 133.
+
+\begin{table} 
+\centering
+\begin{tabular}{r|cc} 
+ strata & Fisher's combination & supermartingale $P$ \\
+ \hline
+2 & 0.5966 & 0.25000000 \\
+5 & 0.7319 & 0.03125000 \\
+10 & 0.8374 & 0.00097656 \\
+25 & 0.9514 & 0.00000003 \\
+50 & 0.9917 & 0.00000000 \\
+100 & 0.9997 & 0.00000000 \\
+150 & 1.0000 & 0.00000000 
+\end{tabular} 
+ \caption{\protect \label{tab:fisher} Overall $P$-value for the intersection null hypothesis if the $P$-value in each stratum is 0.5, for Fisher's combining function (column~2) and for martingale-based tests (column~3). 
+ The ``stratification penalty'' arising from the large number of degrees of freedom (twice the number of strata) for Fisher's combining function can be avoided by using supermartingale-based tests, which permit simply multiplying the test statistics across strata and taking
+ the reciprocal of the result  (or 1, if 1 is smaller) as the $P$-value.}
+ \end{table}
+
+\subsection{Supermartingale-based tests of intersection hypotheses} \label{sec:supermartingale-intersection}
+Here is a sketch of how ALPHA can be used for stratified audits.
+Suppose there are $N$ ballots in all, partitioned into $S$ strata.
+(This section will overload $S$ to mean two related things: the number of strata and
+a mapping $S(\cdot)$ from counting numbers to strata. 
+Elsewhere in the paper, $S_j$ refers to a sample sum.)
+Stratum $s$ contains $N_s$ ballot cards; $\sum_s N_s = N$.
+We want to test the hypothesis that $\bar{A} \le 1/2$.
+Let $u$ be the upper bound on the numbers $A$ assigns.
+Let $\bar{A}_s$ be the average of the assorter restricted to stratum $s$, so
+$\bar{A} = N^{-1}\sum_s N_s \bar{A}_s$.
+Suppose $\boldsymbol{\mu} = (\mu_s)_{s=1}^S$ satisfies $0 \le \mu_s \le u$.
+We sample independently from the strata.
+Let $X_{si}$ denote the $i$th draw from the $s$th stratum, and define $\mu_{si}$, $u_{si}$, and $\eta_{si}$ analogously.
+Define
+\begin{equation}
+   R_{si}(\mu_s) := \frac{X_{si}}{\mu_{si}} \cdot \frac{\eta_{si}-\mu_{si}}{u-\mu_{si}} + \frac{u-\eta_{si}}{u-\mu_{si}}.
+ \end{equation}
+Recall from equation~\ref{eq:alphaMultProd} that
+\begin{equation} 
+T_j^s(\mu_s) := \prod_{i=1}^j R_{si}(\mu_s), \; j \in \mathbb{N},
+\end{equation}
+is a test supermartingale for stratum $s$ for the composite null $\theta_s \le \mu_s$, $s=1, \ldots, S$.
+
+We will now assemble the intersection test supermartingale by multiplying terms from
+different test supermartingales for individual strata, in an order that can be chosen adaptively.
+The \emph{stratum selector} $S(i) : \mathbb{N} \rightarrow \{1, \ldots, S\}$ is the stratum from which the $i$th 
+term in the intersection test supermartingale will come.
+The stratum selector $S(\cdot)$ can depend \emph{predictably} on the sample: it can 
+depend on $(X_{S(j)J(j)})_{j=1}^{i-1}$ but not on $X_{S(k)J(k)}$ for $k \ge j$.
+One example stratum selector is round-robin, $S(i) = (i \mod S)+1$, skipping any strata
+that have been exhausted.
+Another example concatenates the samples across strata: if we have drawn $n_s$ times from stratum $s$,
+then $S(i) = 1$, $1 \le i \le n_1$; $S(i) = 2$, $n_1 < i \le n_1+n_2$; etc.
+
+At time $i$, the intersection test supermartingale includes $J(i):= \#\{j \le i : S(j)=S(i)\}$ terms from stratum $S(i)$;
+$S(j+1)$ and $J(j+1)$ are predictable from $\{X_{S(i)J(i)}\}_{i=1}^j$.
+With this notation, the intersection test supermartingale is:
+\begin{equation}
+T_j(\boldsymbol{\mu}) := \prod_{i=1}^j R_{S(i)J(i)}(\mu_{S(i)}).
+\end{equation}
+Suppose $S(j+1) = s$ and $J(j+1) = \ell$.
+Samples from different strata are independent, so 
+the conditional expectation of $R_{S(j+1)J(j+1)}(\mu_{S(j+1)})$ given $\{X_{S(i)J(i)}\}_{i=1}^j$ is the conditional expectation of
+$R_{s\ell}(\mu_s)$ given $\{X_{si}\}_{i=1}^{\ell-1}$, computed on the assumption that $\theta_s = \mu_s$, which is at most 1.
+Thus 
+\begin{equation}
+\EE \left (T_{j+1}(\boldsymbol{\mu}) | (X_{S(i)J(i)})_{i=1}^j \right ) = \EE \left (T_j(\boldsymbol{\mu}) R_{S(j+1)J(j+1)}(\mu_{S(j+1)}) | (X_{S(i)J(i)})_{i=1}^j \right ) \le T_j(\boldsymbol{\mu}).
+\end{equation}
+That is, under the intersection null, $(T_j(\boldsymbol{\mu}))_{j \in \mathbb{N}}$ is a nonnegative supermartingale starting at 1,
+and by Ville's inequality,
+\begin{equation}
+    \Pr (\max_j T_j(\boldsymbol{\mu}) \ge 1/\alpha) \le \alpha
+\end{equation}
+if $\boldsymbol{\theta} \le \boldsymbol{\mu}$.
+
+In general, the power of the test of the intersection null will depend on the stratum selector $S(\cdot)$,
+which can be adaptive.
+For instance, if data from stratum $s$ suggest that $\theta_s \le \mu_s$, future values of $S(i)$ might omit stratum $s$
+or sample from $s$ less frequently,
+instead sampling preferentially from strata where there is some evidence that the intersection null is false, to maximize the
+expected rate at which the test supermartingale grows, minimizing the $P$-value.
+Indeed, for a fixed $\boldsymbol{\mu}$, choosing $S(i)$ can be viewed as a (possibly finite-population) multi-armed bandit problem:
+which stratum should the next sample come from to maximize the expected rate of growth of the 
+test statistic?
+An additional complication is that we want fast growth for \emph{all} vectors $\boldsymbol{\mu}$ of stratumwise
+means for which the population mean $\tilde{\boldsymbol{\mu}} := N^{-1}\sum_s N_s \mu_s \le 1/2$.
+Importantly, different stratum selectors can be used for different values of $\boldsymbol{\mu}$;
+this flexibility is explored by \citet{spertusStark22}.
+
+To audit a given assertion, we need to check whether there is any $\boldsymbol{\mu} = (\mu_1, \ldots, \mu_S) \in [0, u]^S$ with 
+$\tilde{\boldsymbol{\mu}}  \le 1/2$ for which
+$\max_j T_j(\boldsymbol{\mu}) < 1/\alpha$.
+If there is, sampling needs to continue.
+We thus need to find
+\begin{equation} \label{eq:strat-max}
+  P_j^S := \max_{\boldsymbol{\mu} \in [0, u]^S: \tilde{\boldsymbol{\mu}} \le 1/2} (\max_j \; T_j(\boldsymbol{\mu}))^{-1},
+\end{equation}
+the solution to a finite-dimensional optimization problem.
+
+\section{Bernoulli Sampling} \label{sec:bernoulli}
+
+\citet{ottoboniEtal20} developed a ballot-polling risk-limiting audit (BBP) based on Bernoulli sampling, where each
+ballot card is independently included in the sample with probability $p$.
+This results in a random sample of random size.
+Conditional on the attained sample size, it is a simple random sample of ballot cards.
+Their approach to testing whether one candidate received more votes than another 
+involves conditioning on the attained sample size and maximizing an SPRT $P$-value over
+a nuisance parameter, the number of ballot cards that do not contain a valid vote for either of those candidates.
+They find that BBP requires sample sizes comparable to BRAVO for the same margin.
+
+ALPHA, combined with the SHANGRLA transformation, eliminates the need to perform the maximization
+over a nuisance parameter.
+To use ALPHA, the sample needs to have a notional ordering.
+That ordering can come from randomly permuting the sample, or from setting a
+canonical ordering of the ballot cards before the sample is selected, e.g., a lexicographical ordering,
+then considering the sample order to be the lexicographical order of the cards in the sample.
+
+If the initial Bernoulli sample does not suffice to confirm the outcome, the sample can be expanded
+using the approach in \citet[Section 4]{ottoboniEtal20}.
+Since the performance of BBP is similar to that of BRAVO, one might
+expect that applying ALPHA to Bernoulli samples would require lower sample sizes (i.e., lower selection probabilities)
+than BBP.
+We do not perform any simulations here, but we plan to investigate the efficiency of ALPHA/SHANGRLA
+versus BBP in future work.
+
 
 \section{Simulations}
 
@@ -727,7 +1003,7 @@ Sample sizes were limited to 10~million ballot cards: if a method required a sam
 replications, the result is listed as `---'.
 As expected, BRAVO is best (or tied for best) when $\eta = \theta$, i.e., when the reported vote shares are exactly right.
 ALPHA with a small value of $d$ is best when $|\eta - \theta|$ is large; and ALPHA with a small value of $d$ is
-best when $|\eta - \theta|>0$ is small, with a few exceptions, where BRAVO beats ALPHA with $d=1000$ when $\theta > \eta$ and
+best when $|\eta - \theta|>0$ is small, except in a few cases where BRAVO beats ALPHA with $d=1000$ when $\theta > \eta$ and
 $|\theta - \eta|$ is small.
 When $\theta$ is large, ALPHA often does as well as BRAVO even when $\theta=\eta$.
 When vote shares are wrong---and the reported winner still won---ALPHA often reduces
@@ -857,16 +1133,17 @@ For each $\theta$, $\eta$ pair, the smallest average sample size is in bold font
 Table~\ref{tab:finite-population} compares several methods for ballot-polling without replacement, again in a two-candidate
 plurality contest with no invalid votes or votes for other candidates, based on $10^5$ pseudo-random audits
 for each hypothetical population.
-The methods listed include the best-performing method in RiLACS \cite{waudby-smithEtal21} 
+The methods listed include the best-performing method in RiLACS \citep{waudby-smithEtal21} 
 that uses an explicit alternative $\eta$ (\emph{a priori} Kelly), the best-performing method in RiLACS
 that does not use a pre-specified alternative (SqKelly), 
 Wald's SPRT for sampling without replacement (the analogue of BRAVO for sampling without replacement), and
 ALPHA with the truncated shrinkage estimator for a variety of values of
 $d$. 
 Methods that use an explicit alternative (\emph{a priori} Kelly, SPRT, ALPHA) were tested using a range of values of $\eta$.
-Kaplan's martingale \cite{stark20} was not included because it is expensive to compute, numerically unstable, and
-performs comparably to some of the methods studied by \cite{waudby-smithEtal21}, such as dKelly.
-The election parameters $N$, $\theta$, and $\eta$ were chosen to make the simulations commensurable with \cite{huangEtal20}.
+Kaplan's martingale \citep{stark20} was not included because it is expensive to compute, numerically unstable, and
+performs comparably to some of the methods studied by \citet{waudby-smithEtal21}, such as dKelly.
+The election parameters $N$, $\theta$, and $\eta$ were chosen to make the simulations commensurable with 
+\citet{huangEtal20}.
 
 The columns labeled $n \le 2{,}000$ are for an audit that examines up to 2,000 ballots selected at random, and
 if the outcome has not been confirmed by then, examines the remaining 18,000 ballots to determine who won.
@@ -879,7 +1156,7 @@ is when the sample size reaches 5--15\% of the
 population size.
 Thus, for a population of $N=20{,}000$ ballot cards, an election official might elect to conduct a full hand count
 if the audit sample becomes larger than 2,000 cards, 10\% of the population. 
-The entries for Bayesian, BRAVO, and ClipAudit are derived from Table~2 of \cite{huangEtal20} by adding 
+The entries for Bayesian, BRAVO, and ClipAudit are derived from Table~2 of \citet{huangEtal20} by adding 
 $18,000 \times (1-\mbox{power})$ to the entries, since that table was calculated by capping the sample size
 at $2,000$.
 
@@ -956,10 +1233,11 @@ Columns 3:9 are mean sample sizes for an audit that samples at most 2,000 ballot
 a full hand count of all 20,000 ballot cards if the outcome has not been confirmed by then. 
 Columns 10:16 give the mean sample sizes to reject the null when the sample is allowed to
 expand to comprise the whole population of 20,000 ballot cards.
-The five bottom rows are from supplementary materials in \cite{huangEtal20} available at 
+The five bottom rows are from supplementary materials in \citet{huangEtal20} available at 
 \url{https://github.com/dvukcevic/AuditAnalysis/blob/master/combined_tables/n\%3D020000_m\%3D02000_p\%3D0.500_replacement\%3DFalse_step\%3D1/unconditional_mean_with_recount_addin.csv\#L27} (last visited 1~February 2022).
-The ``Bayesian'' test uses a risk-maximizing prior \cite{vora19} (in this case, a point mass at $1/2$ mixed with a uniform on $(1/2, 1]$), which makes it risk-limiting.
-ClipAudit \cite{rivest17} is calibrated in a way that \emph{almost} limits the risk; in simulations it was $5.1\%$ \cite{huangEtal20}.
+The ``Bayesian'' test uses a risk-maximizing prior \citep{vora19}, in this case, a point mass at $1/2$ mixed with a uniform on $(1/2, 1]$, 
+which makes it risk-limiting.
+ClipAudit \citep{rivest17} is calibrated in a way that \emph{almost} limits the risk; in simulations it was $5.1\%$ \citep{huangEtal20}.
 The smallest average sample size in each column, omitting ClipAudit, is in bold font.
 }
 \end{table}
@@ -974,8 +1252,8 @@ with different fractions of ballot cards with no valid vote for either candidate
 contests described in section~\ref{sec:shangrla}, which assigns such ballot cards the value $1/2$.
 Tables~\ref{tab:without-replacement-blanks-1} and \ref{tab:without-replacement-blanks-2} show the
  results for the tests that can work with nonbinary data:
-the SqKelly and \emph{a priori} Kelly martingales, and the ALPHA martingales. 
-Kaplan's martingale, the Kaplan-Wald test, and the Kaplan-Kolmogorov test \cite{stark09b,stark20} could also be used, but we do not explore their performance here.
+the SqKelly and \emph{a priori} Kelly martingales, and the ALPHA supermartingales. 
+Kaplan's martingale, the Kaplan-Wald test, and the Kaplan-Kolmogorov test \citep{stark09b,stark20} could also be used, but we do not explore their performance here.
 (However, see section \ref{sec:comparison-audits}.)
 
 The smallest expected sample sizes are generally for \emph{a priori} Kelly with $\eta=\theta$, with non-adaptive ALPHA (corresponding to
@@ -1084,7 +1362,7 @@ $\theta$ & Method & params & 10 & 25 & 50 & 75  & 10 & 25 & 50 & 75  & 10 & 25 &
 \end{tabular} 
 \caption{\protect \label{tab:without-replacement-blanks-1}
 Estimated sample sizes for a ballot-polling audit using sampling without replacement from populations of ballot cards of which
-some contain no valid vote to confirm outcomes at a risk limit of $5\%$.
+some contain no valid vote, for risk limit $5\%$.
 The populations contain 10,000, 100,000, or 500,000 ballot cards, of which 10\%, 25\%, 50\% or 75\% do not
 contain a valid vote for either of two candidates under consideration.
 The fraction of valid votes for the winner among valid votes is $\theta$. 
@@ -1229,18 +1507,17 @@ The smallest is in bold font.
 
 For comparison audits, SHANGRLA assorters take nonnegative, bounded values, but generally have  several points of 
 support, depending on the social choice function.
-A ballot with the maximum possible overstatement error for the social choice function will be assigned the value 0.
-A ballot with the maximum possible understatement error will be assigned the maximum value of the assorter.
+See section 3.2 of \citet{stark20}.
 Again, the statistical null hypothesis is that the mean value of the assorter is not greater than 1/2, and rejecting that
-hypothesis is (a piece of) evidence that the reported result is correct, at least with respect to that assertion.
+hypothesis is evidence that the corresponding assertion is correct.
 
-Several martingales can be used to test such a hypothesis from samples with or without replacement, including the ALPHA
-martingales,
-``Kaplan-Wald'' martingale \cite{stark09b}, the ``Kaplan-Kolmogorov'' martingale \cite{starkEvans19,stark20}, Kaplan's martingale 
-\cite{starkEvans19,stark20},
-and the martingales in \cite{waudby-smithRamdas21,waudby-smithEtal21}.
-As mentioned above, the betting martingales in \cite{waudby-smithRamdas21,waudby-smithEtal21} are
-identical to the ALPHA martingales but for how $\eta_i$ is chosen.
+Several supermartingales can be used to test such a hypothesis from samples with or without replacement, including the ALPHA
+supermartingales,
+``Kaplan-Wald'' martingale \citep{stark09b}, the ``Kaplan-Kolmogorov'' martingale \citep{starkEvans19,stark20}, Kaplan's martingale 
+\citep{starkEvans19,stark20},
+and the martingales in \citet{waudby-smithRamdas21,waudby-smithEtal21}.
+As mentioned above, the betting martingales in \citet{waudby-smithRamdas21,waudby-smithEtal21} are
+identical to the ALPHA supermartingales but for how $\eta_i$ is chosen.
 The Kaplan-Wald, Kaplan-Kolmogorov, and Kaplan martingales are also in this family of betting martingales.
 
 As before, let $\theta_i$ denote the mean of the population just before the $j$th draw, if the null hypothesis is true.
@@ -1255,12 +1532,13 @@ It is straightforward to verify that under the null, these are nonnegative marti
 Both of these can be written in the form \ref{eq:lambda-rilacs}.
 
 For comparison audits, a reference alternative value $\eta$ for ALPHA and \emph{a priori} Kelly could be derived from assumptions about the 
-frequency of errors of different types occur, for instance, by assuming that errors that turn votes from a reported loser 
-as votes for a reported winner occur in about 1 in 1,000 ballot cards, errors that turn a valid vote for a loser into an 
-undervote occur in about 1 in 100 ballot cards, etc.
+frequency of errors of different types.
+For instance, one might suppose that errors that turn votes from a reported loser 
+into votes for a reported winner occur in about 1 in 1,000 ballot cards; errors that turn a valid vote for a loser into an 
+undervote occur in about 1 in 100 ballot cards; etc.
 
 To assess the relative performance of these martingales for comparison audits, they were applied to
-simulations for nonnegative populations that had mass $0.001$ at zero (corresponding to errors that overstate the
+pseudo-random samples from nonnegative populations that had mass $0.001$ at zero (corresponding to errors that overstate the
 margin by the maximum possible, e.g., that erroneously interpreted a vote for the loser as a vote for the winner), 
 mass $m \in \{0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99\}$
 at $1$, and the remain mass uniformly distributed on $[0, 1]$.
@@ -1381,7 +1659,8 @@ and ALPHA with $\eta=0.99$ and $d=10$ was a close second.
  & Kaplan-Wald & g=0.8 & \bf{14}  & 15  & \bf{15}  
 \end{tabular} 
 
-\caption{\protect \label{tab:comparison-1} Mean sample sizes to reject the hypothesis that the mean is less than $1/2$ at significance level $0.05$ for various methods, in 10,000  simulations with mass 0.001 zero, mass $m$ at 1, and mass $1-m-0.001$ uniformly  distributed on $[0, 1]$, for values of $m$ between 0.99 and 0.5. 
+\caption{\protect \label{tab:comparison-1} Mean sample sizes to reject the hypothesis that the mean is less than
+or equal to $1/2$ at significance level $0.05$ for various methods, in 10,000  simulations with mass 0.001 zero, mass $m$ at 1, and mass $1-m-0.001$ uniformly  distributed on $[0, 1]$, for values of $m$ between 0.99 and 0.5. 
 The smallest mean sample size for each combination of $m$ and $N$ is in bold font.
 }
 \end{table}
@@ -1529,45 +1808,27 @@ The value of $T_i$ is the value of $T_{i-1}$ multiplied by
    \frac{1}{2} \cdot \frac{\eta_i}{1/2} + \frac{1}{2} \cdot \frac{1-\eta_i}{1/2} =  1.
 \end{equation}
 It follows that if, instead of ignoring ballot cards that do not have a valid vote for $w$ or for $\ell$, we treat such ballot cards as
-$1/2$ in \ref{eq:alphaBRAVOdef}, the resulting test is identical to BRAVO, with one difference: the value of $\eta$
+$1/2$ in equation~\ref{eq:alphaBRAVOdef}, the resulting test is identical to BRAVO, with one difference: the value of $\eta$
 corresponding to the reported results.
 For BRAVO, $\eta = N_w/(N_w+N_\ell)$, while for the SHANGRLA assorter,  $\eta = (N_w + (N-N_w-N_\ell)/2)/N \le N_w/(N_w+N_\ell)$.
 
 Non-adaptive ALPHA for sampling without replacement in a two-candidate contest with no invalid votes is equivalent
 to Wald's SPRT for the population mean using sampling without replacement from a binary population.
 
-\subsection{ALPHA works with SUITE}
-It can be useful to use stratified sampling in RLAs \cite{stark08a,higginsEtal11,ottoboniEtal18,stark20}.
-For instance, the strata might correspond to election jurisdictions: each county might draw its audit sample independently, 
-either as a matter of law or for logistical efficiency.
-Or the strata might comprise ballot cards tabulated using different technologies that can be audited most efficiently
-using different strategies, for instance, if some ballot cards are tabulated using equipment that can report how it
-interpreted each ballot and some are not.
-\cite{ottoboniEtal18} introduce a method for using stratified sampling to solve that problem, combining a ballot-polling
-approach in one stratum with a ballot-level comparison approach in another stratum.
-BRAVO does not work in that context, because it makes inferences about the votes for one candidate as a fraction of
-the votes that are either for that candidate or one other candidate.
-That suffices to tell who won a plurality contest---by auditing every (reported winner, reported loser) pair--if all the ballot cards are in a single stratum, but not when the sample is stratified.
-In that case, what is needed is an inference about the \emph{number} of votes in the stratum for each candidate.
-To solve that problem, \cite{ottoboniEtal18} used a test based on the multinomial distribution, maximizing the $P$-value
-over a nuisance parameter, the number of ballot cards in the stratum with no valid vote for either candidate.
-In contrast, ALPHA can be used with SHANGRLA in stratified audits without the need to maximize over nuisance
-parameters.
-
 \subsection{Other studies of ballot-polling RLA sample sizes}
 There have been comparisons of ballot-polling sample sizes in the simplest case:
 two-candidate plurality contests with no invalid votes.
 For instance,
-\cite{huangEtal20} compare previous methods for ballot-polling audits of, including BRAVO, ClipAudit \cite{rivest17}, the Kaplan martingale \cite{stark20}, 
-Kaplan-Wald \cite{stark09b,stark20}, Kaplan-Markov \cite{stark09b,stark20}, and Bayesian audits \cite{rivestShen12,rivest18} 
+\citet{huangEtal20} compare previous methods for ballot-polling audits, including BRAVO, ClipAudit \citep{rivest17}, the Kaplan martingale \citep{stark20}, 
+Kaplan-Wald \citep{stark09b,stark20}, Kaplan-Markov \citep{stark09b,stark20}, and Bayesian audits \citep{rivestShen12,rivest18} 
 (calibrated to be risk limiting).
-Similarly, \cite{waudby-smithEtal21} compare several martingale-based methods (including BRAVO), some of which
+Similarly, \citet{waudby-smithEtal21} compare several martingale-based methods (including BRAVO), some of which
 rely on the reported results, and some of which do not.
 
 \subsection{Round-by-round ballot-polling RLAs}
 In practice, ballot cards are not selected and inspected one at a time in RLAs.
 (That strategy might require retrieving and opening the same storage container of ballot cards repeatedly, for instance, and it does not allow
-multiple teams to divide the work.)
+multiple teams to work in parallel.)
 Instead, for logistical efficiency, an initial sample is drawn that is expected to be large enough to confirm the outcome if the 
 reported results are approximately correct.
 Those ballot cards are retrieved and examined.
@@ -1576,17 +1837,17 @@ the sample is expanded by an amount that is expected to be large enough
 to confirm the outcome, and so on.
 (The auditors can decide to conduct a full hand count at any point in the process, rather than continuing to sample.)
 Thus, individual ballot-by-ballot sequential validity may not be required.
-Indeed, the first RLA methods did not use sequentially valid tests \cite{stark08a,stark09a},
+Indeed, the first RLA methods did not use sequentially valid tests \citep{stark08a,stark09a},
 instead prescribing a schedule of ``round sizes,'' and spending the total Type~I error budget across rounds.
 
-\cite{zagorskiEtal21} note that this ``round-by-round'' sampling structure might make it possible to have tests that 
+\citet{zagorskiEtal21} note that this ``round-by-round'' sampling structure might make it possible to have tests that 
 use smaller samples than tests that ensure ballot-by-ballot sequentially validity, and in particular smaller sample sizes than BRAVO
 requires.
 They show that in a two-candidate plurality contest with no invalid votes or non-votes, that is indeed
 possible.
 However, their method, Minerva, requires the sample to be IID Bernoulli:
-it only applies to  two-candidate plurality contest with no invalid votes or non-votes.
-It cannot be implemented efficiently in real elections, because the number of ballot cards that contain a vote for the winner or the
+it only applies to  two-candidate plurality contests with no invalid votes or non-votes.
+It is not clear that it can implemented efficiently in real elections, because the number of ballot cards that contain a vote for the winner or the
 loser in a random sample of a given size cannot be predicted in advance: some ballot cards have votes for other candidates or no valid vote in the contest or do not contain the contest.
 Nor is the method conducive to auditing contests with more than two candidates or more than one contest at a time.
 
@@ -1605,15 +1866,22 @@ If many (winner, loser) pairs are to be audited using the same sample, or if mor
 using the same sample, the problem is exacerbated.
 
 It is an open question whether there is a round-by-round method that can accommodate non-votes and votes
-for other candidates and is more efficient than the methods in \cite{waudby-smithEtal21,stark20} and here.
+for other candidates and is more efficient than the methods in \citet{waudby-smithEtal21,stark20} and here.
 It might be possible to maximize the $P$-value over a nuisance parameter (the number of non-votes and votes
-for other candidates in the population), as in SUITE \cite{ottoboniEtal18}, or to use the SHANGRLA assorter
+for other candidates in the population), as in SUITE \citep{ottoboniEtal18}, or to use the SHANGRLA assorter
 for plurality contests, which takes into account ballot cards with no valid vote in the contest and ballot cards with
 a vote for other candidates in the contest, but Minerva does not have an obvious extension in either direction
-because its approach requires that the population mean by itself determines the probability distribution of
+because it assumes that the population mean by itself determines the probability distribution of
 the sample.
-While that is true for a binary population, it is not true when the population contains more than two values, e.g., the value $1/2$ that
+While that is true for binary populations, it is not true when the population contains more than two values, e.g., the value $1/2$ that
 SHANGRLA assorters assign to ballot cards with no valid vote in the contest, in addition to the values $0$ and $1$.
+
+\subsection{Stratification}
+As discussed in section~\ref{sec:stratified}, ALPHA and other test supermartingales offer a great deal of flexibility to
+choose stratum selectors that
+adaptively optimize union-intersection tests to increase their power.
+Preliminary results in \cite{spertusStark22} suggest that $P$-values can be reduced by an order of magnitude
+compared to previous methods.
 
 \subsection{Future work}
 In many tests herein---two-candidate plurality contests with some invalid ballot cards or votes for other candidates, using
@@ -1621,25 +1889,27 @@ sampling with or without replacement, and ballot-level comparison audits---ALPHA
 estimator is competitive with other methods, on average having the smallest sample size across a range of parameters.
 It would be interesting
 to explore a broader variety of estimates of $\theta_i$ based on $\eta$ and $X^{i-1}$ and their operating characteristics.
-Future work will study the efficiency of these methods when the sample is stratified, and for batch-level comparison audits.
-There are few competing methods that work so generally and guarantee sequential validity: the 
-Kaplan-Wald and Kaplan-Markov methods and Kaplan's martingale \cite{stark09a,stark20},
-and the betting martingales in \cite{waudby-smithEtal21}, as examined in sections~\ref{sec:blanks} and \ref{sec:comparison-audit-sims}.
+\citet{spertusStark22} studies the efficiency of some simple adaptive stratum selectors for stratified sampling,
+as sketched in section~\ref{sec:stratified}.
+It would be interesting to study the efficiency of ALPHA for batch-level comparison audits.
+There are few competing methods that work so generally and guarantee sequential validity: 
+Kaplan-Wald, Kaplan-Markov, and Kaplan's martingale \citep{stark09a,stark20},
+and the betting martingales in \citet{waudby-smithEtal21}, as examined in sections~\ref{sec:blanks} and \ref{sec:comparison-audit-sims}.
 It would also be interesting to explore the relative efficiency of batch-level comparison audits and ballot-polling audits for
 a range of margins, batch-level vote distributions, and reporting errors.
 
 \section{Conclusions}
 BRAVO is based on Wald's sequential probability ratio test for $p$ from IID $\Bern(p)$ observations, for a simple (i.e., ``point'') null hypothesis against a simple alternative.
-Bernoulli can easily be generalized in a way that has a number of advantages:
+The SPRT for the Bernoulli distribution can easily be generalized in a way that has a number of advantages:
 \begin{itemize}
    \item in situations where BRAVO can be applied, it can be tuned to perform comparably to BRAVO when the reported vote shares are correct, 
              and to perform far better than BRAVO when the reported vote shares are incorrect but the reported winner(s) really won
-   \item it works for sampling with and without replacement
-   \item it can be used with stratified sampling
-   \item it works for populations that are not binary, but merely bounded, allowing it to be used to test any SHANGRLA assertion,
+   \item it works for sampling with and without replacement and for Bernoulli sampling
+   \item it can be used with stratified sampling 
+   \item it works for populations that are not binary, but merely bounded, allowing it to test any SHANGRLA assertion,
             including assertions for ballot-polling and ballot-level comparison audits
    \item it can be applied to batch-polling and batch-level comparison audits, sampling with and without replacement
-   \item an easy additional generalization allows it work for batch-polling and batch-level comparison audits using sampling weights
+   \item it works for batch-polling and batch-level comparison audits using sampling weights
    \item in simulations, its expected sample sizes are competitive with those of all known methods, for ballot polling with and without replacement and 
             for ballot-level comparison audits
    \end{itemize}
@@ -1648,12 +1918,12 @@ It has a great deal of freedom to be optimized for different situations, paramet
 estimators of the population mean after the $j$th sample has been drawn.
 It can also accommodate sampling units that are batches rather than individuals, and sampling such batches
 with or without replacement, with or without weights.
-ALPHA is computationally efficient, far faster than some competing methods, such as the Kaplan martingale \cite{starkEvans19,stark20}.
-Its statistical performance is competitive with that of the betting martingales introduced for RLAs in \cite{waudby-smithEtal21},
+ALPHA is computationally efficient, far faster than some competing methods, such as the Kaplan martingale \citep{starkEvans19,stark20}.
+Its statistical performance is competitive with that of the betting martingales introduced for RLAs in \citet{waudby-smithEtal21},
 better against some alternatives and worse against others.
 For comparison audits, it improves substantially on the Kaplan-Wald and Kaplan-Kolmogorov methods.
-Like the Kaplan-Wald \cite{stark09b,stark20}, Kaplan-Kolmogorov \cite{stark20}, Kaplan martingale \cite{starkEvans19,stark20}, 
-RiLACS \cite{waudby-smithEtal21}, and BRAVO \cite{lindemanEtal12}, it is based on Ville's inequality for nonnegative martingales \cite{ville39}.
+Like the Kaplan-Wald \citep{stark09b,stark20}, Kaplan-Kolmogorov \citep{stark20}, Kaplan martingale \citep{starkEvans19,stark20}, 
+RiLACS \citep{waudby-smithEtal21}, and BRAVO \citep{lindemanEtal12}, it is based on Ville's inequality for nonnegative martingales \citep{ville39}.
 Unlike all of those except some flavors of RiLACS, it adapts to the audit data, leading to increased power when the reported vote shares
 are wrong but the reported outcomes are correct.
 Overall, in the simulations involving sampling without replacement when some ballot cards do not contain a valid
@@ -1663,9 +1933,11 @@ In simulations involving sampling without replacement from populations that corr
 ALPHA with the truncated shrinkage estimator using $\eta=0.9$ and $d=10$ performed best by the same measure.
 A reference Python implementation is available at \url{https://github.com/pbstark/alpha}.
 
-\vspace{.4in}
-\noindent {\bf Acknowledgements.} I am grateful to Andrew Appel, Aaditya Ramdas, Jacob Spertus, Damjan Vukcevic, and Ian Waudby-Smith for comments on earlier drafts.
+\begin{acks}[Acknowledgments] 
+I am grateful to Andrew Appel, Amanda Glazer, Aaditya Ramdas, Jacob Spertus, Damjan Vukcevic, and Ian Waudby-Smith for comments on earlier drafts.
+\end{acks}
 
+\bibliographystyle{imsart-nameyear}
 \bibliography{bib}
 
 \end{document}
