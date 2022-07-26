@@ -56,7 +56,7 @@ def sprt_mart(x : np.array, N : int, mu : float=1/2, eta: float=1-np.finfo(float
     return terms
 
 def shrink_trunc(x: np.array, N: int, mu: float=1/2, nu: float=1-np.finfo(float).eps, u: float=1, \
-                     c: float=1/2, d: float=100, f: float=0, minsd: float=10**-6) -> np.array:
+                     c: float=1/2, d: float=100, f: float=0, minsd: float=10**-6, alternative = "upper") -> np.array:
         '''
         apply the shrinkage and truncation estimator to an array
 
@@ -85,7 +85,7 @@ def shrink_trunc(x: np.array, N: int, mu: float=1/2, nu: float=1-np.finfo(float)
         eta : float in (t, 1)
             initial alternative hypothethesized value for the population mean
         c : positive float
-            scale factor for allowing the estimated mean to approach t from above
+            scale factor for allowing the estimated mean to approach m
         d : positive float
             relative weight of nu compared to an observation, in updating the alternative for each term
         f : positive float
@@ -104,11 +104,18 @@ def shrink_trunc(x: np.array, N: int, mu: float=1/2, nu: float=1-np.finfo(float)
             sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
         sdj = np.sqrt(sdj/j)
         sdj = np.insert(np.maximum(sdj,minsd),0,1)[0:-1] # threshold the sd, set first sd to 1
-        weighted = ((d*nu+S)/(d+j-1) + f*u/sdj)/(1+f/sdj)
-        return np.minimum(u*(1-np.finfo(float).eps), np.maximum(weighted,m+c/np.sqrt(d+j-1)))
+        if alternative == "upper":
+            weighted = ((d*nu+S)/(d+j-1) + f*u/sdj)/(1+f/sdj)
+            est = np.minimum(u*(1-np.finfo(float).eps), np.maximum(weighted,m+c/np.sqrt(d+j-1)))
+        elif alternative == "lower":
+            weighted = ((d*nu+S)/(d+j-1) + f*0/sdj)/(1+f/sdj)
+            est = np.minimum(m-c/np.sqrt(d+j-1), np.maximum(weighted,np.finfo(float).eps))
+        else:
+            raise ValueError("alternative needs to be a string, either upper or lower.")
+        return est
 
 def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).eps, f: float=0, u: float=1, \
-               estim: callable=shrink_trunc) -> np.array :
+               estim: callable=shrink_trunc, alternative="upper") -> np.array :
     '''
     Finds the ALPHA martingale for the hypothesis that the population
     mean is less than or equal to t using a martingale method,
@@ -139,24 +146,30 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
     j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
     m = (N*mu-S)/(N-j+1) if np.isfinite(N) else mu   # mean of population after (j-1)st draw, if null is true
-    etaj = estim(x=x, N=N, mu=mu, nu=eta, f=f,u=u)
+    etaj = estim(x=x, N=N, mu=mu, nu=eta, f=f,u=u, alternative=alternative)
     with np.errstate(divide='ignore',invalid='ignore'):
         terms = np.cumprod((x*etaj/m + (u-x)*(u-etaj)/(u-m))/u)
-    terms[m<0] = np.inf
-    terms[m>u] = 0
+    if alternative == "upper":
+        terms[m<0] = np.inf
+        terms[m>u] = 0
+    elif alternative == "lower":
+        terms[m<0] = 0
+        terms[m>u] = np.inf
+    else:
+        raise ValueError("Input valid value for alternative: either upper or lower")
     return terms, m
 
-def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None) -> np.array:
+def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None, lower_sided_marts : list=None) -> np.array:
     '''
     select the order of strata from which the samples will be drawn to construct the test SM
 
     Parameters
     ----------
-    marts: list of np.arrays
+    marts: list of K np.arrays
         each array is the test supermartingale for one stratum
 
-    mu: list of np.arrays
-        each array is the running null mean for a stratum
+    mu: list of K np.arrays
+        each array is the running null mean for a stratum, corresponding to terms in marts
 
     u: np.array
         the known maximum values within each strata
@@ -169,6 +182,9 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
         The second K-vector is the number of samples drawn from each stratum so far
         The third is the number of elements in each stratum, or np.inf for sampling with replacement
 
+    lower_sided_marts: list of K np.arrays
+        martingales for a lower sided test, used for the ucb_selector
+
     Returns
     -------
     strata : np.array
@@ -176,21 +192,26 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
     T : np.array
         the resulting product test SM
     '''
+
     strata = np.array([])
     T = np.array([1])
     running_T = np.ones(len(marts))  # current value of each stratumwise SM
     running_n = np.zeros(len(marts)) # current index of each stratumwise SM
     running_mu = np.asarray([item[0] for item in mu]) #current value of the conditional null mean
+    running_lsm = np.ones(len(marts)) # current value of the lower sided martingale, only relevant to ucb
+
     ns = np.zeros(len(marts))        # assumes the martingales exhaust the strata, for testing
     for i in range(len(marts)):
         ns[i] = len(marts[i])
     t = 0
     while np.any(running_n < ns-1):
         t += 1
-        next_s = rule(running_T, running_n, running_mu, u, ns)
+        next_s = rule(running_T, running_n, running_mu, u, ns, running_lsm)
         running_n[next_s] += 1
         running_T[next_s] = marts[next_s][int(running_n[next_s])]
         running_mu[next_s] = mu[next_s][int(running_n[next_s])]
+        if rule == ucb_selector:
+            running_lsm[next_s] = lower_sided_marts[next_s][int(running_n[next_s])]
         if np.isposinf(running_T[next_s]):
             T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #stratum = inf if no sample is drawn
@@ -209,7 +230,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
     return strata, T
 
 
-def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
+def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
     '''
     find the next stratum by random choice with probability proportional to current value of martingale
 
@@ -221,6 +242,38 @@ def multinomial_selector(running_T : np.array, running_n : np.array, running_mu 
         the number of samples drawn from each stratum so far
     running_mu: np.array
         the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
+    u: np.array
+        the known upper bound in each stratum
+    ns : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
+    if np.sum(available) == 0:
+        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
+    pvalues = 1 / np.maximum(1, running_lsm)
+    pvalues = np.where(available, pvalues, 0)
+    probs = pvalues / sum(pvalues)
+
+    return np.random.choice(len(probs), p = probs)
+
+def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
+    '''
+    find the next stratum by random choice with probability proportional to current value of martingale
+
+    Parameters
+    ----------
+    running_t : np.array
+        the current value of each stratumwise SM
+    running_n : np.array
+        the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
     u: np.array
         the known upper bound in each stratum
     ns : np.array
@@ -238,22 +291,24 @@ def multinomial_selector(running_T : np.array, running_n : np.array, running_mu 
         ratios = running_T/geomean
     ratios = np.where(available, ratios, 0)
     probs = ratios/sum(ratios)
+
     return np.random.choice(len(ratios), p = probs)
-    #return multinomial.rvs(1, ratios/np.sum(ratios), random_state=prng)
 
 
-def round_robin(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, prng : np.random.RandomState=None) -> int:
+def round_robin(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
     '''
     find the next stratum by round robin: deterministic alloction proportional to the size of the strata
 
     Parameters
     ----------
     running_t : np.array
-        the current value of each stratumwise SM
+        the current value of each stratumwise SM (nothing is done with this)
     running_n : np.array
         the number of samples drawn from each stratum so far
     running_mu: np.array
         the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
     u: np.array
         the known upper bound in each stratum
     ns : np.array
@@ -269,18 +324,18 @@ def round_robin(running_T : np.array, running_n : np.array, running_mu : np.arra
 
 
 
-def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
+def get_global_pvalue(strata: list, u_A: np.array, A_c: np.array, rule: callable):
     '''
-    returns a P-value (maximized over nuisance parameter) for the global null hypothesis that the mean of a population with 2 strata is equal to 1/2
+    returns a P-value (maximized over nuisance parameter) for the global null hypothesis that the mean of a comparison audit population with 2 strata is equal to 1/2
 
     Parameters
     ----------
     strata: list of 2 np.arrays
         each np.array contains the values of a population within a stratum, to be sampled by SRSing
-    u: np.array of length 2
-        each value is the upper bound in the corresponding stratum in strata (e.g. u[0] is the known upper bound of strata[0])
-    v: np.array of length 2
-        the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
+    u_A: np.array of length 2
+        each value is the upper bound on assorters in each stratum (e.g., 1 for a plurality election)
+    A_c: np.array of length 2
+        the assorter mean of CVRs in each stratum, used to adjust null means
     rule: callable
         the stratum selection rule to be used, e.g., multinomial_selector
 
@@ -300,17 +355,27 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
     N = np.concatenate((np.array([len(shuffled_1)]), np.array([len(shuffled_2)])))
     w = N/sum(N)
     epsilon = 1 / (2*np.max(N))
-    theta_1_grid = np.arange(epsilon, u[0] - epsilon, epsilon) #sequence from epsilon to u[0] - epsilon
-    theta_2_grid = (1/2 - w[0] * theta_1_grid) / w[1]
+    raw_theta_1_grid = np.arange(epsilon, u_A[0] - epsilon, epsilon) #sequence from epsilon to u[0] - epsilon
+    raw_theta_2_grid = (1/2 - w[0] * raw_theta_1_grid) / w[1]
+    theta_1_grid = raw_theta_1_grid + u_A[0] - A_c[0]
+    theta_2_grid = raw_theta_2_grid + u_A[1] - A_c[1]
+
     strata_matrix = np.zeros((len(shuffled_1) + len(shuffled_2) - 1, len(theta_1_grid)))
     intersection_marts = np.zeros((len(shuffled_1) + len(shuffled_2), len(theta_1_grid)))
     for i in range(len(theta_1_grid)):
-        mart_1, mu_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = 1/(2-v[0]), f = .01, u = u[0])
-        mart_2, mu_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = 1/(2-v[1]), f = .01, u = u[1])
+        mart_1, mu_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = u_A[0], f = .01, u = 2*u_A[0])
+        mart_2, mu_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = u_A[1], f = .01, u = 2*u_A[1])
+        if rule == ucb_selector:
+            lsm_marts_1 = alpha_mart(x = shuffled_1, N = N[0], mu = theta_1_grid[i], eta = theta_1_grid[i]/2, f = .01, u = 2*u_A[0], alternative = "lower")[0]
+            lsm_marts_2 = alpha_mart(x = shuffled_2, N = N[1], mu = theta_2_grid[i], eta = theta_2_grid[i]/2, f = .01, u = 2*u_A[1], alternative = "lower")[0]
+            lsm_marts = [lsm_marts_1, lsm_marts_2]
+        else:
+            lsm_marts = None
         strata_matrix[:,i], intersection_marts[:,i] = stratum_selector(
             marts = [mart_1, mart_2],
             mu = [mu_1, mu_2],
-            u = u,
+            u = 2*u_A,
+            lower_sided_marts = lsm_marts,
             rule = rule)
     null_index = np.argmin(intersection_marts, axis = 1)
     #stratum_selections = strata_matrix[1:sum(N), null_index]
@@ -321,10 +386,10 @@ def get_global_pvalue(strata: list, u: np.array, v: np.array, rule: callable):
         minimized_martingale[i] = intersection_marts[i,null_index[i]]
         stratum_selections[i] = strata_matrix[i,null_index[i]]
     p_values = 1 / np.maximum(1, minimized_martingale)
-    null_selections = theta_1_grid[null_index]
+    null_selections = raw_theta_1_grid[null_index]
     return p_values, stratum_selections, null_selections
 
-def simulate_audits(strata: list, u: np.array, v: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
+def simulate_audits(strata: list, u_A: np.array, v: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
     '''
     simulates n_sims audits by wrapping get_global_pvalue and returns stopping times at level alpha
 
@@ -332,8 +397,8 @@ def simulate_audits(strata: list, u: np.array, v: np.array, rule: callable, n_si
     ----------
     strata: list of 2 np.arrays
         each np.array contains the values of a population within a stratum, to be sampled by SRSing
-    u: np.array of length 2
-        each value is the upper bound in the corresponding stratum in strata (e.g. u[0] is the known upper bound of strata[0])
+    u_A: np.array of length 2
+        each value is the bound on assorters in the corresponding stratum
     v: np.array of length 2
         the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
     rule: callable
@@ -350,7 +415,7 @@ def simulate_audits(strata: list, u: np.array, v: np.array, rule: callable, n_si
     '''
     stopping_times = np.zeros(n_sims)
     for i in np.arange(n_sims):
-        p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u = u, v = v, rule = rule)
+        p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u_A = u_A, v = v, rule = rule)
         if any(p_values < alpha):
             stopping_times[i] = np.min(np.where(p_values < alpha))
         else:
