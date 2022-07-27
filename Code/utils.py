@@ -232,7 +232,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
 
 def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
     '''
-    find the next stratum by random choice with probability proportional to current value of martingale
+    stop sampling from a stratum if there is strong evidence that the null is true
 
     Parameters
     ----------
@@ -319,7 +319,8 @@ def round_robin(running_T : np.array, running_n : np.array, running_mu : np.arra
     available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
     if np.sum(available) == 0:
         raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
-    return np.argmin(running_n / ns) #this breaks ties by selecting the first strata where true
+    running_n = np.where(available, running_n, np.inf) #this makes the selector avoid strata that aren't available
+    return np.argmin(running_n / ns) #ties broken by selecting first stratum where true
 
 
 
@@ -389,7 +390,7 @@ def get_global_pvalue(strata: list, u_A: np.array, A_c: np.array, rule: callable
     null_selections = raw_theta_1_grid[null_index]
     return p_values, stratum_selections, null_selections
 
-def simulate_audits(strata: list, u_A: np.array, v: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
+def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
     '''
     simulates n_sims audits by wrapping get_global_pvalue and returns stopping times at level alpha
 
@@ -399,8 +400,8 @@ def simulate_audits(strata: list, u_A: np.array, v: np.array, rule: callable, n_
         each np.array contains the values of a population within a stratum, to be sampled by SRSing
     u_A: np.array of length 2
         each value is the bound on assorters in the corresponding stratum
-    v: np.array of length 2
-        the (reported) diluted margin in each stratum, used to set the tuning parameter eta_0 in ALPHA martingale
+    A_c: np.array of length 2
+        the assorter mean of CVRs in each stratum, used to adjust null means
     rule: callable
         the stratum selection rule to be used, e.g., multinomial_selector
     n_sims: positive integer
@@ -415,7 +416,7 @@ def simulate_audits(strata: list, u_A: np.array, v: np.array, rule: callable, n_
     '''
     stopping_times = np.zeros(n_sims)
     for i in np.arange(n_sims):
-        p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u_A = u_A, v = v, rule = rule)
+        p_values, stratum_selections, null_selections = get_global_pvalue(strata = strata, u_A = u_A, A_c = A_c, rule = rule)
         if any(p_values < alpha):
             stopping_times[i] = np.min(np.where(p_values < alpha))
         else:
