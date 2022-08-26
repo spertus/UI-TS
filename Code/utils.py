@@ -475,8 +475,16 @@ def get_eb_p_value(strata : list, lam, gamma):
     a = [(gamma/(np.arange(N[k]) + 1)) * np.cumsum(lam*strata[k] - psi_E(lam)*v_i(strata[k])) + (1-gamma)*w[k] for k in np.arange(K)]
     running_n = np.zeros(K)
     running_a = np.ones(K)
-    for i in np.arange(np.sum(N)):
-        eb_selector()
+    #record which strata are pulled from
+    selected_strata = np.zeros(np.sum(N))
+    mart = np.ones(np.sum(N))
+    i = 0
+    while any(running_n < (N-1)):
+        next_stratum = eb_selector(running_a = running_a, running_n = running_n, lam = lam, N = N, gamma = gamma)
+        selected_strata[i] = next_stratum
+        running_n[next_stratum] += 1
+        running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
+        i += 1
 
 ##############################################################################
 
