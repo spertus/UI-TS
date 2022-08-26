@@ -484,7 +484,20 @@ def get_eb_p_value(strata : list, lam, gamma):
         selected_strata[i] = next_stratum
         running_n[next_stratum] += 1
         running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
+        running_b[next_stratum] += -lam
+        eta_star = np.zeros(K)
+        active = np.ones(K)
+        #greedy algorithm to optimize over eta
+        while((np.dot(eta_star, w) < 1/2) and all(eta_star <= u)):
+            weight = -running_b / w
+            max_index = np.argmax(weight * active)
+            active[max_index] = 0
+            eta_star[max_index] = np.minimum(u, (1/2 - np.dot(eta_star, w)) / w[max_index])
         i += 1
+        log_mart[i] = np.sum(running_a) + np.dot(running_b, eta_star)
+    mart = np.exp(log_mart)
+    p_value = 1/np.maximum(1, mart)
+    return p_value
 
 ##############################################################################
 
