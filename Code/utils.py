@@ -159,6 +159,7 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
         raise ValueError("Input valid value for alternative: either upper or lower")
     return terms, m
 
+
 def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None, lower_sided_marts : list=None) -> np.array:
     '''
     select the order of strata from which the samples will be drawn to construct the test SM
@@ -213,21 +214,24 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
         if rule == ucb_selector:
             running_lsm[next_s] = lower_sided_marts[next_s][int(running_n[next_s])]
         if np.isposinf(running_T[next_s]):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad with infinities
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #stratum = inf if no sample is drawn
             break
         elif np.all((running_mu >= u) | (running_n == ns-1)):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad out with last value of martingale and stop counting, that null is ture
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad with last value of martingale and stop counting, that null is ture
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
             break
         elif np.any(running_mu <= 0):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad out with infinities; that null is certainly false
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #pad with infinities; that null is certainly false
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
             break
         else:
             T = np.append(T, np.prod(running_T))
             strata = np.append(strata, next_s)
     return strata, T
+
+
+
 
 
 def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
@@ -319,8 +323,8 @@ def round_robin(running_T : np.array, running_n : np.array, running_mu : np.arra
     available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
     if np.sum(available) == 0:
         raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
-    running_n = np.where(available, running_n, np.inf) #this makes the selector avoid strata that aren't available
-    return np.argmin(running_n / ns) #ties broken by selecting first stratum where true
+    running_n = np.where(available, running_n, np.inf) # this makes the selector avoid strata that aren't available
+    return np.argmin(running_n / ns) # ties broken by selecting first stratum where true
 
 
 
@@ -422,6 +426,57 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
         else:
             stopping_times[i] = np.inf
     return stopping_times
+
+
+############### functions for emprical Bernstein ###########
+
+def eb_selector(running_a, running_n, lam, N, gamma = 1, prng : np.random.RandomState=None) -> int:
+    '''
+    stop sampling from a stratum if there is strong evidence that the null is true
+
+    Parameters
+    ----------
+    running_a : np.array of length K
+        the current value of "a" (the constant) in the empirical Bernstein LP
+    running_n : np.array of length K
+        the current sample size in each stratum
+    lam: double in [0,1]
+        the value of lambda at every time in every stratum
+    w: np.array of length K
+        the stratum weights
+    u: np.array
+        the known upper bound in each stratum
+    N : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < N - 1)
+    w = N / np.sum(N)
+    score = (gamma/(running_n + 1)) * running_a + (1 - gamma) * w
+    score = np.where(available, score, 0)
+    probs = score / sum(score)
+    return np.random.choice(len(probs), p = probs)
+
+def psi_E(lam):
+    return -np.log(1 - lam) - lam
+
+def v_i(samples):
+    running_mean = np.convolve(samples, np.ones(len(samples)) / len(samples), mode = 'valid')
+    lagged_running_mean = np.append(1/2, running_mean[:-1])
+    return (samples - lagged_running_mean)**2
+
+#strata should already be shuffled
+def get_eb_p_value(strata : list, lam, gamma):
+    N = np.array([len(x) for x in strata])
+    K = len(strata)
+    w = N/np.sum(N)
+    marts = [np.ones(x) for x in N]
+    a = [(gamma/(np.arange(N[k]) + 1)) * np.cumsum(lam*strata[k] - psi_E(lam)*v_i(strata[k])) + (1-gamma)*w[k] for k in np.arange(K)]
+    running_n = np.zeros(K)
+    running_a = np.ones(K)
+    for i in np.arange(np.sum(N)):
+        eb_selector()
 
 ##############################################################################
 
