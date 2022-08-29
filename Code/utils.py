@@ -466,25 +466,47 @@ def v_i(samples):
     lagged_running_mean = np.append(1/2, running_mean[:-1])
     return (samples - lagged_running_mean)**2
 
+def pm_lambda(samples, alpha = 0.05, c = 0.75):
+    j = np.arange(1,len(samples)+1)
+    mu_hat = [samples[0]]
+    sigma_hat = [0]
+    for i, xj in enumerate(samples[1:]):
+        mu_hat.append(mu_hat[-1]+(xj-mu_hat[-1])/(i+1))
+        sigma_hat.append(sigma_hat[-1]+(xj-mu_hat[-2])*(xj-mu_hat[-1]))
+    sigma_hat = np.sqrt(sigma_hat/j)
+    lag_sigma_hat = np.insert(sigma_hat,0,0.25)[0:-1]
+    lam_pm = np.sqrt(2 * np.log(1/alpha) / (lag_sigma_hat * j * np.log(1 + j)))
+    lam_pm = np.minimum(lam_pm, c)
+    return lam_pm
+
+
 #strata should already be shuffled
-def get_eb_p_value(strata : list, lam, gamma):
+def get_eb_p_value(strata : list, lam = None, gamma = 1):
     N = np.array([len(x) for x in strata])
     K = len(strata)
     w = N/np.sum(N)
+    u = 1
     marts = [np.ones(x) for x in N]
-    a = [(gamma/(np.arange(N[k]) + 1)) * np.cumsum(lam*strata[k] - psi_E(lam)*v_i(strata[k])) + (1-gamma)*w[k] for k in np.arange(K)]
+    if lam is None:
+        lam = [pm_lambda(stratum) for stratum in strata]
+    else:
+        lam = [np.repeat(lam[k], N[k]) for k in np.arange(K)]
+    a = [(gamma/(np.arange(N[k]) + 1)) * np.cumsum(lam[k]*strata[k] - psi_E(lam[k])*v_i(strata[k])) + (1-gamma)*w[k] for k in np.arange(K)]
     running_n = np.zeros(K)
     running_a = np.ones(K)
+    running_b = np.zeros(K)
+    running_lam = np.array([x[0] for x in lam])
     #record which strata are pulled from
     selected_strata = np.zeros(np.sum(N))
-    mart = np.ones(np.sum(N))
+    log_mart = np.zeros(np.sum(N))
     i = 0
     while any(running_n < (N-1)):
-        next_stratum = eb_selector(running_a = running_a, running_n = running_n, lam = lam, N = N, gamma = gamma)
+        next_stratum = eb_selector(running_a = running_a, running_n = running_n, lam = running_lam, N = N, gamma = gamma)
         selected_strata[i] = next_stratum
         running_n[next_stratum] += 1
+        running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
         running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
-        running_b[next_stratum] += -lam
+        running_b[next_stratum] -= running_lam[next_stratum]
         eta_star = np.zeros(K)
         active = np.ones(K)
         #greedy algorithm to optimize over eta
