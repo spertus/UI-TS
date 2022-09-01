@@ -430,20 +430,20 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
 
 ############### functions for emprical Bernstein ###########
 
-def eb_selector(running_a, running_n, lam, N, gamma = 1, prng : np.random.RandomState=None) -> int:
+def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
     '''
     stop sampling from a stratum if there is strong evidence that the null is true
 
     Parameters
     ----------
     running_a : np.array of length K
-        the current value of "a" (the constant) in the empirical Bernstein LP
+        the current value of "a" (the constants in each stratum) in the empirical Bernstein LP
     running_n : np.array of length K
         the current sample size in each stratum
+    running_b : np.array of length K
+        the current value of "b" (the slope vector) in the empirical Bernstein LP
     lam: double in [0,1]
         the value of lambda at every time in every stratum
-    w: np.array of length K
-        the stratum weights
     u: np.array
         the known upper bound in each stratum
     N : np.array
@@ -451,22 +451,55 @@ def eb_selector(running_a, running_n, lam, N, gamma = 1, prng : np.random.Random
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
-    available = (running_n < N - 1)
-    w = N / np.sum(N)
-    score = (gamma/(running_n + 1)) * running_a + (1 - gamma) * w
-    score = np.where(available, score, 0)
-    probs = score / sum(score)
-    return np.random.choice(len(probs), p = probs)
+    if np.sum(running_n) <= run_in:
+        return np.random.choice(len(running_a))
+    else:
+        available = (running_n < N - 1)
+        w = N / np.sum(N)
+        a_normed = running_a / np.sum(running_a)
+        wb_normed = (w/running_b) / np.sum(w/running_b)
+        score = gamma * a_normed + (1 - gamma) * wb_normed
+        score = np.where(available, score, 0)
+        probs = score / sum(score)
+        return np.random.choice(len(probs), p = probs)
 
 def psi_E(lam):
+    '''
+    function psi_E for lam \in [0,1) from page 10 of https://arxiv.org/pdf/2010.09686.pdf
+
+    Parameters
+    ----------
+    lam: np.array of doubles in [0,1)
+        values of tuning parameter lambda
+    '''
     return -np.log(1 - lam) - lam
 
 def v_i(samples):
+    '''
+    accumulating variance for EB page 10 of https://arxiv.org/pdf/2010.09686.pdf
+
+    Parameters
+    ----------
+    samples: np.array of doubles in [0,1]
+        random samples from a bounded population in sampling order
+    '''
     running_mean = np.convolve(samples, np.ones(len(samples)) / len(samples), mode = 'valid')
     lagged_running_mean = np.append(1/2, running_mean[:-1])
     return (samples - lagged_running_mean)**2
 
 def pm_lambda(samples, alpha = 0.05, c = 0.75):
+    '''
+    predictable mixture strategy for choosing lambda based on samples, from https://arxiv.org/pdf/2010.09686.pdf
+
+    Parameters
+    ----------
+    samples: np.array of doubles in [0,1]
+        random samples from a bounded population in sampling order
+    alpha: double in (0,1)
+        a tuning parameter, ideally corresponding to the level of the test (the risk limit)
+    c: double in [0,1]
+        a tuning parameter that thresholds lambda (see page 10 of https://arxiv.org/pdf/2010.09686.pdf)
+    '''
     j = np.arange(1,len(samples)+1)
     mu_hat = [samples[0]]
     sigma_hat = [0]
@@ -481,7 +514,7 @@ def pm_lambda(samples, alpha = 0.05, c = 0.75):
 
 
 #strata should already be shuffled
-def get_eb_p_value(strata : list, lam = None, gamma = 1):
+def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
     N = np.array([len(x) for x in strata])
     K = len(strata)
     w = N/np.sum(N)
@@ -491,17 +524,18 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1):
         lam = [pm_lambda(stratum) for stratum in strata]
     else:
         lam = [np.repeat(lam[k], N[k]) for k in np.arange(K)]
-    a = [(gamma/(np.arange(N[k]) + 1)) * np.cumsum(lam[k]*strata[k] - psi_E(lam[k])*v_i(strata[k])) + (1-gamma)*w[k] for k in np.arange(K)]
+    a = [np.cumsum(lam[k]*strata[k] - psi_E(lam[k])*v_i(strata[k])) for k in np.arange(K)]
     running_n = np.zeros(K)
-    running_a = np.ones(K)
+    running_a = np.zeros(K)
     running_b = np.zeros(K)
     running_lam = np.array([x[0] for x in lam])
     #record which strata are pulled from
-    selected_strata = np.zeros(np.sum(N))
-    log_mart = np.zeros(np.sum(N))
+    selected_strata = np.zeros(np.sum(N) - K)
+    log_mart = np.zeros(np.sum(N) - K)
+    eta_star_mat = np.zeros((np.sum(N) - K, K))
     i = 0
     while any(running_n < (N-1)):
-        next_stratum = eb_selector(running_a = running_a, running_n = running_n, lam = running_lam, N = N, gamma = gamma)
+        next_stratum = eb_selector(running_a = running_a, running_n = running_n, running_b = running_b, run_in = run_in, N = N, gamma = gamma)
         selected_strata[i] = next_stratum
         running_n[next_stratum] += 1
         running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
@@ -515,11 +549,12 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1):
             max_index = np.argmax(weight * active)
             active[max_index] = 0
             eta_star[max_index] = np.minimum(u, (1/2 - np.dot(eta_star, w)) / w[max_index])
-        i += 1
         log_mart[i] = np.sum(running_a) + np.dot(running_b, eta_star)
+        eta_star_mat[i,:] = eta_star
+        i += 1
     mart = np.exp(log_mart)
     p_value = 1/np.maximum(1, mart)
-    return p_value
+    return log_mart, p_value, selected_strata, eta_star_mat, running_a, running_b
 
 ##############################################################################
 
