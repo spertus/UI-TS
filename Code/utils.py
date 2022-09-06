@@ -515,6 +515,20 @@ def pm_lambda(samples, alpha = 0.05, c = 0.75):
 
 #strata should already be shuffled
 def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
+    '''
+    return stratified empirical Bernstein P-value, including possible stratum selection and optimization over null mean vector
+
+    Parameters
+    ----------
+    strata: list of np.arrays with elements in [0,1]
+        random samples (in random order) from a strata in a bounded population
+    lam: double in (0,1]
+        optional tuning parameter, defaults to predictable mixture https://arxiv.org/pdf/2010.09686.pdf
+    gamma: double in [0,1]
+        a tuning parameter that trades of between proportional allocation (0) and allocating to strata with large "a" (1)
+    run_in: an integer
+        a tuning parameter that tells the allocation how long to randomly draw samples before switching to the strategy
+    '''
     N = np.array([len(x) for x in strata])
     K = len(strata)
     w = N/np.sum(N)
