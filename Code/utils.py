@@ -432,7 +432,7 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
 
 def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
     '''
-    stop sampling from a stratum if there is strong evidence that the null is true
+    select the next stratum with probabilities based on running sample size, stratum weights, and values for a and b
 
     Parameters
     ----------
@@ -442,8 +442,8 @@ def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng 
         the current sample size in each stratum
     running_b : np.array of length K
         the current value of "b" (the slope vector) in the empirical Bernstein LP
-    lam: double in [0,1]
-        the value of lambda at every time in every stratum
+    gamma: double in [0,1]
+        tuning parameter to trade off between larger expected value for a or w/b
     u: np.array
         the known upper bound in each stratum
     N : np.array
@@ -451,17 +451,20 @@ def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng 
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
+    #available needs to be up here
+    available = (running_n < N - 1)
     if np.sum(running_n) <= run_in:
-        return np.random.choice(len(running_a))
+        scores = np.ones(len(running_a))
+        scores = np.where(available, scores, 0)
     else:
-        available = (running_n < N - 1)
         w = N / np.sum(N)
-        a_normed = running_a / np.sum(running_a)
+        a_tilde = running_a / running_n
+        a_tilde_normed = a_tilde / np.sum(a_tilde)
         wb_normed = (w/running_b) / np.sum(w/running_b)
-        score = gamma * a_normed + (1 - gamma) * wb_normed
-        score = np.where(available, score, 0)
-        probs = score / sum(score)
-        return np.random.choice(len(probs), p = probs)
+        scores = gamma * a_tilde_normed + (1 - gamma) * wb_normed
+        scores = np.where(available, scores, 0)
+    probs = scores / sum(scores)
+    return np.random.choice(len(probs), p = probs)
 
 def psi_E(lam):
     '''
@@ -508,7 +511,7 @@ def pm_lambda(samples, alpha = 0.05, c = 0.75):
         sigma_hat.append(sigma_hat[-1]+(xj-mu_hat[-2])*(xj-mu_hat[-1]))
     sigma_hat = np.sqrt(sigma_hat/j)
     lag_sigma_hat = np.insert(sigma_hat,0,0.25)[0:-1]
-    lam_pm = np.sqrt(2 * np.log(1/alpha) / (lag_sigma_hat * j * np.log(1 + j)))
+    lam_pm = np.sqrt(2 * np.log(1/alpha) / (lag_sigma_hat**2 * j * np.log(1 + j)))
     lam_pm = np.minimum(lam_pm, c)
     return lam_pm
 
@@ -520,10 +523,10 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
 
     Parameters
     ----------
-    strata: list of np.arrays with elements in [0,1]
+    strata: list of K np.arrays with elements in [0,1]
         random samples (in random order) from a strata in a bounded population
-    lam: double in (0,1]
-        optional tuning parameter, defaults to predictable mixture https://arxiv.org/pdf/2010.09686.pdf
+    lam: length K array of double in (0,1]
+        optional tuning parameter (varying across strata, fixed across time), if unspecified defaults to predictable mixture https://arxiv.org/pdf/2010.09686.pdf
     gamma: double in [0,1]
         a tuning parameter that trades of between proportional allocation (0) and allocating to strata with large "a" (1)
     run_in: an integer
@@ -538,7 +541,7 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
         lam = [pm_lambda(stratum) for stratum in strata]
     else:
         lam = [np.repeat(lam[k], N[k]) for k in np.arange(K)]
-    a = [np.cumsum(lam[k]*strata[k] - psi_E(lam[k])*v_i(strata[k])) for k in np.arange(K)]
+    a = [np.cumsum(lam[k]*strata[k] - psi_E(lam[k]) * v_i(strata[k])) for k in np.arange(K)]
     running_n = np.zeros(K)
     running_a = np.zeros(K)
     running_b = np.zeros(K)
@@ -558,7 +561,8 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
         eta_star = np.zeros(K)
         active = np.ones(K)
         #greedy algorithm to optimize over eta
-        while((np.dot(eta_star, w) < 1/2) and all(eta_star <= u)):
+        while(np.dot(eta_star, w) < 1/2):
+            assert all(eta_star <= u)
             weight = -running_b / w
             max_index = np.argmax(weight * active)
             active[max_index] = 0
