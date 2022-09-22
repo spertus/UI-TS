@@ -1,6 +1,7 @@
 import numpy as np
 import scipy as sp
 import math
+import pypoman
 from scipy.stats import bernoulli, multinomial
 from scipy.stats.mstats import gmean
 
@@ -430,9 +431,9 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
 
 ############### functions for emprical Bernstein ###########
 
-def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
+def eb_selector(running_a, running_n, running_b, N, u = None, eta = None, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
     '''
-    select the next stratum with probabilities based on running sample size, stratum weights, and values for a and b
+    select the next stratum with probabilities based on running sample size, stratum weights, values for a and b, and possibly eta (the null vector)
 
     Parameters
     ----------
@@ -442,12 +443,18 @@ def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng 
         the current sample size in each stratum
     running_b : np.array of length K
         the current value of "b" (the slope vector) in the empirical Bernstein LP
-    gamma: double in [0,1]
-        tuning parameter to trade off between larger expected value for a or w/b
-    u: np.array
-        the known upper bound in each stratum
     N : np.array
         the total number of items in each stratum, or np.inf for sampling with replacement
+    u: positive double
+        the upper bound on the population, needed for eta-specific strategies
+    eta: np.array of length K
+        optional, the intersection null currently being tested,
+        if not defined, a heuristic strategy is used that tries to be powerful for all intersection nulls
+    gamma: double in [0,1]
+        tuning parameter to trade off between larger expected value for a or w/b
+    run_in: positive integer
+        the run in time, the time before which the selector draws strata uniformly at random
+
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
@@ -457,14 +464,21 @@ def eb_selector(running_a, running_n, running_b, N, gamma = 1, run_in = 0, prng 
         scores = np.ones(len(running_a))
         scores = np.where(available, scores, 0)
     else:
-        w = N / np.sum(N)
-        a_tilde = running_a / running_n
-        a_tilde_normed = a_tilde / np.sum(a_tilde)
-        wb_normed = (w/running_b) / np.sum(w/running_b)
-        scores = gamma * a_tilde_normed + (1 - gamma) * wb_normed
-        scores = np.where(available, scores, 0)
+        if eta is not None:
+            available = (running_n < N - 1) & (eta != u)
+            #this is just the value of the martingale in each stratum
+            scores = np.exp(running_a + running_b * eta)
+            scores = np.where(available, scores, 0)
+        else:
+            w = N / np.sum(N)
+            a_tilde = running_a / running_n
+            a_tilde_normed = a_tilde / np.sum(a_tilde)
+            wb_normed = (w/running_b) / np.sum(w/running_b)
+            scores = gamma * a_tilde_normed + (1 - gamma) * wb_normed
+            scores = np.where(available, scores, 0)
     probs = scores / sum(scores)
     return np.random.choice(len(probs), p = probs)
+
 
 def psi_E(lam):
     '''
@@ -516,10 +530,10 @@ def pm_lambda(samples, alpha = 0.05, c = 0.75):
     return lam_pm
 
 
-#strata should already be shuffled
-def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
+
+def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10, fixed_strategy = True):
     '''
-    return stratified empirical Bernstein P-value, including possible stratum selection and optimization over null mean vector
+    return stratified empirical Bernstein P-value for a selection strategy fixed over possible intersection nulls
 
     Parameters
     ----------
@@ -542,37 +556,66 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10):
     else:
         lam = [np.repeat(lam[k], N[k]) for k in np.arange(K)]
     a = [np.cumsum(lam[k]*strata[k] - psi_E(lam[k]) * v_i(strata[k])) for k in np.arange(K)]
-    running_n = np.zeros(K)
-    running_a = np.zeros(K)
-    running_b = np.zeros(K)
-    running_lam = np.array([x[0] for x in lam])
-    #record which strata are pulled from
-    selected_strata = np.zeros(np.sum(N) - K)
-    log_mart = np.zeros(np.sum(N) - K)
-    eta_star_mat = np.zeros((np.sum(N) - K, K))
-    i = 0
-    while any(running_n < (N-1)):
-        next_stratum = eb_selector(running_a = running_a, running_n = running_n, running_b = running_b, run_in = run_in, N = N, gamma = gamma)
-        selected_strata[i] = next_stratum
-        running_n[next_stratum] += 1
-        running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
-        running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
-        running_b[next_stratum] -= running_lam[next_stratum]
-        eta_star = np.zeros(K)
-        active = np.ones(K)
-        #greedy algorithm to optimize over eta
-        while(np.dot(eta_star, w) < 1/2):
-            assert all(eta_star <= u)
-            weight = -running_b / w
-            max_index = np.argmax(weight * active)
-            active[max_index] = 0
-            eta_star[max_index] = np.minimum(u, (1/2 - np.dot(eta_star, w)) / w[max_index])
-        log_mart[i] = np.sum(running_a) + np.dot(running_b, eta_star)
-        eta_star_mat[i,:] = eta_star
-        i += 1
-    mart = np.exp(log_mart)
-    p_value = 1/np.maximum(1, mart)
-    return log_mart, p_value, selected_strata, eta_star_mat, running_a, running_b
+    if fixed_strategy:
+        running_n = np.zeros(K)
+        running_a = np.zeros(K)
+        running_b = np.zeros(K)
+        running_lam = np.array([x[0] for x in lam])
+        #record which strata are pulled from
+        selected_strata = np.zeros(np.sum(N) - K)
+        log_mart = np.zeros(np.sum(N) - K)
+        eta_star_mat = np.zeros((np.sum(N) - K, K))
+        i = 0
+        while any(running_n < (N-1)):
+            next_stratum = eb_selector(running_a = running_a, running_n = running_n, running_b = running_b, run_in = run_in, N = N, gamma = gamma)
+            selected_strata[i] = next_stratum
+            running_n[next_stratum] += 1
+            running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
+            running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
+            running_b[next_stratum] -= running_lam[next_stratum]
+            eta_star = np.zeros(K)
+            active = np.ones(K)
+            #greedy algorithm to optimize over eta
+            while (np.dot(eta_star, w) < 1/2):
+                assert all(eta_star <= u)
+                weight = -running_b / w
+                max_index = np.argmax(weight * active)
+                active[max_index] = 0
+                eta_star[max_index] = np.minimum(u, (1/2 - np.dot(eta_star, w)) / w[max_index])
+            log_mart[i] = np.sum(running_a) + np.dot(running_b, eta_star)
+            eta_star_mat[i,:] = eta_star
+            i += 1
+            mart = np.exp(log_mart)
+            p_value = 1/np.maximum(1, mart)
+        return log_mart, p_value, selected_strata, eta_star_mat
+    else:
+        #enumerate possible minimizing etas using pypoman
+        A = np.concatenate((np.expand_dims(w, axis = 0), np.expand_dims(-w, axis = 0), -np.identity(K), np.identity(K)))
+        b = np.concatenate((1/2 * np.ones(2), np.zeros(K), u*np.ones(K)))
+        vertices = np.stack(pypoman.compute_polytope_vertices(A, b), axis = 0)
+        minimizing_vertices = vertices[np.matmul(vertices, w) == 1/2,]
+        #a log martingale for each possible minimizing eta
+        log_marts = np.zeros((np.sum(N), minimizing_vertices.shape[0]))
+        #predictable interleaving for each martingale
+        for v in np.arange(minimizing_vertices.shape[0]):
+            eta = minimizing_vertices[v,]
+            running_n = np.zeros(K)
+            running_a = np.zeros(K)
+            running_b = np.zeros(K)
+            running_lam = np.array([x[0] for x in lam])
+            i = 0
+            while any((running_n < N - 1) & (eta != u)):
+                next_stratum = eb_selector(running_a = running_a, running_n = running_n, running_b = running_b, N = N, u = u, eta = eta)
+                running_n[next_stratum] += 1
+                running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
+                running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
+                running_b[next_stratum] -= running_lam[next_stratum]
+                log_marts[i,v] = np.sum(running_a) + np.dot(running_b, eta)
+                i += 1
+        min_log_mart = log_marts.min(axis = 1)
+        min_mart = np.exp(min_log_mart)
+        p_value = 1/np.maximum(1, min_mart)
+        return log_marts, p_value
 
 ##############################################################################
 
