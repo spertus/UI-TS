@@ -593,12 +593,13 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10, fixed_stra
         A = np.concatenate((np.expand_dims(w, axis = 0), np.expand_dims(-w, axis = 0), -np.identity(K), np.identity(K)))
         b = np.concatenate((1/2 * np.ones(2), np.zeros(K), u*np.ones(K)))
         vertices = np.stack(pypoman.compute_polytope_vertices(A, b), axis = 0)
-        minimizing_vertices = vertices[np.matmul(vertices, w) == 1/2,]
+        minimizing_etas = vertices[np.matmul(vertices, w) == 1/2,]
         #a log martingale for each possible minimizing eta
-        log_marts = np.zeros((np.sum(N), minimizing_vertices.shape[0]))
+        log_marts = np.zeros((np.sum(N), minimizing_etas.shape[0]))
+        stratum_counts = np.zeros((np.sum(N), K, minimizing_etas.shape[0]))
         #predictable interleaving for each martingale
-        for v in np.arange(minimizing_vertices.shape[0]):
-            eta = minimizing_vertices[v,]
+        for v in np.arange(minimizing_etas.shape[0]):
+            eta = minimizing_etas[v,]
             running_n = np.zeros(K)
             running_a = np.zeros(K)
             running_b = np.zeros(K)
@@ -607,15 +608,20 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10, fixed_stra
             while any((running_n < N - 1) & (eta != u)):
                 next_stratum = eb_selector(running_a = running_a, running_n = running_n, running_b = running_b, N = N, u = u, eta = eta)
                 running_n[next_stratum] += 1
+                stratum_counts[i,:,v] = running_n
                 running_lam[next_stratum] = lam[next_stratum][int(running_n[next_stratum])]
                 running_a[next_stratum] = a[next_stratum][int(running_n[next_stratum])]
                 running_b[next_stratum] -= running_lam[next_stratum]
                 log_marts[i,v] = np.sum(running_a) + np.dot(running_b, eta)
                 i += 1
+            #carry forward the last value of the martingale and stratum counts
+            log_marts[i:,v] = log_marts[i-1,v]
+            stratum_counts[i:,:,v] = stratum_counts[i-1,:,v]
         min_log_mart = log_marts.min(axis = 1)
+        min_index = log_marts.argmin(axis = 1)
         min_mart = np.exp(min_log_mart)
         p_value = 1/np.maximum(1, min_mart)
-        return log_marts, p_value
+        return log_marts, p_value, minimizing_etas, min_index, stratum_counts
 
 ##############################################################################
 
