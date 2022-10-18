@@ -161,6 +161,103 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     return terms, m
 
 
+
+
+def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
+    '''
+    stop sampling from a stratum if there is strong evidence that the null is true (a level-0.05 lower-sided test rejects)
+
+    Parameters
+    ----------
+    running_t : np.array
+        the current value of each stratumwise SM
+    running_n : np.array
+        the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
+    u: np.array
+        the known upper bound in each stratum
+    ns : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < ns-1) & (running_mu < u)
+    if np.sum(available) == 0:
+        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
+    #pvalues = 1 / np.maximum(1, running_lsm)
+    #pvalues = np.where(available, pvalues, 0)
+    score = np.where(1/running_lsm > .05, 1, .05)
+    score = np.where(available, score, 0)
+    probs = score / np.sum(score)
+
+    return np.random.choice(len(probs), p = probs)
+
+def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
+    '''
+    find the next stratum by random choice with probability proportional to current value of martingale
+
+    Parameters
+    ----------
+    running_t : np.array
+        the current value of each stratumwise SM
+    running_n : np.array
+        the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
+    u: np.array
+        the known upper bound in each stratum
+    ns : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
+    if np.sum(available) == 0:
+        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
+    geomean = gmean(running_T[available])
+    if any(np.isposinf(running_T) & available):
+        ratios = np.where(np.isposinf(running_T), 1, 0)
+    else:
+        ratios = running_T/geomean
+    ratios = np.where(available, ratios, 0)
+    probs = ratios/sum(ratios)
+
+    return np.random.choice(len(ratios), p = probs)
+
+
+def round_robin(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
+    '''
+    find the next stratum by round robin: deterministic allocation proportional to the size of the strata
+
+    Parameters
+    ----------
+    running_t : np.array
+        the current value of each stratumwise SM (nothing is done with this)
+    running_n : np.array
+        the number of samples drawn from each stratum so far
+    running_mu: np.array
+        the current value of mu in each stratum
+    running_lsm: np.array
+        this is for compatability, nothing is done with it
+    u: np.array
+        the known upper bound in each stratum
+    ns : np.array
+        the total number of items in each stratum, or np.inf for sampling with replacement
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
+    if np.sum(available) == 0:
+        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
+    running_n = np.where(available, running_n, np.inf) # this makes the selector avoid strata that aren't available
+    return np.argmin(running_n / ns) # ties broken by selecting first stratum where true
+
+
 def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, seed=None, lower_sided_marts : list=None) -> np.array:
     '''
     select the order of strata from which the samples will be drawn to construct the test SM
@@ -219,7 +316,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf) #stratum = inf if no sample is drawn
             break
         elif np.all((running_mu >= u) | (running_n == ns-1)):
-            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad with last value of martingale and stop counting, that null is ture
+            T = np.append(T, np.ones(int(sum(ns) - sum(running_n))) * T[-1]) #pad with last value of martingale and stop counting, that null is true
             strata = np.append(strata, np.ones(int(sum(ns) - sum(running_n))) * np.inf)
             break
         elif np.any(running_mu <= 0):
@@ -232,107 +329,10 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
     return strata, T
 
 
-
-
-
-def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
-    '''
-    stop sampling from a stratum if there is strong evidence that the null is true
-
-    Parameters
-    ----------
-    running_t : np.array
-        the current value of each stratumwise SM
-    running_n : np.array
-        the number of samples drawn from each stratum so far
-    running_mu: np.array
-        the current value of mu in each stratum
-    running_lsm: np.array
-        this is for compatability, nothing is done with it
-    u: np.array
-        the known upper bound in each stratum
-    ns : np.array
-        the total number of items in each stratum, or np.inf for sampling with replacement
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
-    '''
-    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
-    if np.sum(available) == 0:
-        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
-    pvalues = 1 / np.maximum(1, running_lsm)
-    pvalues = np.where(available, pvalues, 0)
-    probs = pvalues / sum(pvalues)
-
-    return np.random.choice(len(probs), p = probs)
-
-def multinomial_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
-    '''
-    find the next stratum by random choice with probability proportional to current value of martingale
-
-    Parameters
-    ----------
-    running_t : np.array
-        the current value of each stratumwise SM
-    running_n : np.array
-        the number of samples drawn from each stratum so far
-    running_mu: np.array
-        the current value of mu in each stratum
-    running_lsm: np.array
-        this is for compatability, nothing is done with it
-    u: np.array
-        the known upper bound in each stratum
-    ns : np.array
-        the total number of items in each stratum, or np.inf for sampling with replacement
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
-    '''
-    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
-    if np.sum(available) == 0:
-        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
-    geomean = gmean(running_T[available])
-    if any(np.isposinf(running_T) & available):
-        ratios = np.where(np.isposinf(running_T), 1, 0)
-    else:
-        ratios = running_T/geomean
-    ratios = np.where(available, ratios, 0)
-    probs = ratios/sum(ratios)
-
-    return np.random.choice(len(ratios), p = probs)
-
-
-def round_robin(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
-    '''
-    find the next stratum by round robin: deterministic alloction proportional to the size of the strata
-
-    Parameters
-    ----------
-    running_t : np.array
-        the current value of each stratumwise SM (nothing is done with this)
-    running_n : np.array
-        the number of samples drawn from each stratum so far
-    running_mu: np.array
-        the current value of mu in each stratum
-    running_lsm: np.array
-        this is for compatability, nothing is done with it
-    u: np.array
-        the known upper bound in each stratum
-    ns : np.array
-        the total number of items in each stratum, or np.inf for sampling with replacement
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
-    '''
-    available = (running_n < ns-1) & (running_mu < u) # strata that aren't exhausted and where null isn't deterministically true
-    if np.sum(available) == 0:
-        raise ValueError(f'all strata are exhausted: {running_n=} {ns=}')
-    running_n = np.where(available, running_n, np.inf) # this makes the selector avoid strata that aren't available
-    return np.argmin(running_n / ns) # ties broken by selecting first stratum where true
-
-
-
-
 def get_global_pvalue(strata: list, u_A: np.array, A_c: np.array, rule: callable):
     '''
-    returns a P-value (maximized over nuisance parameter) for the global null hypothesis that the mean of a comparison audit population with 2 strata is equal to 1/2
+    returns a P-value (maximized over nuisance parameter) for the global null hypothesis
+    that the mean of a comparison audit population with 2 strata is equal to 1/2
 
     Parameters
     ----------
@@ -393,7 +393,7 @@ def get_global_pvalue(strata: list, u_A: np.array, A_c: np.array, rule: callable
         stratum_selections[i] = strata_matrix[i,null_index[i]]
     p_values = 1 / np.maximum(1, minimized_martingale)
     null_selections = raw_theta_1_grid[null_index]
-    return p_values, stratum_selections, null_selections
+    return p_values, stratum_selections, null_selections, intersection_marts, theta_1_grid, strata_matrix
 
 def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, n_sims: int, alpha: float = 0.05):
     '''
@@ -429,8 +429,51 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
     return stopping_times
 
 
-############### functions for emprical Bernstein ###########
+############## functions for betting SMG #############
+def maximize_bsmg(samples, lam, N, u, theta = 1/2):
+    '''
+    maximize a stratified betting supermartingale over possible values of eta (the within-stratum means)
 
+    Parameters
+    ----------
+    marts: length-K list of np.arrays
+        samples from each stratum in random order
+    lambda: np.array of length K
+        the fixed lambda (bet) within each stratum, must be in [0,1]
+    N: np.array of length K
+        the number of elements in each stratum in the population
+    u: np.array of length K
+        the upper bound in each stratum
+    theta: double in [0,1]
+        the global null mean
+
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    w = N / np.sum(N)
+    K = len(N)
+    sample_means = [np.mean(x) for x in samples]
+    log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
+    global_log_mart = lambda eta: np.sum([mart(eta, k) for k in np.arange(0,K-1)])
+    partial = lambda eta, k: -np.sum(lam[k] / (1 + lam[k] * (samples[k] - eta[k])))
+    grad = lambda eta: np.array([partial(eta, k) for k in np.arange(0,K-1)])
+    proj = lambda eta: np.maximum(0, np.minimum(1, eta - w * (np.dot(w, eta) - theta) / np.sum(w**2)))
+    delta = 1e-3
+    eta_l = sample_means
+    step_size = 1
+    while step_size > 1e-4:
+        grad_l = grad(eta_l)
+        next_eta = proj(eta_l - delta * grad_l)
+        step_size = global_log_mart(eta_l) - global_log_mart(next_eta)
+        eta_l = next_eta
+    eta_star = eta_l
+    log_mart = global_log_mart(eta_star)
+    p_value = 1/np.maximum(1, exp(log_mart))
+    return eta_star, log_mart, p_value
+
+
+
+############### functions for emprical Bernstein ###########
 def eb_selector(running_a, running_n, running_b, N, u = None, eta = None, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
     '''
     select the next stratum with probabilities based on running sample size, stratum weights, values for a and b, and possibly eta (the null vector)
@@ -594,6 +637,7 @@ def get_eb_p_value(strata : list, lam = None, gamma = 1, run_in = 10, fixed_stra
         b = np.concatenate((1/2 * np.ones(2), np.zeros(K), u*np.ones(K)))
         vertices = np.stack(pypoman.compute_polytope_vertices(A, b), axis = 0)
         minimizing_etas = vertices[np.matmul(vertices, w) == 1/2,]
+        minimizing_etas = np.append(minimizing_etas, [[1/2,1/2,1/2]], axis = 0)
         #a log martingale for each possible minimizing eta
         log_marts = np.zeros((np.sum(N), minimizing_etas.shape[0]))
         stratum_counts = np.zeros((np.sum(N), K, minimizing_etas.shape[0]))
