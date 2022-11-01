@@ -115,6 +115,9 @@ def shrink_trunc(x: np.array, N: int, mu: float=1/2, nu: float=1-np.finfo(float)
             raise ValueError("alternative needs to be a string, either upper or lower.")
         return est
 
+
+###add estimator that returns a fixed lambda
+
 def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).eps, f: float=0, u: float=1, \
                estim: callable=shrink_trunc, alternative="upper") -> np.array :
     '''
@@ -159,8 +162,6 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     else:
         raise ValueError("Input valid value for alternative: either upper or lower")
     return terms, m
-
-
 
 
 def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
@@ -430,13 +431,66 @@ def simulate_audits(strata: list, u_A: np.array, A_c: np.array, rule: callable, 
 
 
 ############## functions for betting SMG #############
-def maximize_bsmg(samples, lam, N, u, theta = 1/2):
+def maximize_bsmg(samples, lam, N, theta = 1/2):
     '''
     maximize a stratified betting supermartingale over possible values of eta (the within-stratum means)
 
     Parameters
     ----------
-    marts: length-K list of np.arrays
+    samples: length-K list of np.arrays
+        samples from each stratum in random order
+    lam: np.array of length K
+        the fixed lambda (bet) within each stratum, must be in [0,1]
+    N: np.array of length K
+        the number of elements in each stratum in the population
+    theta: double in [0,1]
+        the global null mean
+
+    prng : np.Random.RandomState
+        a PRNG (or seed, or none)
+    '''
+    w = N / np.sum(N)
+    K = len(N)
+    #define constraint set for pypoman projection
+    A = np.concatenate((
+        np.expand_dims(w, axis = 0),
+        np.expand_dims(-w, axis = 0),
+        -np.identity(K),
+        np.identity(K)))
+    b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
+    sample_means = np.array([np.mean(x) for x in samples])
+    log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
+    global_log_mart = lambda eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
+    partial = lambda eta, k: -np.sum(lam[k] / (1 + lam[k] * (samples[k] - eta[k])))
+    grad = lambda eta: np.array([partial(eta, k) for k in np.arange(K)])
+    #proj = lambda eta: np.maximum(0, np.minimum(1, eta - w * (np.dot(w, eta) - theta) / np.sum(w**2)))
+    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+    delta = 1e-3
+    eta_l = proj(sample_means)
+    step_size = 1
+    counter = 0
+    while step_size > 1e-20:
+        counter += 1
+        grad_l = grad(eta_l)
+        next_eta = proj(eta_l - delta * grad_l)
+        step_size = global_log_mart(eta_l) - global_log_mart(next_eta)
+        eta_l = next_eta
+    eta_star = eta_l
+    log_mart = global_log_mart(eta_star)
+    p_value = 1/np.maximum(1, np.exp(log_mart))
+    return counter, eta_star, log_mart, p_value
+
+
+
+#TO FIX
+def stratified_comparison_betting(strata: list, n: np.array, u_A: np.array, A_c: np.array):
+    '''
+    Stratified comparison audit with betting martingale.
+    Given a sample size in each stratum, randomly sample that many ballots and compute the global P-value
+
+    Parameters
+    ----------
+    samples: length-K list of np.arrays
         samples from each stratum in random order
     lambda: np.array of length K
         the fixed lambda (bet) within each stratum, must be in [0,1]
@@ -450,30 +504,17 @@ def maximize_bsmg(samples, lam, N, u, theta = 1/2):
     prng : np.Random.RandomState
         a PRNG (or seed, or none)
     '''
-    w = N / np.sum(N)
-    K = len(N)
-    sample_means = [np.mean(x) for x in samples]
-    log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
-    global_log_mart = lambda eta: np.sum([mart(eta, k) for k in np.arange(0,K-1)])
-    partial = lambda eta, k: -np.sum(lam[k] / (1 + lam[k] * (samples[k] - eta[k])))
-    grad = lambda eta: np.array([partial(eta, k) for k in np.arange(0,K-1)])
-    proj = lambda eta: np.maximum(0, np.minimum(1, eta - w * (np.dot(w, eta) - theta) / np.sum(w**2)))
-    delta = 1e-3
-    eta_l = sample_means
-    step_size = 1
-    while step_size > 1e-4:
-        grad_l = grad(eta_l)
-        next_eta = proj(eta_l - delta * grad_l)
-        step_size = global_log_mart(eta_l) - global_log_mart(next_eta)
-        eta_l = next_eta
-    eta_star = eta_l
-    log_mart = global_log_mart(eta_star)
-    p_value = 1/np.maximum(1, exp(log_mart))
-    return eta_star, log_mart, p_value
+    #things have to be rescaled to make a betting martingale
+    shuffled_strata = [np.random.permutation(strata[k])/u_A[k] for k in np.arange(len(strata))]
+    N = np.array([len(stratum) for stratum in strata])
+    K = len(strata)
+
+    samples = [shuffled_strata[i][0:(n[i]-1)] for i in np.arange(len(shuffled_strata))]
+    eta_star, log_mart, p_value = maximize_bsmg(samples = samples, lam = .9*np.ones(K), N = N, u = u_A, theta = 1/2)
 
 
 
-############### functions for emprical Bernstein ###########
+############### functions for empirical Bernstein ###########
 def eb_selector(running_a, running_n, running_b, N, u = None, eta = None, gamma = 1, run_in = 0, prng : np.random.RandomState=None) -> int:
     '''
     select the next stratum with probabilities based on running sample size, stratum weights, values for a and b, and possibly eta (the null vector)
