@@ -6,6 +6,173 @@ from scipy.stats import bernoulli, multinomial
 from scipy.stats.mstats import gmean
 
 
+class Bets:
+    '''
+    Methods to set bets that are \eta-adaptive, data-adaptive, both, or neither.
+    Currently, bets for stratum k can only depend on eta and data within stratum k
+
+    Parameters
+        ----------
+        eta: float in [0,1]
+            the null mean within stratum k
+        x: 1-dimensional np.array of length n_k := T_k(t) with elements in [0,1]
+            the data sampled from stratum k
+
+        Returns
+        ----------
+        lam: a length-1 or length-n_k corresponding to \lambda_{ki} in the I-NNSM:
+            \prod_{i=1}^{T_k(t)} [1 + \lambda_{ki (X_{ki} - \eta_k)]
+
+    '''
+
+    def lam_fixed(x, eta):
+        '''
+        lambda fixed to 0.75 (nonadaptive)
+        '''
+        lam = 0.75 * np.ones(x.size)
+        return lam
+
+    def lam_agrapa(x, eta):
+        '''
+        AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
+        lambda is set to approximately maximize a Kelly-like objective (expectation of log martingale)
+        '''
+        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
+        j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
+        mu_hat = S/j
+        mj = [x[0]]   # Welford's algorithm for running mean and running SD
+        sdj = [0]
+        for i, xj in enumerate(x[1:]):
+            mj.append(mj[-1]+(xj-mj[-1])/(i+1))
+            sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
+        sdj = np.sqrt(sdj/j)
+        sdj = np.insert(np.maximum(sdj,.1),0,1)[0:-1]
+        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
+        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/eta))
+        return lam_trunc
+
+    def lam_trunc(x, eta):
+        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
+        j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
+        mu_hat = S/j
+        lam_trunc = np.where(eta <= mu_hat, .75 / eta, 0)
+        return lam_trunc
+
+    def lam_smooth(x, eta):
+        lam = np.exp(- eta)
+        return lam
+
+    def lam_smooth_predictable(x, eta):
+        lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
+        lam = np.exp(lag_mean - eta)
+        return lam
+
+class Weights:
+    '''
+    Predictable and \eta-adaptive methods to set weights for combining across strata by summing
+    Generally will be less powerful than taking products
+    (see Vovk and Wang 2020 on E-value combining)
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        eta: length-K np.array in [0,1]^K
+            the vector of null means across strata
+        lam_func: callable, a function from the Bets class
+
+    Returns
+    ----------
+        theta: a length-K list of convex weights
+            the weights for combining the martingales as a sum I-NNSM E-value at time t
+
+    '''
+    def theta_fixed(x, eta, lam_func):
+        '''
+        balanced, fixed weights (usual average)
+        '''
+        theta = np.ones(eta.size)/eta.size
+        return theta
+
+    def theta_max_predictable(x, eta, lam_func):
+        '''
+        puts all weight on the last (lagged) largest within-stratum martingale
+        '''
+        lag_marts = [np.prod(1 + lam_func(eta[k], x[k][:-1]) * (x[k][:-1] - eta[k])) for k in np.arange(K)]
+        theta = np.zeros(eta.size)
+        theta[np.argmax(lag_marts)] = 1
+        return theta
+
+    def theta_smooth_predictable(x, eta, lam_func):
+        '''
+        makes weights proportional to last (lagged) size of martingales
+        '''
+        lag_marts = [np.prod(1 + lam_func(eta[k], x[k][:-1]) * (x[k][:-1] - eta[k])) for k in np.arange(K)]
+        theta = lag_marts / np.sum(lag_marts)
+        return theta
+
+def mart(x, eta, lam_func, log = True):
+    '''
+    betting martingale
+
+    Parameters
+    ----------
+        x: length-n_k np.array with elements in [0,1]
+            data
+        eta: scalar in [0,1]
+            null mean
+        lam_func: callable, a function from the Bets class
+        log: Boolean
+            indicates whether the martingale should be returned on the log scale or not
+    Returns
+    ----------
+        mart: scalar; the value of the (log) betting martingale at time n_k
+
+    '''
+    if log:
+        mart = np.sum(np.log(1 + lam_func(x, eta) * (x - eta)))
+    else:
+        mart = np.prod(1 + lam_func(x, eta) * (x - eta))
+    return mart
+
+def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, log = True):
+    '''
+    an intersection martingale (I-NNSM) for a vector \eta
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        eta: length-K np.array or list in [0,1]
+            the vector of null means
+        lam_func: callable, a function from class Bets
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
+        theta_func: callable, a function from class Weights
+            only relevant if combine == "sum", the weights to use when combining with weighted sum
+        log: Boolean
+            return the log I-NNSM if true, otherwise return on original scale
+    Returns
+    ----------
+
+    '''
+    K = eta.shape[0]
+    marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
+    if combine == "product":
+        int_mart = np.sum(marts) if log else np.prod(marts)
+    elif combine == "sum":
+        assert theta_func is not None
+        thetas = theta_func(eta, x, lam_func)
+        int_mart = np.log(np.sum(thetas * marts)) if log else np.sum(thetas * marts)
+    else:
+        raise NotImplementedError("combine must be either product or sum")
+    return int_mart
+
+
+
+
+
+########## this is old stuff ###########
 def sprt_mart(x : np.array, N : int, mu : float=1/2, eta: float=1-np.finfo(float).eps, \
               u: float=1, random_order = True):
     '''
@@ -162,6 +329,7 @@ def alpha_mart(x: np.array, N: int, mu: float=1/2, eta: float=1-np.finfo(float).
     else:
         raise ValueError("Input valid value for alternative: either upper or lower")
     return terms, m
+
 
 
 def ucb_selector(running_T : np.array, running_n : np.array, running_mu : np.array, u : np.array, ns : np.array, running_lsm : np.array = None, prng : np.random.RandomState=None) -> int:
