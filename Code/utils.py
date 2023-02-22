@@ -1,5 +1,6 @@
 import numpy as np
 import scipy as sp
+import matplotlib.pyplot as plt
 import math
 import pypoman
 from scipy.stats import bernoulli, multinomial
@@ -91,7 +92,7 @@ class Weights:
         '''
         balanced, fixed weights (usual average)
         '''
-        theta = np.ones(eta.size)/eta.size
+        theta = np.ones(len(eta))/len(eta)
         return theta
 
     def theta_max_predictable(x, eta, lam_func):
@@ -99,7 +100,7 @@ class Weights:
         puts all weight on the last (lagged) largest within-stratum martingale
         '''
         lag_marts = [np.prod(1 + lam_func(eta[k], x[k][:-1]) * (x[k][:-1] - eta[k])) for k in np.arange(K)]
-        theta = np.zeros(eta.size)
+        theta = np.zeros(len(eta))
         theta[np.argmax(lag_marts)] = 1
         return theta
 
@@ -154,19 +155,107 @@ def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, 
             return the log I-NNSM if true, otherwise return on original scale
     Returns
     ----------
-
+        the value of an intersection martingale that uses all the data (not running max)
     '''
     K = eta.shape[0]
     marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
     if combine == "product":
         int_mart = np.sum(marts) if log else np.prod(marts)
     elif combine == "sum":
-        assert theta_func is not None
+        assert theta_func is not None, "Need to specify a theta function from Weights if using sum"
         thetas = theta_func(eta, x, lam_func)
         int_mart = np.log(np.sum(thetas * marts)) if log else np.sum(thetas * marts)
     else:
         raise NotImplementedError("combine must be either product or sum")
     return int_mart
+
+def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log = True, res = 1e-2):
+    '''
+    generate a 2-D or 3-D plot of an intersection martingale over possible values of \bs{\eta}
+    the global null is always \eta <= 1/2; future update: general global nulls
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        N: length-K np.array of positive ints,
+            the vector of stratum sizes
+        lam_func: callable, a function from class Bets
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
+        theta_func: callable, a function from class Weights
+            only relevant if combine == "sum", the weights to use when combining with weighted sum
+        log: Boolean
+            return the log I-NNSM if true, otherwise return on original scale
+        res: float > 0,
+            the resolution of equally-spaced grid to compute and plot the I-NNSM over
+    Returns
+    ----------
+        generates and shows a plot of the value of the I-NNSM over different values of the null mean
+    '''
+    K = len(x)
+
+    eta_grid = np.arange(res, 1-res, step=res)
+    eta_xs, eta_ys, eta_zs, objs = [], [], [], []
+    w = N / np.sum(N)
+    if K == 2:
+        for eta_x in eta_grid:
+            eta_y = (1/2 - w[0] * eta_x) / w[1]
+            if eta_y > 1 or eta_x < 0: continue
+            obj = intersection_mart(x, np.array([eta_x,eta_y]), lam_func, combine, theta_func, log)
+            eta_xs.append(eta_x)
+            eta_ys.append(eta_y)
+            objs.append(obj)
+        plt.plot(eta_xs, objs, linewidth = 1)
+        plt.show()
+    elif K == 3:
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        for eta_x in eta_grid:
+            for eta_y in eta_grid:
+                eta_z = (1/2 - w[0]*eta_x-w[1]*eta_y)/w[2]
+                if eta_z > 1 or eta_z < 0: continue
+                obj = intersection_mart(x, np.array([eta_x,eta_y,eta_z]), lam_func, combine, theta_func, log)
+                eta_xs.append(eta_x)
+                eta_ys.append(eta_y)
+                eta_zs.append(eta_z)
+                objs.append(obj)
+        ax.scatter(eta_xs, eta_ys, objs, c = objs)
+        ax.view_init(20, 120)
+        plt.show()
+    else:
+        raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
+
+def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, calX = None, solver = "brute_force"):
+    '''
+    compute a UI-NNSM by minimizing I-NNSMs over feasible \eta
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        N: length-K list specifying the size of each stratum
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
+        lam_func: callable, a function from class Bets
+            the function for setting the bets (lambda_{ki}) for each stratum / time
+        theta_func: callable, a function from class Weights
+            only relevant if combine == "sum", the weights to use when combining with weighted sum
+        log: Boolean
+            return the log UI-NNSM if true, otherwise return on original scale
+        calX: np.array or length-K list of np.arrays
+            specifies possible values in the population, or within each stratum\
+            necessary for brute force optimization
+        solver: string
+            the solver to minimize the I-NNSM, currently only "brute_force" is supported
+    Returns
+    ----------
+        the value of a union-intersection martingale using all data x
+    '''
+    K = len(x)
+    if solver != "brute_force": NotImplementedError("Solver must be brute force, lol")
+    #check if enumeration approach is feasible if not, complain
+
 
 
 
