@@ -3,7 +3,7 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import math
 import pypoman
-from scipy.stats import bernoulli, multinomial
+from scipy.stats import bernoulli, multinomial, chi2
 from scipy.stats.mstats import gmean
 
 
@@ -203,7 +203,7 @@ def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, 
         eta: length-K np.array or list in [0,1]
             the vector of null means
         lam_func: callable, a function from class Bets
-        combine: string, either "product" or "sum"
+        combine: string, in ["product", "sum", "fisher"]
             how to combine within-stratum martingales to test the intersection null
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
@@ -213,17 +213,24 @@ def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, 
     ----------
         the value of an intersection martingale that uses all the data (not running max)
     '''
-    K = eta.shape[0]
-    marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
+    K = len(eta)
     if combine == "product":
+        marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
         int_mart = np.sum(marts) if log else np.prod(marts)
     elif combine == "sum":
         assert theta_func is not None, "Need to specify a theta function from Weights if using sum"
+        marts = np.array([mart(x[k], eta[k], lam_func, log = False) for k in np.arange(K)])
         thetas = theta_func(eta, x, lam_func)
         int_mart = np.log(np.sum(thetas * marts)) if log else np.sum(thetas * marts)
+    elif combine == "fisher":
+        marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
+        pvals = np.exp(-np.maximum(0, marts)) if log else 1 / np.maximum(1, marts)
+        fisher_stat = -2 * np.sum(np.log(pvals))
+        pval = 1 - chi2.cdf(fisher_stat, df = 2*K)
+        pval = np.log(pval) if log else pval
     else:
-        raise NotImplementedError("combine must be either product or sum")
-    return int_mart
+        raise NotImplementedError("combine must be product, sum, or fisher")
+    return int_mart if combine != "fisher" else pval
 
 def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log = True, res = 1e-2):
     '''
@@ -282,7 +289,7 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
     else:
         raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
 
-def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, calX = None, solver = "brute_force"):
+def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, solver = "brute_force", breaks = 1000, calX = None):
     '''
     compute a UI-NNSM by minimizing I-NNSMs over feasible \eta
 
@@ -300,8 +307,6 @@ def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_fu
         log: Boolean
             return the log UI-NNSM if true, otherwise return on original scale
         calX: np.array or length-K list of np.arrays
-            specifies possible values in the population, or within each stratum\
-            necessary for brute force optimization
         solver: string
             the solver to minimize the I-NNSM, currently only "brute_force" is supported
     Returns
@@ -311,7 +316,11 @@ def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_fu
     K = len(x)
     if solver != "brute_force": NotImplementedError("Solver must be brute force, lol")
     #check if enumeration approach is feasible if not, complain
+    #assert len(max(calX, key = 'len')) <= 3, "too many means for search"
+    #assert np.max(N) <= 1000, "too many means for search"
+    #assert K <= 3, "too many means for search"
 
+    #evaluate over a grid
 
 
 

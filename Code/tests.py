@@ -23,6 +23,22 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.lam_agrapa, log = False) == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.lam_agrapa, log = False) > 1
 
+def test_intersection():
+    #null is true
+    sample = [np.ones(10) * 0.5, np.ones(10) * 0.5, np.ones(10) * 0.5]
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "product") == 0
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "sum") == 0
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "fisher") == 0
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "product", log = False) == 1
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "sum", log = False) == 1
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "fisher", log = False) == 1
+    #alternative is true
+    sample = [np.ones(10) * 0.6, np.ones(10) * 0.6, np.ones(10) * 0.6]
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "product") > 0
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "sum") > 0
+    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "fisher") < 0 #note: this one is a P-value
+
+
 def test_lower_confidence_bound():
     sample_5 = np.ones(5) * 0.5
     sample_10 = np.ones(10) * 0.5
