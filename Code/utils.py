@@ -136,6 +136,62 @@ def mart(x, eta, lam_func, log = True):
         mart = np.prod(1 + lam_func(x, eta) * (x - eta))
     return mart
 
+def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
+    '''
+    return a lower confidence bound for a betting martingale\
+    given a function to sets bets (lam_func) and a level (1-alpha)
+
+    Parameters
+    ----------
+        x: length-n_k np.array with elements in [0,1]
+            data
+        lam_func: callable, a function from the Bets class
+        alpha: double in (0,1]
+        breaks: int > 0
+            the number of equally-spaced breaks in [0,1] on which to compute P-value
+    Returns
+    ----------
+        level (1-alpha) lower confidence bound on the mean
+    '''
+    grid = np.arange(0, 1 + 1/breaks, step = 1/breaks)
+    lb = 0 #current value of lower bound
+    for m in grid:
+        if mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha):
+            break
+        lb = m #increment only after break, so it remains conservative
+    return lb
+
+def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
+    '''
+    return a level (1-alpha) lower confidence bound on a global mean\
+    computed by using Wright's method, summing Sidak-corrected lower confidence bounds\
+    across strata
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            data from each stratum
+        N: length-K list or length-K np.arrays
+            the size of each stratum
+        lam_func: callable (TODO: allow to differ across strata)
+            function from the Bets class
+        alpha: double in (0,1]
+            1 minus the confidence level for the lower bound
+        breaks: int > 0
+            the number of equally-spaced breaks in [0,1] on which to get each separate confidence bound
+    Returns
+    ----------
+        level (1-alpha) lower confidence bound on the global mean of a stratified population
+    '''
+    w = N/np.sum(N) #stratum weights
+    K = len(N)
+    lcbs = np.zeros(K)
+    for k in np.arange(K):
+        lcbs[k] = lower_confidence_bound(x = x[k], lam_func = lam_func, alpha = 1 - (1 - alpha)**(1/K), breaks = breaks)
+    global_lcb = np.dot(w, lcbs)
+    return global_lcb
+
+
 def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, log = True):
     '''
     an intersection martingale (I-NNSM) for a vector \eta
