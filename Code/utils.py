@@ -3,6 +3,7 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import math
 import pypoman
+import itertools
 from scipy.stats import bernoulli, multinomial, chi2
 from scipy.stats.mstats import gmean
 
@@ -313,14 +314,24 @@ def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_fu
     ----------
         the value of a union-intersection martingale using all data x
     '''
-    K = len(x)
     if solver != "brute_force": NotImplementedError("Solver must be brute force, lol")
-    #check if enumeration approach is feasible if not, complain
-    #assert len(max(calX, key = 'len')) <= 3, "too many means for search"
-    #assert np.max(N) <= 1000, "too many means for search"
-    #assert K <= 3, "too many means for search"
+    K = len(x)
+    w = N / np.sum(N)
+    #upper bound many means there are
+    ub_size = 1
+    for k in np.arange(K):
+        ub_size *= scipy.special.combine(N[k] + len(calX[k]) - 1, len(calX[k]) - 1)
+    assert ub_size <= 1e6, "too many means to check (> 1e6)" #this can be fairly loose
 
-    #evaluate over a grid
+    #build stratum-wise means
+    means = [[] for _ in range(K)]
+    for k in np.arange(K):
+        for lst in itertools.combinations_with_replacement(calX[k], r = N[k])
+            means[k].append(np.mean(lst)) if np.mean(lst) not in means[k] else lst
+    etas = []
+    #cartesian product of stratum-wise means; filtered to ones satisfying global null
+    for crt_prd in itertools.product(*means):
+        etas.append(crt_prd) if np.dot(w, crt_prod) <= eta_0 else crt_prod
 
 
 
