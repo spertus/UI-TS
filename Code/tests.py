@@ -9,7 +9,7 @@ import pytest
 import coverage
 
 from utils import Bets, Weights, mart, lower_confidence_bound, wright_lower_bound, \
-    intersection_mart, plot_marts_eta
+    intersection_mart, plot_marts_eta, union_intersection_mart
 
 
 def test_mart():
@@ -23,7 +23,7 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.lam_agrapa, log = False) == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.lam_agrapa, log = False) > 1
 
-def test_intersection():
+def test_intersection_mart():
     #null is true
     sample = [np.ones(10) * 0.5, np.ones(10) * 0.5, np.ones(10) * 0.5]
     assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "product") == 0
@@ -38,6 +38,14 @@ def test_intersection():
     assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "sum") > 0
     assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "fisher") < 0 #note: this one is a P-value
 
+def test_union_intersection_mart():
+    N = [15, 15, 15]
+    sample = [np.ones(5)*0.5, np.ones(5)*0.5, np.ones(5)*0.5]
+    calX = [[0, 0.5, 1], [0, 0.5, 1], [0, 0.5, 1]]
+    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "product", calX = calX)[0] <= 0
+    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "sum", theta_func = Weights.theta_fixed, calX = calX)[0] <= 0
+    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "fisher", calX = calX)[0] == 0
+    assert union_intersection_mart(sample, N = N, eta_0 = 0.1, lam_func = Bets.lam_smooth, combine = "product", calX = calX)[0] >= 0
 
 def test_lower_confidence_bound():
     sample_5 = np.ones(5) * 0.5
