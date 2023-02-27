@@ -3,6 +3,7 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import math
 import pypoman
+import itertools
 from scipy.stats import bernoulli, multinomial, chi2
 from scipy.stats.mstats import gmean
 
@@ -289,7 +290,7 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
     else:
         raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
 
-def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, solver = "brute_force", breaks = 1000, calX = None):
+def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, solver = "brute_force", calX = None):
     '''
     compute a UI-NNSM by minimizing I-NNSMs over feasible \eta
 
@@ -313,14 +314,34 @@ def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_fu
     ----------
         the value of a union-intersection martingale using all data x
     '''
+    if solver != "brute_force":
+        raise NotImplementedError("Solver must be brute force, lol")
     K = len(x)
-    if solver != "brute_force": NotImplementedError("Solver must be brute force, lol")
-    #check if enumeration approach is feasible if not, complain
-    #assert len(max(calX, key = 'len')) <= 3, "too many means for search"
-    #assert np.max(N) <= 1000, "too many means for search"
-    #assert K <= 3, "too many means for search"
+    w = N / np.sum(N)
+    #upper bound many means there are
+    ub_size = 1
+    for k in np.arange(K):
+        assert set(x[k]).issubset(set(calX[k])), "some elements of x are not in calX!"
+        ub_size *= sp.special.comb(N[k] + len(calX[k]) - 1, len(calX[k]) - 1)
+    #assert ub_size <= 1e6, "too many means to check (> 1e6)" #this can be fairly loose
+    #build stratum-wise means
+    means = [[] for _ in range(K)]
+    for k in np.arange(K):
+        for lst in itertools.combinations_with_replacement(calX[k], r = N[k]):
+            means[k].append(np.mean(lst)) if np.mean(lst) not in means[k] else lst
+    etas = []
+    #cartesian product of stratum-wise means; filtered to ones satisfying global null
+    for crt_prd in itertools.product(*means):
+        etas.append(crt_prd) if np.dot(w, crt_prd) <= eta_0 else crt_prd
+    calC_size = len(etas)
+    #evaluate intersection mart on every eta
+    obj = []
+    for eta in etas:
+        obj.append(intersection_mart(x, eta, lam_func, combine, theta_func, log))
+    opt_index = np.argmin(obj) if combine != "fisher" else np.argmax(obj)
+    return obj[opt_index], etas[opt_index], calC_size, ub_size
 
-    #evaluate over a grid
+
 
 
 
