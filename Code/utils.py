@@ -49,15 +49,18 @@ class Bets:
             sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
         sdj = np.sqrt(sdj/j)
         sdj = np.insert(np.maximum(sdj,.1),0,1)[0:-1]
-        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
-        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/eta))
+        #avoid divide by zero errors
+        eps = 1e-5
+        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2 + eps)
+        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/(eta + eps)))
         return lam_trunc
 
     def lam_trunc(x, eta):
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
-        lam_trunc = np.where(eta <= mu_hat, .75 / eta, 0)
+        eps = 1e-5
+        lam_trunc = np.where(eta <= mu_hat, .75 / (eta + eps), 0)
         return lam_trunc
 
     def lam_smooth(x, eta):
@@ -68,6 +71,26 @@ class Bets:
         lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
         return lam
+
+#TODO: flesh out allocation rules
+class Allocations:
+    '''
+    fixed, predictable, and/or \eta-adaptive stratum allocation rules
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        N: length-K list or np.array
+            the (population) size of each stratum
+        eta: length-K np.array in [0,1]^K
+            the vector of null means across strata
+        lam_func: callable, a function from the Bets class
+
+    Returns
+    ----------
+        allocation: a length \sum n_k
+    '''
+    #see old code for options on how to set up stratum selection rules
 
 class Weights:
     '''
