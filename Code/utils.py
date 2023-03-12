@@ -219,6 +219,7 @@ def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
 def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, log = True):
     '''
     an intersection martingale (I-NNSM) for a vector \eta
+    assumes sampling is with replacement: no population size is required
 
     Parameters
     ----------
@@ -313,40 +314,32 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
     else:
         raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
 
-def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_func = None, log = True, solver = "brute_force", calX = None):
+
+def construct_eta_grid(eta_0, calX, N):
     '''
-    compute a UI-NNSM by minimizing I-NNSMs over feasible \eta
+    construct a grid of null means for a stratified population\
+    representing the null parameter space under a particular global null eta_0.
+    Used to compute a UI-NNSM using a brute force strategy\
+    that evaluates an I-NNSM at every feasible element of a (discrete) null parameter space.
 
     Parameters
     ----------
-        x: length-K list of length-n_k np.arrays with elements in [0,1]
-            the data sampled from each stratum
-        N: length-K list specifying the size of each stratum
-        combine: string, either "product" or "sum"
-            how to combine within-stratum martingales to test the intersection null
-        lam_func: callable, a function from class Bets
-            the function for setting the bets (lambda_{ki}) for each stratum / time
-        theta_func: callable, a function from class Weights
-            only relevant if combine == "sum", the weights to use when combining with weighted sum
-        log: Boolean
-            return the log UI-NNSM if true, otherwise return on original scale
+        eta_0: scalar in [0,1]
+            the global null
         calX: np.array or length-K list of np.arrays
-        solver: string
-            the solver to minimize the I-NNSM, currently only "brute_force" is supported
+            the possible population values, overall or within each stratumwise
+        N: length-K list of ints
+            the size of the population within each stratum
     Returns
     ----------
-        the value of a union-intersection martingale using all data x
+        a grid of within stratum null means, to be passed into union_intersection_mart
     '''
-    if solver != "brute_force":
-        raise NotImplementedError("Solver must be brute force, lol")
-    K = len(x)
+    K = len(N)
     w = N / np.sum(N)
-    #upper bound many means there are
-    ub_size = 1
+    #upper bound on how many null means there are
+    ub_calC = 1
     for k in np.arange(K):
-        assert set(x[k]).issubset(set(calX[k])), "some elements of x are not in calX!"
-        ub_size *= sp.special.comb(N[k] + len(calX[k]) - 1, len(calX[k]) - 1)
-    #assert ub_size <= 1e6, "too many means to check (> 1e6)" #this can be fairly loose
+        ub_calC *= sp.special.comb(N[k] + len(calX[k]) - 1, len(calX[k]) - 1)
     #build stratum-wise means
     means = [[] for _ in range(K)]
     for k in np.arange(K):
@@ -356,16 +349,38 @@ def union_intersection_mart(x, N, eta_0, lam_func, combine = "product", theta_fu
     #cartesian product of stratum-wise means; filtered to ones satisfying global null
     for crt_prd in itertools.product(*means):
         etas.append(crt_prd) if np.dot(w, crt_prd) <= eta_0 else crt_prd
-    calC_size = len(etas)
+    calC = len(etas)
+    return etas, calC, ub_calC
+
+
+def union_intersection_mart(x, etas, lam_func, combine = "product", theta_func = None, log = True):
+    '''
+    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible \eta, passed as eta_grid
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        etas: list of length-K np.arrays
+            vectors of within-stratum nulls over which the minimum will be taken
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
+        lam_func: callable, a function from class Bets
+            the function for setting the bets (lambda_{ki}) for each stratum / time
+        theta_func: callable, a function from class Weights
+            only relevant if combine == "sum", the weights to use when combining with weighted sum
+        log: Boolean
+            return the log UI-NNSM if true, otherwise return on original scale
+    Returns
+    ----------
+        the value of a union-intersection martingale using all data x
+    '''
     #evaluate intersection mart on every eta
     obj = []
     for eta in etas:
         obj.append(intersection_mart(x, eta, lam_func, combine, theta_func, log))
     opt_index = np.argmin(obj) if combine != "fisher" else np.argmax(obj)
-    return obj[opt_index], etas[opt_index], calC_size, ub_size
-
-
-
+    return obj[opt_index], etas[opt_index]
 
 
 
