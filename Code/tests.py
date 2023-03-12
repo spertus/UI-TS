@@ -9,7 +9,7 @@ import pytest
 import coverage
 
 from utils import Bets, Weights, mart, lower_confidence_bound, wright_lower_bound, \
-    intersection_mart, plot_marts_eta, union_intersection_mart
+    intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid
 
 
 def test_mart():
@@ -38,14 +38,22 @@ def test_intersection_mart():
     assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, theta_func = Weights.theta_fixed, combine = "sum") > 0
     assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.lam_fixed, combine = "fisher") < 0 #note: this one is a P-value
 
-def test_union_intersection_mart():
+def test_construct_eta_grid():
     N = [15, 15, 15]
-    sample = [np.ones(5)*0.5, np.ones(5)*0.5, np.ones(5)*0.5]
     calX = [[0, 0.5, 1], [0, 0.5, 1], [0, 0.5, 1]]
-    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "product", calX = calX)[0] <= 0
-    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "sum", theta_func = Weights.theta_fixed, calX = calX)[0] <= 0
-    assert union_intersection_mart(sample, N = N, eta_0 = 0.5, lam_func = Bets.lam_fixed, combine = "fisher", calX = calX)[0] == 0
-    assert union_intersection_mart(sample, N = N, eta_0 = 0.1, lam_func = Bets.lam_smooth, combine = "product", calX = calX)[0] >= 0
+    etas = construct_eta_grid(eta_0 = 0.5, N = N, calX = calX)[0]
+    assert etas.count((0.5, 0.5, 0.5)) == 1
+    assert etas.count((0, 0.5, 1)) == 1
+    assert etas.count((2/3, 1/3, 0)) == 1
+    assert etas.count((1, 1, 1)) == 0
+
+def test_union_intersection_mart():
+    sample = [np.ones(5)*0.5, np.ones(5)*0.5, np.ones(5)*0.5]
+    etas = [(0, 0.5, 1), (0.5, 0.5, 0.5)]
+    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.lam_fixed, combine = "product")[0] <= 0
+    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.lam_fixed, combine = "sum", theta_func = Weights.theta_fixed)[0] <= 0
+    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.lam_fixed, combine = "fisher")[0] == 0
+    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.lam_smooth, combine = "product")[0] >= 0
 
 def test_lower_confidence_bound():
     sample_5 = np.ones(5) * 0.5
