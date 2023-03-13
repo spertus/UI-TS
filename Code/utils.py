@@ -27,14 +27,14 @@ class Bets:
 
     '''
 
-    def lam_fixed(x, eta):
+    def fixed(x, eta):
         '''
         lambda fixed to 0.75 (nonadaptive)
         '''
         lam = 0.75 * np.ones(x.size)
         return lam
 
-    def lam_agrapa(x, eta):
+    def agrapa(x, eta):
         '''
         AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
         lambda is set to approximately maximize a Kelly-like objective (expectation of log martingale)
@@ -55,7 +55,7 @@ class Bets:
         lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/(eta + eps)))
         return lam_trunc
 
-    def lam_trunc(x, eta):
+    def trunc(x, eta):
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
@@ -63,11 +63,11 @@ class Bets:
         lam_trunc = np.where(eta <= mu_hat, .75 / (eta + eps), 0)
         return lam_trunc
 
-    def lam_smooth(x, eta):
+    def smooth(x, eta):
         lam = np.exp(- eta)
         return lam
 
-    def lam_smooth_predictable(x, eta):
+    def smooth_predictable(x, eta):
         lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
         return lam
@@ -80,7 +80,9 @@ class Allocations:
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
             the data sampled from each stratum
-        N: length-K list or np.array
+        n: length-K list or np.array of ints
+            the current sample size in each stratum
+        N: length-K list or np.array of ints
             the (population) size of each stratum
         eta: length-K np.array in [0,1]^K
             the vector of null means across strata
@@ -91,6 +93,18 @@ class Allocations:
         allocation: a length \sum n_k
     '''
     #see old code for options on how to set up stratum selection rules
+
+    def round_robin(x, n, N, eta, lam_func):
+        exhausted = np.ones(len(N))
+        exhausted[n == N] = np.inf
+        next = np.argmin(exhausted * n)
+        return next
+
+    def proportional_round_robin(x, n, N, eta, lam_func):
+        exhausted = np.ones(len(N))
+        exhausted[n == N - 1] = np.inf
+        next = np.argmin(exhausted * n / N)
+        return next
 
 class Weights:
     '''
@@ -104,7 +118,7 @@ class Weights:
             the data sampled from each stratum
         eta: length-K np.array in [0,1]^K
             the vector of null means across strata
-        lam_func: callable, a function from the Bets class
+        func: callable, a function from the Bets class
 
     Returns
     ----------
@@ -112,14 +126,14 @@ class Weights:
             the weights for combining the martingales as a sum I-NNSM E-value at time t
 
     '''
-    def theta_fixed(x, eta, lam_func):
+    def fixed(x, eta, lam_func):
         '''
         balanced, fixed weights (usual average)
         '''
         theta = np.ones(len(eta))/len(eta)
         return theta
 
-    def theta_max_predictable(x, eta, lam_func):
+    def max_predictable(x, eta, lam_func):
         '''
         puts all weight on the last (lagged) largest within-stratum martingale
         '''
@@ -128,7 +142,7 @@ class Weights:
         theta[np.argmax(lag_marts)] = 1
         return theta
 
-    def theta_smooth_predictable(x, eta, lam_func):
+    def smooth_predictable(x, eta, lam_func):
         '''
         makes weights proportional to last (lagged) size of martingales
         '''
@@ -155,10 +169,43 @@ def mart(x, eta, lam_func, log = True):
 
     '''
     if log:
-        mart = np.sum(np.log(1 + lam_func(x, eta) * (x - eta)))
+        mart = np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta)))
     else:
-        mart = np.prod(1 + lam_func(x, eta) * (x - eta))
+        mart = np.cumprod(1 + lam_func(x, eta) * (x - eta))
     return mart
+
+
+def selector(x, N, allocation_func, eta = None, lam_func = None):
+    '''
+    takes data and predictable tuning parameters and returns a sequence of stratum sample sizes
+    equivalent to [T_k(t) for k in 1:K]
+
+    Parameters
+    ----------
+        x: length-K list of length-N_k np.arrays with elements in [0,1]
+            data, may be samples from a  population or the entire population\
+            in which case N[k] = len(x[k])
+        N: length-K list or np.array of ints
+            the population size of each stratum
+        eta: length-K np.array with elements in [0,1]
+            the intersection null for H_0: \mu \leq \eta, can be None
+        lam_func: callable, a function from Bets class
+        allocation_func: callable, a function from Allocations class
+    Returns
+    ----------
+        an np.array of length np.sum(N) by
+    '''
+    w = N/np.sum(N)
+    K = len(N)
+    T_k = np.zeros((np.sum(N) + 1, K), dtype = np.int8)
+    running_T_k = np.zeros(K, dtype = np.int8)
+    t = 0
+    while np.any(running_T_k < N-1):
+        t += 1
+        next_k = allocation_func(x, running_T_k, N, eta, lam_func)
+        running_T_k[next_k] += 1
+        T_k[t,:] = running_T_k
+    return T_k
 
 def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
     '''
@@ -178,14 +225,16 @@ def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
         level (1-alpha) lower confidence bound on the mean
     '''
     grid = np.arange(0, 1 + 1/breaks, step = 1/breaks)
-    lb = 0 #current value of lower bound
-    for m in grid:
-        if mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha):
-            break
-        lb = m #increment only after break, so it remains conservative
+    confset = np.zeros((len(grid), len(x)))
+    for i in np.arange(len(grid)):
+        m = grid[i]
+        confset[i,:] = mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha)
+    lb = np.zeros(len(x))
+    for j in np.arange(len(x)):
+        lb[j] = grid[np.argmax(confset[:,j])]
     return lb
 
-def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
+def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
     '''
     return a level (1-alpha) lower confidence bound on a global mean\
     computed by using Wright's method, summing Sidak-corrected lower confidence bounds\
@@ -199,6 +248,8 @@ def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
             the size of each stratum
         lam_func: callable (TODO: allow to differ across strata)
             function from the Bets class
+        allocation_func: callable
+            function from Allocations class
         alpha: double in (0,1]
             1 minus the confidence level for the lower bound
         breaks: int > 0
@@ -209,10 +260,18 @@ def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
     '''
     w = N/np.sum(N) #stratum weights
     K = len(N)
-    lcbs = np.zeros(K)
+    lcbs = []
     for k in np.arange(K):
-        lcbs[k] = lower_confidence_bound(x = x[k], lam_func = lam_func, alpha = 1 - (1 - alpha)**(1/K), breaks = breaks)
-    global_lcb = np.dot(w, lcbs)
+        lcbs.append(lower_confidence_bound(
+            x = x[k],
+            lam_func = lam_func,
+            alpha = 1 - (1 - alpha)**(1/K),
+            breaks = breaks))
+    T_k = selector(x, N, allocation_func, eta = None, lam_func = lam_func)
+    running_lcbs = np.zeros((T_k.shape[0], K))
+    for i in np.arange(T_k.shape[0]):
+        running_lcbs[i,:] = np.array([lcbs[k][T_k[i, k]] for k in np.arange(K)])
+    global_lcb = np.matmul(running_lcbs, w)
     return global_lcb
 
 
