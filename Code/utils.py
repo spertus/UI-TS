@@ -72,7 +72,6 @@ class Bets:
         lam = np.exp(lag_mean - eta)
         return lam
 
-#TODO: flesh out allocation rules
 class Allocations:
     '''
     fixed, predictable, and/or \eta-adaptive stratum allocation rules
@@ -92,18 +91,17 @@ class Allocations:
     ----------
         allocation: a length \sum n_k
     '''
-    #see old code for options on how to set up stratum selection rules
 
-    def round_robin(x, n, N, eta, lam_func):
-        exhausted = np.ones(len(N))
-        exhausted[n == N] = np.inf
-        next = np.argmin(exhausted * n)
+    def round_robin(x, running_T_k, n, eta, lam_func):
+        exhausted = np.ones(len(n))
+        exhausted[running_T_k == n] = np.inf
+        next = np.argmin(exhausted * running_T_k)
         return next
 
-    def proportional_round_robin(x, n, N, eta, lam_func):
-        exhausted = np.ones(len(N))
-        exhausted[n == N - 1] = np.inf
-        next = np.argmin(exhausted * n / N)
+    def proportional_round_robin(x, running_T_k, n, eta, lam_func):
+        available = running_T_k < n
+        running_T_k = np.where(available, running_T_k, np.inf)
+        return np.argmin(running_T_k / n)
         return next
 
 class Weights:
@@ -169,9 +167,9 @@ def mart(x, eta, lam_func, log = True):
 
     '''
     if log:
-        mart = np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta)))
+        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta))), 0, 0)
     else:
-        mart = np.cumprod(1 + lam_func(x, eta) * (x - eta))
+        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta)), 0, 1)
     return mart
 
 
@@ -183,7 +181,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
     Parameters
     ----------
         x: length-K list of length-N_k np.arrays with elements in [0,1]
-            data, may be samples from a  population or the entire population\
+            data, may be sample from population or an entire population
             in which case N[k] = len(x[k])
         N: length-K list or np.array of ints
             the population size of each stratum
@@ -197,12 +195,14 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
     '''
     w = N/np.sum(N)
     K = len(N)
-    T_k = np.zeros((np.sum(N) + 1, K), dtype = np.int8)
+    n = [len(x_k) for x_k in x]
+    #selections from 0 in each stratum; time 1 is first sample
+    T_k = np.zeros((np.sum(n) + 1, K), dtype = np.int8)
     running_T_k = np.zeros(K, dtype = np.int8)
     t = 0
-    while np.any(running_T_k < N-1):
+    while np.any(running_T_k < n):
         t += 1
-        next_k = allocation_func(x, running_T_k, N, eta, lam_func)
+        next_k = allocation_func(x, running_T_k, n, eta, lam_func)
         running_T_k[next_k] += 1
         T_k[t,:] = running_T_k
     return T_k
@@ -225,12 +225,12 @@ def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
         level (1-alpha) lower confidence bound on the mean
     '''
     grid = np.arange(0, 1 + 1/breaks, step = 1/breaks)
-    confset = np.zeros((len(grid), len(x)))
+    confset = np.zeros((len(grid), len(x) + 1))
     for i in np.arange(len(grid)):
         m = grid[i]
         confset[i,:] = mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha)
-    lb = np.zeros(len(x))
-    for j in np.arange(len(x)):
+    lb = np.zeros(len(x)+1)
+    for j in np.arange(len(x)+1):
         lb[j] = grid[np.argmax(confset[:,j])]
     return lb
 
