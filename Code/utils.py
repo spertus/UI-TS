@@ -27,14 +27,14 @@ class Bets:
 
     '''
 
-    def lam_fixed(x, eta):
+    def fixed(x, eta):
         '''
         lambda fixed to 0.75 (nonadaptive)
         '''
         lam = 0.75 * np.ones(x.size)
         return lam
 
-    def lam_agrapa(x, eta):
+    def agrapa(x, eta):
         '''
         AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
         lambda is set to approximately maximize a Kelly-like objective (expectation of log martingale)
@@ -55,7 +55,7 @@ class Bets:
         lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/(eta + eps)))
         return lam_trunc
 
-    def lam_trunc(x, eta):
+    def trunc(x, eta):
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
@@ -63,16 +63,15 @@ class Bets:
         lam_trunc = np.where(eta <= mu_hat, .75 / (eta + eps), 0)
         return lam_trunc
 
-    def lam_smooth(x, eta):
+    def smooth(x, eta):
         lam = np.exp(- eta)
         return lam
 
-    def lam_smooth_predictable(x, eta):
+    def smooth_predictable(x, eta):
         lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
         return lam
 
-#TODO: flesh out allocation rules
 class Allocations:
     '''
     fixed, predictable, and/or \eta-adaptive stratum allocation rules
@@ -80,7 +79,9 @@ class Allocations:
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
             the data sampled from each stratum
-        N: length-K list or np.array
+        n: length-K list or np.array of ints
+            the total sample size in each stratum
+        N: length-K list or np.array of ints
             the (population) size of each stratum
         eta: length-K np.array in [0,1]^K
             the vector of null means across strata
@@ -90,7 +91,19 @@ class Allocations:
     ----------
         allocation: a length \sum n_k
     '''
-    #see old code for options on how to set up stratum selection rules
+
+    def round_robin(x, running_T_k, n, eta, lam_func):
+        exhausted = np.ones(len(n))
+        exhausted[running_T_k == n] = np.inf
+        next = np.argmin(exhausted * running_T_k)
+        return next
+
+    def proportional_round_robin(x, running_T_k, n, eta, lam_func):
+        #this is round robin proportional to the sample size (x), not the population size
+        exhausted = np.ones(len(n))
+        exhausted[running_T_k == n] = np.inf
+        next = np.argmin(exhausted * running_T_k / n)
+        return next
 
 class Weights:
     '''
@@ -104,7 +117,7 @@ class Weights:
             the data sampled from each stratum
         eta: length-K np.array in [0,1]^K
             the vector of null means across strata
-        lam_func: callable, a function from the Bets class
+        func: callable, a function from the Bets class
 
     Returns
     ----------
@@ -112,14 +125,14 @@ class Weights:
             the weights for combining the martingales as a sum I-NNSM E-value at time t
 
     '''
-    def theta_fixed(x, eta, lam_func):
+    def fixed(x, eta, lam_func):
         '''
         balanced, fixed weights (usual average)
         '''
         theta = np.ones(len(eta))/len(eta)
         return theta
 
-    def theta_max_predictable(x, eta, lam_func):
+    def max_predictable(x, eta, lam_func):
         '''
         puts all weight on the last (lagged) largest within-stratum martingale
         '''
@@ -128,7 +141,7 @@ class Weights:
         theta[np.argmax(lag_marts)] = 1
         return theta
 
-    def theta_smooth_predictable(x, eta, lam_func):
+    def smooth_predictable(x, eta, lam_func):
         '''
         makes weights proportional to last (lagged) size of martingales
         '''
@@ -155,10 +168,45 @@ def mart(x, eta, lam_func, log = True):
 
     '''
     if log:
-        mart = np.sum(np.log(1 + lam_func(x, eta) * (x - eta)))
+        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta))), 0, 0)
     else:
-        mart = np.prod(1 + lam_func(x, eta) * (x - eta))
+        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta)), 0, 1)
     return mart
+
+
+def selector(x, N, allocation_func, eta = None, lam_func = None):
+    '''
+    takes data and predictable tuning parameters and returns a sequence of stratum sample sizes
+    equivalent to [T_k(t) for k in 1:K]
+
+    Parameters
+    ----------
+        x: length-K list of length-N_k np.arrays with elements in [0,1]
+            data, may be sample from population or an entire population
+            in which case N[k] = len(x[k])
+        N: length-K list or np.array of ints
+            the population size of each stratum
+        eta: length-K np.array with elements in [0,1]
+            the intersection null for H_0: \mu \leq \eta, can be None
+        lam_func: callable, a function from Bets class
+        allocation_func: callable, a function from Allocations class
+    Returns
+    ----------
+        an np.array of length np.sum(N) by
+    '''
+    w = N/np.sum(N)
+    K = len(N)
+    n = [len(x_k) for x_k in x]
+    #selections from 0 in each stratum; time 1 is first sample
+    T_k = np.zeros((np.sum(n) + 1, K), dtype = int)
+    running_T_k = np.zeros(K, dtype = int)
+    t = 0
+    while np.any(running_T_k < n):
+        t += 1
+        next_k = allocation_func(x, running_T_k, n, eta, lam_func)
+        running_T_k[next_k] += 1
+        T_k[t,:] = running_T_k
+    return T_k
 
 def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
     '''
@@ -178,14 +226,16 @@ def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
         level (1-alpha) lower confidence bound on the mean
     '''
     grid = np.arange(0, 1 + 1/breaks, step = 1/breaks)
-    lb = 0 #current value of lower bound
-    for m in grid:
-        if mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha):
-            break
-        lb = m #increment only after break, so it remains conservative
+    confset = np.zeros((len(grid), len(x) + 1))
+    for i in np.arange(len(grid)):
+        m = grid[i]
+        confset[i,:] = mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha)
+    lb = np.zeros(len(x)+1)
+    for j in np.arange(len(x)+1):
+        lb[j] = grid[np.argmax(confset[:,j])]
     return lb
 
-def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
+def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
     '''
     return a level (1-alpha) lower confidence bound on a global mean\
     computed by using Wright's method, summing Sidak-corrected lower confidence bounds\
@@ -199,6 +249,8 @@ def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
             the size of each stratum
         lam_func: callable (TODO: allow to differ across strata)
             function from the Bets class
+        allocation_func: callable
+            function from Allocations class
         alpha: double in (0,1]
             1 minus the confidence level for the lower bound
         breaks: int > 0
@@ -209,14 +261,22 @@ def wright_lower_bound(x, N, lam_func, alpha, breaks = 1000):
     '''
     w = N/np.sum(N) #stratum weights
     K = len(N)
-    lcbs = np.zeros(K)
+    lcbs = []
     for k in np.arange(K):
-        lcbs[k] = lower_confidence_bound(x = x[k], lam_func = lam_func, alpha = 1 - (1 - alpha)**(1/K), breaks = breaks)
-    global_lcb = np.dot(w, lcbs)
+        lcbs.append(lower_confidence_bound(
+            x = x[k],
+            lam_func = lam_func,
+            alpha = 1 - (1 - alpha)**(1/K),
+            breaks = breaks))
+    T_k = selector(x, N, allocation_func, eta = None, lam_func = lam_func)
+    running_lcbs = np.zeros((T_k.shape[0], K))
+    for i in np.arange(T_k.shape[0]):
+        running_lcbs[i,:] = np.array([lcbs[k][T_k[i, k]] for k in np.arange(K)])
+    global_lcb = np.matmul(running_lcbs, w)
     return global_lcb
 
 
-def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, log = True):
+def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
     '''
     an intersection martingale (I-NNSM) for a vector \eta
     assumes sampling is with replacement: no population size is required
@@ -225,9 +285,12 @@ def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, 
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
             the data sampled from each stratum
+        N: length-K list of ints
+            population size for each stratum
         eta: length-K np.array or list in [0,1]
             the vector of null means
         lam_func: callable, a function from class Bets
+        allocation_func: callable, a function from class Allocations
         combine: string, in ["product", "sum", "fisher"]
             how to combine within-stratum martingales to test the intersection null
         theta_func: callable, a function from class Weights
@@ -239,25 +302,33 @@ def intersection_mart(x, eta, lam_func, combine = "product", theta_func = None, 
         the value of an intersection martingale that uses all the data (not running max)
     '''
     K = len(eta)
+
+    #compute within-stratum martingales given the sequence of x values
+    ws_log = False if combine == "sum" else log
+    ws_marts = np.array([mart(x[k], eta[k], lam_func, ws_log) for k in np.arange(K)])
+
+    #construct the interleaving
+    T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+    marts = np.zeros((T_k.shape[0], K))
+    for i in np.arange(T_k.shape[0]):
+        marts[i,:] = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
+
     if combine == "product":
-        marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
-        int_mart = np.sum(marts) if log else np.prod(marts)
+        int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
     elif combine == "sum":
         assert theta_func is not None, "Need to specify a theta function from Weights if using sum"
-        marts = np.array([mart(x[k], eta[k], lam_func, log = False) for k in np.arange(K)])
         thetas = theta_func(eta, x, lam_func)
-        int_mart = np.log(np.sum(thetas * marts)) if log else np.sum(thetas * marts)
+        int_mart = np.log(np.sum(thetas * marts, 1)) if log else np.sum(thetas * marts, 1)
     elif combine == "fisher":
-        marts = np.array([mart(x[k], eta[k], lam_func, log) for k in np.arange(K)])
         pvals = np.exp(-np.maximum(0, marts)) if log else 1 / np.maximum(1, marts)
-        fisher_stat = -2 * np.sum(np.log(pvals))
+        fisher_stat = -2 * np.sum(np.log(pvals), 1)
         pval = 1 - chi2.cdf(fisher_stat, df = 2*K)
         pval = np.log(pval) if log else pval
     else:
         raise NotImplementedError("combine must be product, sum, or fisher")
     return int_mart if combine != "fisher" else pval
 
-def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log = True, res = 1e-2):
+def plot_marts_eta(x, N, lam_func, allocation_func, combine = "product", theta_func = None, log = True, res = 1e-2):
     '''
     generate a 2-D or 3-D plot of an intersection martingale over possible values of \bs{\eta}
     the global null is always \eta <= 1/2; future update: general global nulls
@@ -279,7 +350,7 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
             the resolution of equally-spaced grid to compute and plot the I-NNSM over
     Returns
     ----------
-        generates and shows a plot of the value of the I-NNSM over different values of the null mean
+        generates and shows a plot of the last value of an I-NNSM over different values of the null mean
     '''
     K = len(x)
 
@@ -290,7 +361,7 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
         for eta_x in eta_grid:
             eta_y = (1/2 - w[0] * eta_x) / w[1]
             if eta_y > 1 or eta_x < 0: continue
-            obj = intersection_mart(x, np.array([eta_x,eta_y]), lam_func, combine, theta_func, log)
+            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func, allocation_func, combine, theta_func, log)[-1]
             eta_xs.append(eta_x)
             eta_ys.append(eta_y)
             objs.append(obj)
@@ -303,7 +374,7 @@ def plot_marts_eta(x, N, lam_func, combine = "product", theta_func = None, log =
             for eta_y in eta_grid:
                 eta_z = (1/2 - w[0]*eta_x-w[1]*eta_y)/w[2]
                 if eta_z > 1 or eta_z < 0: continue
-                obj = intersection_mart(x, np.array([eta_x,eta_y,eta_z]), lam_func, combine, theta_func, log)
+                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func, allocation_func, combine, theta_func, log)[-1]
                 eta_xs.append(eta_x)
                 eta_ys.append(eta_y)
                 eta_zs.append(eta_z)
@@ -347,26 +418,32 @@ def construct_eta_grid(eta_0, calX, N):
             means[k].append(np.mean(lst)) if np.mean(lst) not in means[k] else lst
     etas = []
     #cartesian product of stratum-wise means; filtered to ones satisfying global null
+    #NOTE: betting I-NNSMs are monotone decreasing in \eta, so we need only search along the boundary of CalC
+    #but how can we actually do this in the discrete case, since there may be no means *exactly* summing to eta_0
     for crt_prd in itertools.product(*means):
-        etas.append(crt_prd) if np.dot(w, crt_prd) <= eta_0 else crt_prd
+        etas.append(crt_prd) if np.dot(w, crt_prd) <= eta_0 else crt_prd #reduce size of CalC here...
     calC = len(etas)
     return etas, calC, ub_calC
 
 
-def union_intersection_mart(x, etas, lam_func, combine = "product", theta_func = None, log = True):
+def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
     '''
-    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible \eta, passed as eta_grid
+    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible \eta, passed as etas
 
     Parameters
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
             the data sampled from each stratum
+        N: length-K list of ints
+            the size of each stratum
         etas: list of length-K np.arrays
             vectors of within-stratum nulls over which the minimum will be taken
         combine: string, either "product" or "sum"
             how to combine within-stratum martingales to test the intersection null
         lam_func: callable, a function from class Bets
             the function for setting the bets (lambda_{ki}) for each stratum / time
+        allocation_func: callable, a function from the Allocations class
+            function for allocation sample to strata for each eta
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
@@ -376,11 +453,16 @@ def union_intersection_mart(x, etas, lam_func, combine = "product", theta_func =
         the value of a union-intersection martingale using all data x
     '''
     #evaluate intersection mart on every eta
-    obj = []
-    for eta in etas:
-        obj.append(intersection_mart(x, eta, lam_func, combine, theta_func, log))
-    opt_index = np.argmin(obj) if combine != "fisher" else np.argmax(obj)
-    return obj[opt_index], etas[opt_index]
+    obj = np.zeros((len(etas), np.sum(N) + 1))
+    for i in np.arange(len(etas)):
+        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, allocation_func, combine, theta_func, log)
+    opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
+    eta_opt = np.zeros((np.sum(N) + 1, len(x)))
+    mart_opt = np.zeros(np.sum(N) + 1)
+    for i in np.arange(np.sum(N) + 1):
+        eta_opt[i,:] = etas[opt_index[i]]
+        mart_opt[i] = obj[opt_index[i],i]
+    return mart_opt, eta_opt
 
 
 
