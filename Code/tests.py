@@ -70,23 +70,24 @@ def test_selector():
     assert selector(samples, N, Allocations.proportional_round_robin).shape[0] == 6001
     assert selector(samples, N, Allocations.proportional_round_robin).shape[1] == 3
     np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[-1,:], [1000, 2000, 3000])
-    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[-3000,:], [500, 1000, 1500])
+    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[3000,:], [500, 1000, 1500])
 
 
 def test_intersection_mart():
     #null is true
-    sample = [np.ones(10) * 0.5, np.ones(10) * 0.5, np.ones(10) * 0.5]
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, combine = "product") == 0
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, theta_func = Weights.fixed, combine = "sum") == 0
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, theta_func = Weights.fixed, combine = "fisher") == 0
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, combine = "product", log = False) == 1
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, theta_func = Weights.fixed, combine = "sum", log = False) == 1
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, combine = "fisher", log = False) == 1
+    N = [10,10,10]
+    sample = [np.ones(N[0]) * 0.5, np.ones(N[1]) * 0.5, np.ones(N[2]) * 0.5]
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum")[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "fisher")[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", log = False)[-1] == 1
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", log = False)[-1] == 1
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", log = False)[-1] == 1
     #alternative is true
-    sample = [np.ones(10) * 0.6, np.ones(10) * 0.6, np.ones(10) * 0.6]
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, combine = "product") > 0
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, theta_func = Weights.fixed, combine = "sum") > 0
-    assert intersection_mart(sample, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, combine = "fisher") < 0 #note: this one is a P-value
+    sample = [np.ones(N[0]) * 0.6, np.ones(N[1]) * 0.6, np.ones(N[2]) * 0.6]
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[-1] > 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum")[-1] > 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher")[-1] < 0 #note: this one is a P-value
 
 def test_construct_eta_grid():
     N = [15, 15, 15]
@@ -98,9 +99,10 @@ def test_construct_eta_grid():
     assert etas.count((1, 1, 1)) == 0
 
 def test_union_intersection_mart():
-    sample = [np.ones(5)*0.5, np.ones(5)*0.5, np.ones(5)*0.5]
+    N = [5, 5, 5]
+    sample = [np.ones(N[0])*0.5, np.ones(N[1])*0.5, np.ones(N[2])*0.5]
     etas = [(0, 0.5, 1), (0.5, 0.5, 0.5)]
-    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.fixed, combine = "product")[0] <= 0
-    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.fixed, combine = "sum", theta_func = Weights.fixed)[0] <= 0
-    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.fixed, combine = "fisher")[0] == 0
-    assert union_intersection_mart(sample, etas = etas, lam_func = Bets.smooth, combine = "product")[0] >= 0
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "product")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "fisher")[0] == 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, Allocations.round_robin, combine = "product")[0] >= 0)
