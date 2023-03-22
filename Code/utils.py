@@ -429,18 +429,16 @@ def construct_eta_grid(eta_0, calX, N):
     calC = len(etas)
     return etas, calC, ub_calC
 
-def construct_eta_grid_comparison(diluted_margins, N, eta_0 = 1/2):
+def construct_eta_grid_plurcomp(N, diluted_margins):
     '''
-    construct all the intersection nulls possible in a comparison audit
+    construct all the intersection nulls possible in a comparison audit of a plurality contest
 
     Parameters
     ----------
-        diluted_margins: a length-K list of doubles
-            the diluted margin in each stratum
         N: a length-K list of ints
             the size of each stratum
-        eta_0: a double in [0,1]
-            the global null, usually 1/2
+        diluted_margins: a length-K np.array of floats
+            the reported diluted margin \bar{A}_c in each stratum
 
     Returns
     ----------
@@ -448,6 +446,18 @@ def construct_eta_grid_comparison(diluted_margins, N, eta_0 = 1/2):
         given the input diluted margins and stratum sizes
     '''
     w = N/np.sum(N)
+    assert np.dot(w, diluted_margins) > 0, "margin < 0"
+    K = len(N)
+    means = []
+    for k in np.arange(K):
+        means.append(np.arange(0, 1, step  = 0.5 / N[k]))
+    etas = []
+    for crt_prd in itertools.product(*means):
+        if 1/2 - 1/np.min(N) <= np.dot(w, crt_prd) <= 1/2:
+            etas.append(np.array(crt_prd) + 1 - diluted_margins)
+    calC = len(etas)
+    return etas, calC
+
 
 def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
     '''
