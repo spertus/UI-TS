@@ -9,7 +9,8 @@ import pytest
 import coverage
 
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, wright_lower_bound, \
-    intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid
+    intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
+    construct_eta_grid_plurcomp
 
 
 def test_mart():
@@ -97,6 +98,13 @@ def test_construct_eta_grid():
     assert etas.count((0, 0.5, 1)) == 1
     assert etas.count((2/3, 1/3, 0)) == 1
     assert etas.count((1, 1, 1)) == 0
+
+def test_construct_eta_grid_plurcomp():
+    N = [15, 15, 15]
+    etas = construct_eta_grid_plurcomp(N = N, diluted_margins = [0.5, 0, 0])[0]
+    assert etas.count((1, 1.5, 1.5)) == 1
+    assert etas.count((0.5, 1.5, 2)) == 1
+    assert etas.count((2, 2, 2)) == 0
 
 def test_union_intersection_mart():
     N = [5, 5, 5]

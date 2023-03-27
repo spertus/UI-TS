@@ -405,8 +405,11 @@ def construct_eta_grid(eta_0, calX, N):
     ----------
         a grid of within stratum null means, to be passed into union_intersection_mart
     '''
+    #From Mayuri:
+        #reduce calX to set of coprime numbers e.g. from [2,3,4,5,6,7,8,9,10] -> [2,3,5,7]
     K = len(N)
     w = N / np.sum(N)
+    u_k = np.array([np.max(x) for x in calX])
     #upper bound on how many null means there are
     ub_calC = 1
     for k in np.arange(K):
@@ -415,15 +418,48 @@ def construct_eta_grid(eta_0, calX, N):
     means = [[] for _ in range(K)]
     for k in np.arange(K):
         for lst in itertools.combinations_with_replacement(calX[k], r = N[k]):
-            means[k].append(np.mean(lst)) if np.mean(lst) not in means[k] else lst
+            if np.mean(lst) not in means[k]:
+                means[k].append(np.mean(lst))
     etas = []
-    #cartesian product of stratum-wise means; filtered to ones satisfying global null
-    #NOTE: betting I-NNSMs are monotone decreasing in \eta, so we need only search along the boundary of CalC
-    #but how can we actually do this in the discrete case, since there may be no means *exactly* summing to eta_0
+
+    eps = K*np.max(u_k / np.array(N))
     for crt_prd in itertools.product(*means):
-        etas.append(crt_prd) if np.dot(w, crt_prd) <= eta_0 else crt_prd #reduce size of CalC here...
+        if eta_0 - eps <= np.dot(w, crt_prd) <= eta_0:
+            etas.append(crt_prd)
     calC = len(etas)
     return etas, calC, ub_calC
+
+def construct_eta_grid_plurcomp(N, diluted_margins):
+    '''
+    construct all the intersection nulls possible in a comparison audit of a plurality contest
+
+    Parameters
+    ----------
+        N: a length-K list of ints
+            the size of each stratum
+        diluted_margins: a length-K np.array of floats
+            the reported diluted margin \bar{A}_c in each stratum
+
+    Returns
+    ----------
+        every eta that is possible in a comparison risk-limiting audit\
+        given the input diluted margins and stratum sizes
+    '''
+    if type(diluted_margins) is list:
+        diluted_margins = np.array(diluted_margins)
+    w = N/np.sum(N)
+    assert np.dot(w, diluted_margins) > 0, "global diluted margin < 0"
+    K = len(N)
+    means = []
+    for k in np.arange(K):
+        means.append(np.arange(0, 1 + 0.5/N[k], step  = 0.5 / N[k]))
+    etas = []
+    eps = K/np.min(N)
+    for crt_prd in itertools.product(*means):
+        if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
+            etas.append(tuple(np.array(crt_prd) + 1 - diluted_margins))
+    calC = len(etas)
+    return etas, calC
 
 
 def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
