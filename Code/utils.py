@@ -64,7 +64,7 @@ class Bets:
         return lam_trunc
 
     def smooth(x, eta):
-        lam = np.exp(- eta)
+        lam = np.exp(-eta)
         return lam
 
     def smooth_predictable(x, eta):
@@ -149,7 +149,7 @@ class Weights:
         theta = lag_marts / np.sum(lag_marts)
         return theta
 
-def mart(x, eta, lam_func, log = True):
+def mart(x, eta, lam_func, N = np.inf, log = True):
     '''
     betting martingale
 
@@ -167,10 +167,21 @@ def mart(x, eta, lam_func, log = True):
         mart: scalar; the value of the (log) betting martingale at time n_k
 
     '''
-    if log:
-        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta))), 0, 0)
+    if N < np.inf:
+        S = np.insert(np.cumsum(x), 0, 0)[0:-1] #0, x_1, x_1+x_2, ...,
+        j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
+        eta_t = (N*eta-S)/(N-j+1)
+    elif N == np.inf:
+        eta_t = eta * np.ones(len(x))
     else:
-        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta)), 0, 1)
+        raise ValueError("Input an integer value for N, possibly np.inf")
+    #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
+    if log:
+        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta_t))), 0, 0)
+    else:
+        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta_t)), 0, 1)
+    mart[np.insert(eta_t < 0, 0, False)] = np.inf
+    mart[np.insert(eta_t > 1, 0, False)] = 0
     return mart
 
 
@@ -208,7 +219,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
         T_k[t,:] = running_T_k
     return T_k
 
-def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
+def lower_confidence_bound(x, lam_func, alpha, N = np.inf, breaks = 1000):
     '''
     return a lower confidence bound for a betting martingale\
     given a function to sets bets (lam_func) and a level (1-alpha)
@@ -219,6 +230,8 @@ def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
             data
         lam_func: callable, a function from the Bets class
         alpha: double in (0,1]
+        N: integer
+            the size of the stratum when sampling WOR or np.inf when sampling WR
         breaks: int > 0
             the number of equally-spaced breaks in [0,1] on which to compute P-value
     Returns
@@ -229,13 +242,13 @@ def lower_confidence_bound(x, lam_func, alpha, breaks = 1000):
     confset = np.zeros((len(grid), len(x) + 1))
     for i in np.arange(len(grid)):
         m = grid[i]
-        confset[i,:] = mart(x, eta = m, lam_func = lam_func, log = True) < np.log(1/alpha)
+        confset[i,:] = mart(x, eta = m, lam_func = lam_func, N = N, log = True) < np.log(1/alpha)
     lb = np.zeros(len(x)+1)
     for j in np.arange(len(x)+1):
         lb[j] = grid[np.argmax(confset[:,j])]
     return lb
 
-def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
+def wright_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, breaks = 1000):
     '''
     return a level (1-alpha) lower confidence bound on a global mean\
     computed by using Wright's method, summing Sidak-corrected lower confidence bounds\
@@ -253,6 +266,8 @@ def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
             function from Allocations class
         alpha: double in (0,1]
             1 minus the confidence level for the lower bound
+        WOR: Boolean
+            compute the confidence interval for sampling with or without replacement?
         breaks: int > 0
             the number of equally-spaced breaks in [0,1] on which to get each separate confidence bound
     Returns
@@ -263,10 +278,12 @@ def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
     K = len(N)
     lcbs = []
     for k in np.arange(K):
+        N_k = N[k] if WOR else np.inf
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func,
             alpha = 1 - (1 - alpha)**(1/K),
+            N = N_k,
             breaks = breaks))
     T_k = selector(x, N, allocation_func, eta = None, lam_func = lam_func)
     running_lcbs = np.zeros((T_k.shape[0], K))
@@ -276,7 +293,7 @@ def wright_lower_bound(x, N, lam_func, allocation_func, alpha, breaks = 1000):
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
+def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
     '''
     an intersection martingale (I-NNSM) for a vector \eta
     assumes sampling is with replacement: no population size is required
@@ -293,6 +310,8 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
         allocation_func: callable, a function from class Allocations
         combine: string, in ["product", "sum", "fisher"]
             how to combine within-stratum martingales to test the intersection null
+        WOR: Boolean
+            should martingales be computed under sampling with or without replacement?
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
@@ -305,14 +324,17 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
 
     #compute within-stratum martingales given the sequence of x values
     ws_log = False if combine == "sum" else log
-    ws_marts = np.array([mart(x[k], eta[k], lam_func, ws_log) for k in np.arange(K)])
+    ws_N = N if WOR else np.inf*np.ones(K)
+    ws_marts = np.array([mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)])
 
     #construct the interleaving
     T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
     marts = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
-        marts[i,:] = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
-
+        marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
+        #make all marts infinite if one is, when product is taken this enforces rule:
+        #we reject intersection null if certainly False in one stratum
+        marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     if combine == "product":
         int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
     elif combine == "sum":

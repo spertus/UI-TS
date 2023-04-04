@@ -24,6 +24,11 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.smooth_predictable, log = False)[-1] == 1
     assert mart(sample, eta = 0.5, lam_func = Bets.agrapa, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.agrapa, log = False)[-1] > 1
+    #WOR
+    assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
+    assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1
+    assert mart(sample, eta = 0.1, N = 15, lam_func = Bets.fixed, log = False)[-1] == np.inf
+
 
 
 def test_lower_confidence_bound():
@@ -38,6 +43,8 @@ def test_lower_confidence_bound():
     assert lower_confidence_bound(sample_10, lam_func = Bets.fixed, alpha = 0.05)[-1] >= lower_confidence_bound(sample_5, lam_func = Bets.fixed, alpha = 0.05)[-1]
     assert lower_confidence_bound(sample_5, lam_func = Bets.fixed, alpha = 0.1)[-1] >= lower_confidence_bound(sample_5, lam_func = Bets.fixed, alpha = 0.01)[-1]
     assert lower_confidence_bound(sample_5, lam_func = Bets.agrapa, alpha = 0.1)[-1] >= lower_confidence_bound(sample_5, lam_func = Bets.agrapa, alpha = 0.01)[-1]
+    assert lower_confidence_bound(sample_5, lam_func = Bets.agrapa, alpha = 0.05, N = 10)[-1] <= 0.5
+    assert lower_confidence_bound(sample_5, lam_func = Bets.agrapa, alpha = 0.05, N = 5)[-1] >= 0.4
 
 
 def test_wright_lower_bound():
@@ -50,6 +57,8 @@ def test_wright_lower_bound():
     samples = [0.5 * np.ones(5), 0.5 * np.ones(5), 0.6 * np.ones(100)]
     assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] < 0.6
     assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] > 0.5
+    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] < 0.6
+    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] > 0.5
 
 def test_selector():
     N = [1000, 1000, 1000]
