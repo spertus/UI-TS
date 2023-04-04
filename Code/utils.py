@@ -10,7 +10,7 @@ from scipy.stats.mstats import gmean
 
 class Bets:
     '''
-    Methods to set bets that are \eta-adaptive, data-adaptive, both, or neither.
+    Methods to set bets that are eta-adaptive, data-adaptive, both, or neither.
     Currently, bets for stratum k can only depend on eta and data within stratum k
 
     Parameters
@@ -22,8 +22,8 @@ class Bets:
 
         Returns
         ----------
-        lam: a length-1 or length-n_k corresponding to \lambda_{ki} in the I-NNSM:
-            \prod_{i=1}^{T_k(t)} [1 + \lambda_{ki (X_{ki} - \eta_k)]
+        lam: a length-1 or length-n_k corresponding to lambda_{ki} in the I-NNSM:
+            prod_{i=1}^{T_k(t)} [1 + lambda_{ki (X_{ki} - eta_k)]
 
     '''
 
@@ -74,7 +74,7 @@ class Bets:
 
 class Allocations:
     '''
-    fixed, predictable, and/or \eta-adaptive stratum allocation rules
+    fixed, predictable, and/or eta-adaptive stratum allocation rules
     Parameters
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
@@ -89,7 +89,7 @@ class Allocations:
 
     Returns
     ----------
-        allocation: a length \sum n_k
+        allocation: a length sum(n_k) sequence of interleaved stratum selections in each round
     '''
 
     def round_robin(x, running_T_k, n, eta, lam_func):
@@ -107,7 +107,7 @@ class Allocations:
 
 class Weights:
     '''
-    Predictable and \eta-adaptive methods to set weights for combining across strata by summing
+    Predictable and eta-adaptive methods to set weights for combining across strata by summing
     Generally will be less powerful than taking products
     (see Vovk and Wang 2020 on E-value combining)
 
@@ -176,12 +176,15 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
     else:
         raise ValueError("Input an integer value for N, possibly np.inf")
     #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
+    #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if log:
         mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta_t))), 0, 0)
+        mart[np.insert(eta_t < 0, 0, False)] = np.inf
+        mart[np.insert(eta_t > 1, 0, False)] = -np.inf
     else:
         mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta_t)), 0, 1)
-    mart[np.insert(eta_t < 0, 0, False)] = np.inf
-    mart[np.insert(eta_t > 1, 0, False)] = 0
+        mart[np.insert(eta_t < 0, 0, False)] = np.inf
+        mart[np.insert(eta_t > 1, 0, False)] = 0
     return mart
 
 
@@ -198,7 +201,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
         N: length-K list or np.array of ints
             the population size of each stratum
         eta: length-K np.array with elements in [0,1]
-            the intersection null for H_0: \mu \leq \eta, can be None
+            the intersection null for H_0: mu <= eta, can be None
         lam_func: callable, a function from Bets class
         allocation_func: callable, a function from Allocations class
     Returns
@@ -295,7 +298,7 @@ def wright_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
 
 def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
     '''
-    an intersection martingale (I-NNSM) for a vector \eta
+    an intersection martingale (I-NNSM) for a vector bs{eta}
     assumes sampling is with replacement: no population size is required
 
     Parameters
@@ -352,8 +355,8 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
 
 def plot_marts_eta(x, N, lam_func, allocation_func, combine = "product", theta_func = None, log = True, res = 1e-2):
     '''
-    generate a 2-D or 3-D plot of an intersection martingale over possible values of \bs{\eta}
-    the global null is always \eta <= 1/2; future update: general global nulls
+    generate a 2-D or 3-D plot of an intersection martingale over possible values of bs{eta}
+    the global null is always eta <= 1/2; future update: general global nulls
 
     Parameters
     ----------
@@ -482,9 +485,9 @@ def construct_eta_grid_plurcomp(N, A_c):
     return etas, calC
 
 
-def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True):
+def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
     '''
-    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible \eta, passed as etas
+    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible eta, passed as etas
 
     Parameters
     ----------
@@ -504,6 +507,8 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
             return the log UI-NNSM if true, otherwise return on original scale
+        WOR: Boolean
+            should the intersection martingales be computed under sampling without replacement
     Returns
     ----------
         the value of a union-intersection martingale using all data x
@@ -511,7 +516,7 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
     #evaluate intersection mart on every eta
     obj = np.zeros((len(etas), np.sum(N) + 1))
     for i in np.arange(len(etas)):
-        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, allocation_func, combine, theta_func, log)
+        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, allocation_func, combine, theta_func, log, WOR)
     opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
     eta_opt = np.zeros((np.sum(N) + 1, len(x)))
     mart_opt = np.zeros(np.sum(N) + 1)
@@ -588,7 +593,7 @@ def shrink_trunc(x: np.array, N: int, mu: float=1/2, nu: float=1-np.finfo(float)
 
 
         S_1 = 0
-        S_j = \sum_{i=1}^{j-1} x_i, j > 1
+        S_j = sum_{i=1}^{j-1} x_i, j > 1
         m_j = (N*mu-S_j)/(N-j+1) if np.isfinite(N) else mu
         e_j = c/sqrt(d+j-1)
         sd_1 = sd_2 = 1
@@ -794,7 +799,7 @@ def stratum_selector(marts : list, mu : list, u : np.array, rule : callable, see
         the known maximum values within each strata
 
     rule: callable
-        maps three K-vectors (where K is the number of strata) to a value in {0, \ldots, K-1}, the stratum
+        maps three K-vectors (where K is the number of strata) to a value in {0, ..., K-1}, the stratum
         from which the next term will be included in the product SM.
         The rule should stop sampling from a stratum when that stratum is exhausted.
         The first K-vector is the current value of each stratumwise SM
@@ -1085,7 +1090,7 @@ def eb_selector(running_a, running_n, running_b, N, u = None, eta = None, gamma 
 
 def psi_E(lam):
     '''
-    function psi_E for lam \in [0,1) from page 10 of https://arxiv.org/pdf/2010.09686.pdf
+    function psi_E for lam in [0,1) from page 10 of https://arxiv.org/pdf/2010.09686.pdf
 
     Parameters
     ----------
