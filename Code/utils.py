@@ -429,7 +429,7 @@ def construct_eta_grid(eta_0, calX, N):
     calC = len(etas)
     return etas, calC, ub_calC
 
-def construct_eta_grid_plurcomp(N, diluted_margins):
+def construct_eta_grid_plurcomp(N, A_c):
     '''
     construct all the intersection nulls possible in a comparison audit of a plurality contest
 
@@ -438,26 +438,24 @@ def construct_eta_grid_plurcomp(N, diluted_margins):
         N: a length-K list of ints
             the size of each stratum
         diluted_margins: a length-K np.array of floats
-            the reported diluted margin \bar{A}_c in each stratum
+            the reported assorter mean \bar{A}_c in each stratum
 
     Returns
     ----------
         every eta that is possible in a comparison risk-limiting audit\
         given the input diluted margins and stratum sizes
     '''
-    if type(diluted_margins) is list:
-        diluted_margins = np.array(diluted_margins)
     w = N/np.sum(N)
-    assert np.dot(w, diluted_margins) > 0, "global diluted margin < 0"
+    assert np.dot(w, A_c) > 0.5, "global reported margin <= 1/2"
     K = len(N)
     means = []
     for k in np.arange(K):
-        means.append(np.arange(0, 1 + 0.5/N[k], step  = 0.5 / N[k]))
+        means.append(np.arange(0, 1 + 0.5/N[k], step  = 0.5/N[k]))
     etas = []
     eps = K/np.min(N)
     for crt_prd in itertools.product(*means):
         if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
-            etas.append(tuple(np.array(crt_prd) + 1 - diluted_margins))
+            etas.append(tuple(np.array(crt_prd) + 1 - A_c))
     calC = len(etas)
     return etas, calC
 
