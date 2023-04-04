@@ -100,11 +100,11 @@ def test_construct_eta_grid():
     assert etas.count((1, 1, 1)) == 0
 
 def test_construct_eta_grid_plurcomp():
-    N = [15, 15, 15]
-    etas = construct_eta_grid_plurcomp(N = N, diluted_margins = [0.5, 0, 0])[0]
-    assert etas.count((1, 1.5, 1.5)) == 1
-    assert etas.count((0.5, 1.5, 2)) == 1
-    assert etas.count((2, 2, 2)) == 0
+    N = [15, 15]
+    etas = construct_eta_grid_plurcomp(N = N, A_c = [1, 0.5])[0]
+    assert etas.count((0, 1.5)) == 1
+    assert etas.count((0.5, 1)) == 1
+    assert etas.count((0.25, 1.25)) == 0
 
 def test_union_intersection_mart():
     N = [5, 5, 5]
