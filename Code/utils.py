@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import math
 import pypoman
 import itertools
+from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2
 from scipy.stats.mstats import gmean
 
@@ -462,8 +463,8 @@ def construct_eta_grid_plurcomp(N, A_c):
     ----------
         N: a length-K list of ints
             the size of each stratum
-        diluted_margins: a length-K np.array of floats
-            the reported assorter mean \bar{A}_c in each stratum
+        A_c: a length-K np.array of floats
+            the reported assorter mean bar{A}_c in each stratum
 
     Returns
     ----------
@@ -480,7 +481,9 @@ def construct_eta_grid_plurcomp(N, A_c):
     eps = K/np.min(N)
     for crt_prd in itertools.product(*means):
         if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
-            etas.append(tuple(np.array(crt_prd) + 1 - A_c))
+            #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
+            #but divided by two, to map population from [0,2] to [0,1]
+            etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
     calC = len(etas)
     return etas, calC
 
@@ -526,6 +529,47 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
     return mart_opt, eta_opt
 
 
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha = 0.05, combine = "product", reps = 500):
+    '''
+    repeatedly simulate a comparison audit of a plurality contest
+    given reported assorter means and overstatement rates in each stratum
+
+    Parameters
+    ----------
+        N: a length-K list of ints
+            the size of each stratum
+        A_c: a length-K np.array of floats
+            the reported assorter mean bar{A}_c in each stratum
+        p_1: a length-K np.array of floats
+            the true rate of 1 vote overstatements in each stratum
+        p_2: a length-K np.array of floats
+            the true rate of 2 vote overstatements in each stratum
+        lam_func: callable, a function from class Bets
+            the function for setting the bets (lambda_{ki}) for each stratum / time
+        allocation_func: callable, a function from the Allocations class
+            function for allocation sample to strata for each eta
+        alpha: float in (0,1)
+            the significance level of the test
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
+        reps: an integer
+            the number of simulations of the audit to run
+    Returns
+    ----------
+        a length reps list of stopping times
+    '''
+    K = len(N)
+    etas = construct_eta_grid_plurcomp(N, A_c)[0]
+    x = []
+    for k in np.arange(K):
+        num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
+        x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
+    stopping_times = np.zeros(reps)
+    for r in np.arange(reps):
+        X = [np.random.choice(x[k], len(x[k]), replace = False) for k in np.arange(K)]
+        uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine)[0]
+        stopping_times[r] = np.argmax(uinnsm > np.log(1/alpha))
+    return stopping_times
 
 
 ########## this is old stuff ###########
