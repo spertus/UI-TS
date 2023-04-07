@@ -10,7 +10,7 @@ import coverage
 
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, wright_lower_bound, \
     intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
-    construct_eta_grid_plurcomp
+    construct_eta_grid_plurcomp, simulate_comparison_audit
 
 
 def test_mart():
@@ -112,7 +112,7 @@ def test_intersection_mart():
     #alternative it true, without replacement
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", WOR = True)[-1] > 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", WOR = True)[-1] > 0
-    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", WOR = True)[-1] < 0 
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", WOR = True)[-1] < 0
 
 def test_construct_eta_grid():
     N = [15, 15, 15]
@@ -126,9 +126,9 @@ def test_construct_eta_grid():
 def test_construct_eta_grid_plurcomp():
     N = [15, 15]
     etas = construct_eta_grid_plurcomp(N = N, A_c = [1, 0.5])[0]
-    assert etas.count((0, 1.5)) == 1
-    assert etas.count((0.5, 1)) == 1
-    assert etas.count((0.25, 1.25)) == 0
+    assert etas.count((0, 0.75)) == 1
+    assert etas.count((0.25, 0.5)) == 1
+    assert etas.count((0.125, 0.625)) == 0
 
 def test_union_intersection_mart():
     N = [5, 5, 5]
@@ -138,3 +138,11 @@ def test_union_intersection_mart():
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "fisher")[0] == 0)
     assert all(union_intersection_mart(sample, N, etas, Bets.smooth, Allocations.round_robin, combine = "product")[0] >= 0)
+
+
+def test_simulate_comparison_audit():
+    N = [20, 20]
+    A_c = [0.8, 0.8]
+    p_1 = [0.0, 0.0]
+    p_2 = [0.0, 0.0]
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, Bets.fixed, Allocations.round_robin, WOR = True, reps = 1) < 40
