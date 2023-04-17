@@ -481,9 +481,10 @@ def construct_eta_grid_plurcomp(N, A_c):
     etas = []
     #if we can't hit w^T mu = 1/2, what is the largest gap possible?
     #should there be a factor of K
-    eps = (0.5/np.min(N))
+    eps_k = w*(0.5/np.array(N))
+    eps = np.max(eps_k)
     for crt_prd in itertools.product(*means):
-        if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
+        if 1/2 - eps < np.dot(w, crt_prd) <= 1/2:
             #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
             #but divided by two, to map population from [0,2] to [0,1]
             etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
