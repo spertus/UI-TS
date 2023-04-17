@@ -448,7 +448,8 @@ def construct_eta_grid(eta_0, calX, N):
                 means[k].append(np.mean(lst))
     etas = []
 
-    eps = K*np.max(u_k / np.array(N))
+    #should there be a factor of K in here
+    eps = np.max(u_k / np.array(N))
     for crt_prd in itertools.product(*means):
         if eta_0 - eps <= np.dot(w, crt_prd) <= eta_0:
             etas.append(crt_prd)
@@ -478,7 +479,9 @@ def construct_eta_grid_plurcomp(N, A_c):
     for k in np.arange(K):
         means.append(np.arange(0, 1 + 0.5/N[k], step  = 0.5/N[k]))
     etas = []
-    eps = K/np.min(N)
+    #if we can't hit w^T mu = 1/2, what is the largest gap possible?
+    #should there be a factor of K
+    eps = (0.5/np.min(N))
     for crt_prd in itertools.product(*means):
         if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
             #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
@@ -568,7 +571,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha
         x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
     stopping_times = np.zeros(reps)
     for r in np.arange(reps):
-        X = [np.random.choice(x[k], len(x[k]), replace = False) for k in np.arange(K)]
+        X = [np.random.choice(x[k],  len(x[k]), replace = False) for k in np.arange(K)]
         uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR)[0]
         stopping_times[r] = np.where(any(uinnsm > 1/alpha), np.argmax(uinnsm > 1/alpha), np.sum(N))
     return stopping_times
