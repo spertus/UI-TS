@@ -8,7 +8,7 @@ from scipy.stats.mstats import gmean
 import pytest
 import coverage
 
-from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, wright_lower_bound, \
+from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
     construct_eta_grid_plurcomp, simulate_comparison_audit
 
@@ -47,21 +47,21 @@ def test_lower_confidence_bound():
     assert lower_confidence_bound(sample_5, lam_func = Bets.agrapa, alpha = 0.05, N = 5)[-1] >= 0.4
 
 
-def test_wright_lower_bound():
+def test_global_lower_bound():
     N = [1000, 1000, 1000]
     samples = [0.5 * np.ones(50), 0.5 * np.ones(50), 0.5 * np.ones(50)]
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05)[-1] < 0.5
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05)[-1] > 0.2
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05)[-1] < 0.5
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05)[-1] > 0.2
     #without replacement
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] < 0.5
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] > 0.2
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] > wright_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = False)[-1]
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] < 0.5
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] > 0.2
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = True)[-1] > global_lower_bound(samples, N, Bets.fixed, Allocations.round_robin, 0.05, WOR = False)[-1]
 
     N = [5, 5, 3000]
     samples = [0.5 * np.ones(5), 0.5 * np.ones(5), 0.6 * np.ones(100)]
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] < 0.6
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] > 0.5
-    assert wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] > wright_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = False)[-1]
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] < 0.6
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05)[-1] > 0.5
+    assert global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] > global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = False)[-1]
 
 
 def test_selector():
@@ -116,11 +116,10 @@ def test_intersection_mart():
 
 def test_construct_eta_grid():
     N = [15, 15, 15]
-    calX = [[0, 0.5, 1], [0, 0.5, 1], [0, 0.5, 1]]
+    calX = [np.array([0, 0.5, 1]), np.array([0, 0.5, 1]), np.array([0, 0.5, 1])]
     etas = construct_eta_grid(eta_0 = 0.5, N = N, calX = calX)[0]
     assert etas.count((0.5, 0.5, 0.5)) == 1
     assert etas.count((0, 0.5, 1)) == 1
-    assert etas.count((2/3, 1/3, 0)) == 1
     assert etas.count((1, 1, 1)) == 0
 
 def test_construct_eta_grid_plurcomp():

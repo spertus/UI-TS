@@ -252,10 +252,10 @@ def lower_confidence_bound(x, lam_func, alpha, N = np.inf, breaks = 1000):
         lb[j] = grid[np.argmax(confset[:,j])]
     return lb
 
-def wright_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, breaks = 1000):
+def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, breaks = 1000):
     '''
     return a level (1-alpha) lower confidence bound on a global mean\
-    computed by using Wright's method, summing Sidak-corrected lower confidence bounds\
+    computed by using Wright's method, summing lower confidence bounds\
     across strata
 
     Parameters
@@ -286,7 +286,8 @@ def wright_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func,
-            alpha = 1 - (1 - alpha)**(1/K),
+            #alpha = 1 - (1 - alpha)**(1/K), #<- if we were using sidak correction (not necessar w evalues)
+            alpha = alpha,
             N = N_k,
             breaks = breaks))
     T_k = selector(x, N, allocation_func, eta = None, lam_func = lam_func)
@@ -436,6 +437,7 @@ def construct_eta_grid(eta_0, calX, N):
     K = len(N)
     w = N / np.sum(N)
     u_k = np.array([np.max(x) for x in calX])
+    l_k = np.array([np.min(x[np.nonzero(x)]) for x in calX])
     #upper bound on how many null means there are
     ub_calC = 1
     for k in np.arange(K):
@@ -449,7 +451,8 @@ def construct_eta_grid(eta_0, calX, N):
     etas = []
 
     #should there be a factor of K in here
-    eps = np.max(u_k / np.array(N))
+    eps_k = w*(l_k / np.array(N))
+    eps = np.max(eps_k)
     for crt_prd in itertools.product(*means):
         if eta_0 - eps <= np.dot(w, crt_prd) <= eta_0:
             etas.append(crt_prd)
@@ -484,7 +487,7 @@ def construct_eta_grid_plurcomp(N, A_c):
     eps_k = w*(0.5/np.array(N))
     eps = np.max(eps_k)
     for crt_prd in itertools.product(*means):
-        if 1/2 - eps < np.dot(w, crt_prd) <= 1/2:
+        if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
             #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
             #but divided by two, to map population from [0,2] to [0,1]
             etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
