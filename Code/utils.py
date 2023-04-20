@@ -81,7 +81,7 @@ class Allocations:
         x: length-K list of length-n_k np.arrays with elements in [0,1]
             the data sampled from each stratum
         n: length-K list or np.array of ints
-            the total sample size in each stratum
+            the total sample size in each stratum, i.e. the length of each x
         N: length-K list or np.array of ints
             the (population) size of each stratum
         eta: length-K np.array in [0,1]^K
@@ -93,17 +93,27 @@ class Allocations:
         allocation: a length sum(n_k) sequence of interleaved stratum selections in each round
     '''
 
-    def round_robin(x, running_T_k, n, eta, lam_func):
+    def round_robin(x, running_T_k, n, N, eta, lam_func):
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k)
         return next
 
-    def proportional_round_robin(x, running_T_k, n, eta, lam_func):
+    def proportional_round_robin(x, running_T_k, n, N, eta, lam_func):
         #this is round robin proportional to the sample size (x), not the population size
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k / n)
+        return next
+
+    def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
+        #this function involves alot of overhead, may want to restructure
+        K = len(x)
+        marts = np.array([mart(x[k], eta[k], lam_func, N[k], log = False)[running_T_k[k]] for k in range(K)])
+        scores = np.minimum(np.maximum(marts, 1), 1e3)
+        scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
+        probs = scores / np.sum(scores)
+        next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
 class Weights:
@@ -218,7 +228,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
     t = 0
     while np.any(running_T_k < n):
         t += 1
-        next_k = allocation_func(x, running_T_k, n, eta, lam_func)
+        next_k = allocation_func(x, running_T_k, n, N, eta, lam_func)
         running_T_k[next_k] += 1
         T_k[t,:] = running_T_k
     return T_k
@@ -286,7 +296,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func,
-            #alpha = 1 - (1 - alpha)**(1/K), #<- if we were using sidak correction (not necessar w evalues)
+            #alpha = 1 - (1 - alpha)**(1/K), #<- if we were using sidak correction (not necessary w evalues)
             alpha = alpha,
             N = N_k,
             breaks = breaks))
@@ -631,35 +641,3 @@ def maximize_bsmg(samples, lam, N, theta = 1/2):
     log_mart = global_log_mart(eta_star)
     p_value = 1/np.maximum(1, np.exp(log_mart))
     return counter, eta_star, log_mart, p_value
-
-
-
-#TO FIX
-def stratified_comparison_betting(strata: list, n: np.array, u_A: np.array, A_c: np.array):
-    '''
-    Stratified comparison audit with betting martingale.
-    Given a sample size in each stratum, randomly sample that many ballots and compute the global P-value
-
-    Parameters
-    ----------
-    samples: length-K list of np.arrays
-        samples from each stratum in random order
-    lambda: np.array of length K
-        the fixed lambda (bet) within each stratum, must be in [0,1]
-    N: np.array of length K
-        the number of elements in each stratum in the population
-    u: np.array of length K
-        the upper bound in each stratum
-    theta: double in [0,1]
-        the global null mean
-
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
-    '''
-    #things have to be rescaled to make a betting martingale
-    shuffled_strata = [np.random.permutation(strata[k])/u_A[k] for k in np.arange(len(strata))]
-    N = np.array([len(stratum) for stratum in strata])
-    K = len(strata)
-
-    samples = [shuffled_strata[i][0:(n[i]-1)] for i in np.arange(len(shuffled_strata))]
-    eta_star, log_mart, p_value = maximize_bsmg(samples = samples, lam = .9*np.ones(K), N = N, u = u_A, theta = 1/2)
