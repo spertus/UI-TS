@@ -546,7 +546,7 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
     return mart_opt, eta_opt
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha = 0.05, combine = "product", WOR = False, reps = 500):
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500):
     '''
     repeatedly simulate a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -565,10 +565,14 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
+        method: string, either "ui-nnsm" or "lcbs"
+            the method for testing the global null
+            either union-intersection testing or combining lower confidence bounds as in Wright's method
+        combine: string, either "product", "sum", or "fisher"
+            how to combine within-stratum martingales to test the intersection null
+            only relevant when method == "ui-nnsm"
         alpha: float in (0,1)
             the significance level of the test
-        combine: string, either "product" or "sum"
-            how to combine within-stratum martingales to test the intersection null
         WOR: boolean
             should the martingales be computed under sampling without replacement?
         reps: an integer
@@ -578,6 +582,8 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha
         a length reps list of stopping times
     '''
     K = len(N)
+    w = N/np.sum(N)
+    A_c_global = np.dot(w, A_c)
     etas = construct_eta_grid_plurcomp(N, A_c)[0]
     x = []
     for k in np.arange(K):
@@ -586,8 +592,13 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, alpha
     stopping_times = np.zeros(reps)
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = False) for k in np.arange(K)]
-        uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR)[0]
-        stopping_times[r] = np.where(any(uinnsm > 1/alpha), np.argmax(uinnsm > 1/alpha), np.sum(N))
+        if method == "ui-nnsm":
+            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR)[0]
+            stopping_times[r] = np.where(any(uinnsm > 1/alpha), np.argmax(uinnsm > 1/alpha), np.sum(N))
+        elif method == "lcbs":
+            eta_0 = 1/2 + 1 - A_c_global # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
+            lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
+            stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
     return stopping_times
 
 

@@ -14,20 +14,29 @@ for grand_mean, gap, bet in itertools.product(grand_means, stratum_gaps, bets_li
     A_c = [grand_mean - 0.5*gap, grand_mean + 0.5*gap]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    stopping_times = simulate_comparison_audit(
+    stopping_time_uinnsm = simulate_comparison_audit(
         N, A_c, p_1, p_2,
         lam_func = bets_dict[bet],
         allocation_func = Allocations.round_robin,
+        method = "ui-nnsm",
+        combine = "product",
         reps = 1,
-        WOR = True)
-    stopping_time = stopping_times[0]
+        WOR = True)[0]
+    stopping_time_lcb = simulate_comparison_audit(
+        N, A_c, p_1, p_2,
+        lam_func = bets_dict[bet],
+        allocation_func = Allocations.round_robin,
+        method = "lcbs",
+        reps = 1,
+        WOR = True)[0]
     data_dict = {
         "A_c":grand_mean,
         "stratum_gap":gap,
         "A_c_1":A_c[0],
         "A_c_2":A_c[1],
         "bet":str(bet),
-        "stopping_time":stopping_time
+        "stopping_time_uinnsm":stopping_time_uinnsm,
+        "stopping_time_lcb":stopping_time_lcb
     }
     results.append(data_dict)
 results = pd.DataFrame(results)
