@@ -486,7 +486,7 @@ def construct_eta_grid_plurcomp(N, A_c):
         given the input diluted margins and stratum sizes
     '''
     w = N/np.sum(N)
-    assert np.dot(w, A_c) > 0.5, "global reported margin <= 1/2"
+    #assert np.dot(w, A_c) > 0.5, "global reported margin <= 1/2"
     K = len(N)
     means = []
     for k in np.arange(K):
@@ -593,10 +593,10 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, metho
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = False) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR)[0]
-            stopping_times[r] = np.where(any(uinnsm > 1/alpha), np.argmax(uinnsm > 1/alpha), np.sum(N))
+            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR, log = True)[0]
+            stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
         elif method == "lcbs":
-            eta_0 = 1/2 + 1 - A_c_global # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
+            eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
     return stopping_times
