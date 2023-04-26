@@ -10,7 +10,7 @@ import coverage
 
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
-    construct_eta_grid_plurcomp, simulate_comparison_audit
+    construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit
 
 
 def test_mart():
@@ -139,6 +139,17 @@ def test_construct_eta_grid_plurcomp():
     assert etas.count((0, 0.75)) == 1
     assert etas.count((0.25, 0.5)) == 1
     assert etas.count((0.125, 0.625)) == 0
+
+def test_construct_vertex_etas():
+    assert construct_vertex_etas(N = [10000, 10000], eta_0 = 1/2).count((1,0)) == 1
+    assert construct_vertex_etas(N = [10000, 10000], eta_0 = 1/2).count((0,1)) == 1
+    assert len(construct_vertex_etas(N = [10, 10], eta_0 = 1/2)) == 2
+    assert len(construct_vertex_etas(N = [10, 10, 10], eta_0 = 1/2)) == 6
+    assert len(construct_vertex_etas(N = [10, 10, 10, 10], eta_0 = 1/2)) == 6
+    assert len(construct_vertex_etas(N = [10, 10, 10, 10, 10], eta_0 = 1/2)) == 30
+    assert len(construct_vertex_etas(N = [10, 10, 10, 10, 10, 10], eta_0 = 1/2)) == 20
+
+
 
 def test_union_intersection_mart():
     N = [5, 5, 5]
