@@ -30,7 +30,8 @@ class Bets:
 
     def fixed(x, eta):
         '''
-        lambda fixed to 0.75 (nonadaptive)
+        lambda fixed to 0.75
+        eta-nonadaptive
         '''
         lam = 0.75 * np.ones(x.size)
         return lam
@@ -39,6 +40,7 @@ class Bets:
         '''
         AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
         lambda is set to approximately maximize a Kelly-like objective (expectation of log martingale)
+        eta-adaptive
         '''
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
@@ -57,6 +59,10 @@ class Bets:
         return lam_trunc
 
     def trunc(x, eta):
+        '''
+        doesn't bet if running mean is less than null, otherwise bets inversely proportional to null
+        eta-adaptive
+        '''
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
@@ -65,10 +71,16 @@ class Bets:
         return lam_trunc
 
     def smooth(x, eta):
+        '''
+        eta-adaptive; smooth, negative exponential in eta (doesn't use data)
+        '''
         lam = np.exp(-eta)
         return lam
 
     def smooth_predictable(x, eta):
+        '''
+        eta-adaptive; smooth, bets more the more the empirical mean is above the null mean
+        '''
         lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
         return lam
@@ -94,19 +106,31 @@ class Allocations:
     '''
 
     def round_robin(x, running_T_k, n, N, eta, lam_func):
+        #eta-nonadaptive round robin strategy
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k)
         return next
 
     def proportional_round_robin(x, running_T_k, n, N, eta, lam_func):
-        #this is round robin proportional to the sample size (x), not the population size
+        #eta-nonadaptive round robin strategy, proportional to total sample size
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k / n)
         return next
 
+    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func):
+        #eta-nonadaptive
+        #samples more from strata with larger average values of x
+        eps = 0.1
+        means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
+        probs = means/np.sum(means)
+        next = np.random.choice(np.arange(K), size = 1, p = probs)
+
+
+
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
+        #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
         K = len(x)
         marts = np.array([mart(x[k], eta[k], lam_func, N[k], log = False)[running_T_k[k]] for k in range(K)])
@@ -504,6 +528,39 @@ def construct_eta_grid_plurcomp(N, A_c):
     calC = len(etas)
     return etas, calC
 
+def construct_vertex_etas(eta_0, N):
+    '''
+    find all the null means that make up vertices of calC.
+    Can be used to (relatively) efficiently compute the union-intersection martingale
+    IF the betting and allocation strategies are eta-nonadaptive
+
+
+    Parameters
+    ----------
+        eta_0: scalar in [0,1]
+            the global null
+        N: length-K list of ints
+            the size of the population within each stratum
+    Returns
+    ----------
+        a list of intersection nulls, to be passed into union_intersection_mart
+    '''
+    w = N / np.sum(N)
+    K = len(N)
+    #define constraint set for pypoman projection
+    A = np.concatenate((
+        np.expand_dims(w, axis = 0),
+        np.expand_dims(-w, axis = 0),
+        -np.identity(K),
+        np.identity(K)))
+    b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
+    vertices = np.stack(pypoman.compute_polytope_vertices(A, b), axis = 0)
+    etas = vertices[np.matmul(vertices, w) == eta_0,]
+    #etas = vertices
+    etas = list(map(tuple, etas))
+    return etas
+
+
 
 def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
     '''
@@ -515,8 +572,8 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
             the data sampled from each stratum
         N: length-K list of ints
             the size of each stratum
-        etas: list of length-K np.arrays
-            vectors of within-stratum nulls over which the minimum will be taken
+        etas: list of length-K tuples
+            intersection nulls over which the minimum will be taken
         combine: string, either "product" or "sum"
             how to combine within-stratum martingales to test the intersection null
         lam_func: callable, a function from class Bets
