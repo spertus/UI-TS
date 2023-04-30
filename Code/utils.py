@@ -545,6 +545,7 @@ def construct_vertex_etas(eta_0, N):
     ----------
         a list of intersection nulls, to be passed into union_intersection_mart
     '''
+    assert len(N) < 16, "Too many strata to compute vertices."
     w = N / np.sum(N)
     K = len(N)
     #define constraint set for pypoman projection
@@ -658,6 +659,30 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, metho
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
     return stopping_times
 
+
+
+def random_truncated_gaussian(mean, sd, size):
+    '''
+    simulate from a gaussian truncated to [0,1]
+
+    Parameters
+    ----------
+        mean: double in [0,1]
+        sd: positive double
+        size: the number of samples to draw
+    Returns
+    ----------
+        length-size np.array of truncated gaussian draws
+    '''
+    assert 0 <= mean <= 1, "mean is not in [0,1]"
+    samples = np.zeros(size)
+    for i in range(size):
+        while True:
+            draw = np.random.normal(mean, sd, 1)
+            if 0 <= draw <= 1:
+                samples[i] = draw
+                break
+    return samples
 
 
 ############## functions for betting SMG #############
