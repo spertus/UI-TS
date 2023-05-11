@@ -319,7 +319,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func,
-            #alpha = 1 - (1 - alpha)**(1/K), #<- if we were using sidak correction (not necessary w evalues)
+            #alpha = 1 - (1 - alpha)**(1/K), <- if we were using sidak correction (not necessary w evalues)
             alpha = alpha,
             N = N_k,
             breaks = breaks))
@@ -688,7 +688,7 @@ def random_truncated_gaussian(mean, sd, size):
 
 def negexp_ui_mart(x, N, allocation_func, eta_0):
     '''
-    compute the union intersection supermartingale when bets are negative exponential:
+    compute the union-intersection NNSM when bets are negative exponential:
     lambda = exp(barX - eta)
 
     Parameters
@@ -718,12 +718,15 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
     b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
 
     T_k = selector(x, N, allocation_func, eta = None, lam_func = Bets.smooth_predictable)
-    #interleaving[0:i,:] is the samples in each stratum up to time i
+    interleaving[0:i,:] is the samples in each stratum up to time i
     interleaving = np.zeros((T_k.shape[0], K))
+    running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
-        interleaving[i,:] = np.array([x[k][T_k[i, k]] for k in np.arange(K)])
-    sample_means = np.array([np.mean(x_k) for x_k in samples])
-
+       #minor indexing issue, T_k runs up to N[k] but can only go to N[k]-1
+       interleaving[i,:] = np.array([x[k][T_k[i, k]] for k in np.arange(K)])
+       #the means are lagged by inserting an additional "0" into each stratum-wise sample
+       #they are also shrunk towards 0 by doing this...
+       running_means[i,:] = np.array([np.mean(np.insert(x[k], 0, 0)[0:T_k[i, k]]) for k in np.arange(K)])
 
 
     log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
