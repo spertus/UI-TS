@@ -128,7 +128,6 @@ class Allocations:
         next = np.random.choice(np.arange(K), size = 1, p = probs)
 
 
-
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
         #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
@@ -685,25 +684,29 @@ def random_truncated_gaussian(mean, sd, size):
     return samples
 
 
-############## functions for betting SMG #############
-def maximize_bsmg(samples, lam, N, theta = 1/2):
+
+
+def negexp_ui_mart(x, N, allocation_func, eta_0):
     '''
-    maximize a stratified betting supermartingale over possible values of eta (the within-stratum means)
+    compute the union intersection supermartingale when bets are negative exponential:
+    lambda = exp(barX - eta)
 
     Parameters
     ----------
-    samples: length-K list of np.arrays
+    x: length-K list of np.arrays
         samples from each stratum in random order
-    lam: np.array of length K
-        the fixed lambda (bet) within each stratum, must be in [0,1]
     N: np.array of length K
         the number of elements in each stratum in the population
-    theta: double in [0,1]
+    allocation_func: callable, a function from class Allocations
+        the desired allocation strategy, cannot be eta-adaptive
+    eta_0: double in [0,1]
         the global null mean
-
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
+    Returns
+    --------
+    the value of the union-intersection supermartingale
     '''
+    assert allocation_func not in [Allocations.proportional_to_mart], "Allocation cannot be eta-adaptive"
+
     w = N / np.sum(N)
     K = len(N)
     #define constraint set for pypoman projection
@@ -713,12 +716,20 @@ def maximize_bsmg(samples, lam, N, theta = 1/2):
         -np.identity(K),
         np.identity(K)))
     b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
-    sample_means = np.array([np.mean(x) for x in samples])
+
+    T_k = selector(x, N, allocation_func, eta = None, lam_func = Bets.smooth_predictable)
+    #interleaving[0:i,:] is the samples in each stratum up to time i
+    interleaving = np.zeros((T_k.shape[0], K))
+    for i in np.arange(T_k.shape[0]):
+        interleaving[i,:] = np.array([x[k][T_k[i, k]] for k in np.arange(K)])
+    sample_means = np.array([np.mean(x_k) for x_k in samples])
+
+
+
     log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
     global_log_mart = lambda eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
-    partial = lambda eta, k: -np.sum(lam[k] / (1 + lam[k] * (samples[k] - eta[k])))
+    partial = lambda eta, k: -np.sum(exp() / (1 + lam[k] * (samples[k] - eta[k])))
     grad = lambda eta: np.array([partial(eta, k) for k in np.arange(K)])
-    #proj = lambda eta: np.maximum(0, np.minimum(1, eta - w * (np.dot(w, eta) - theta) / np.sum(w**2)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     delta = 1e-3
     eta_l = proj(sample_means)
