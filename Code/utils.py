@@ -730,32 +730,34 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
 
     T_k = selector(x, N, allocation_func, eta = None, lam_func = Bets.smooth_predictable)
     #interleaving[0:i,:] is the samples in each stratum up to time i
-    interleaving = np.zeros((T_k.shape[0], K))
+    samples_t = [[]]
     running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
-       #minor indexing issue, T_k runs up to N[k] but can only go to N[k]-1
-       interleaving[i,:] = np.array([x[k][T_k[i, k]] for k in np.arange(K)])
-       #the means are lagged by inserting an additional "0" into each stratum-wise sample
-       #they are also shrunk towards 0 by doing this...
-       running_means[i,:] = np.array([np.mean(np.insert(x[k], 0, 0)[0:T_k[i, k]]) for k in np.arange(K)])
+       for k in np.arange(K):
+           interleaving[i][k] = np.array(x[k][T_k[i, k]])
 
-
-    log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
-    global_log_mart = lambda eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
-    partial = lambda eta, k: -np.sum(exp() / (1 + lam[k] * (samples[k] - eta[k])))
-    grad = lambda eta: np.array([partial(eta, k) for k in np.arange(K)])
+    #lambda functions used to evaluate values of martingales given a list of samples
+    #TODO: may need to define the martingales when no samples exist as 1
+    log_mart = lambda samples, eta, k: np.sum(np.log(1 + exp(np.mean(samples[k]) - eta[k]) * (samples[k] - eta[k])))
+    global_log_mart = lambda samples, eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
+    partial = lambda samples, eta, k: -np.sum(exp(np.mean(samples[k]) - eta[k]) / (1 + exp(np.mean(samples[k]) - * (samples[k] - eta[k])))
+    grad = lambda samples, eta: np.array([partial(eta, k) for k in np.arange(K)])
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     delta = 1e-3
-    eta_l = proj(sample_means)
-    step_size = 1
-    counter = 0
-    while step_size > 1e-20:
-        counter += 1
-        grad_l = grad(eta_l)
-        next_eta = proj(eta_l - delta * grad_l)
-        step_size = global_log_mart(eta_l) - global_log_mart(next_eta)
-        eta_l = next_eta
-    eta_star = eta_l
-    log_mart = global_log_mart(eta_star)
-    p_value = 1/np.maximum(1, np.exp(log_mart))
-    return counter, eta_star, log_mart, p_value
+    uinnsms = []
+
+    for i in np.arange(T_k.shape[0]):
+        #initial estimate of minimum by projecting sample mean onto null space
+        eta_l = proj(sample_means)
+        step_size = 1
+        counter = 0
+        while step_size > 1e-20:
+            counter += 1
+            grad_l = grad(samples_t[i], eta_l)
+            next_eta = proj(eta_l - delta * grad_l)
+            step_size = global_log_mart(samples_t[i], eta_l) - global_log_mart(samples_t[i], next_eta)
+            eta_l = next_eta
+        eta_star = eta_l
+        log_mart = global_log_mart(samples_t[i], eta_star)
+        uinnsms.append(exp(log_mart))
+    return counter, eta_star, log_mart
