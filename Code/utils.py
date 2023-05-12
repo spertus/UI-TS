@@ -121,12 +121,18 @@ class Allocations:
 
     def more_to_larger_means(x, running_T_k, n, N, eta, lam_func):
         #eta-nonadaptive
-        #samples more from strata with larger average values of x
-        eps = 0.1
-        means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
-        probs = means/np.sum(means)
-        next = np.random.choice(np.arange(K), size = 1, p = probs)
-
+        #samples more from strata with larger values of x on average
+        #does round robin until every stratum has been sampled once
+        if any(running_T_k == 0):
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+        else:
+            K = len(x)
+            eps = 0.1
+            means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
+            means = np.where(running_T_k == n, 0, means)
+            probs = means/np.sum(means)
+            next = np.random.choice(np.arange(K), size = 1, p = probs)
+        return next
 
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
         #eta-adaptive strategy, based on size of martingale for given intersection null
@@ -222,7 +228,7 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
     return mart
 
 
-def selector(x, N, allocation_func, eta = None, lam_func = None):
+def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = False):
     '''
     takes data and predictable tuning parameters and returns a sequence of stratum sample sizes
     equivalent to [T_k(t) for k in 1:K]
@@ -238,13 +244,20 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
             the intersection null for H_0: mu <= eta, can be None
         lam_func: callable, a function from Bets class
         allocation_func: callable, a function from Allocations class
+        for_samples: boolean
+            this is only True when used in negexp_ui_mart,
+            which needs an interleaving of _samples_ not martingales,
+            and needs a slightly different indexing (one shorter)
     Returns
     ----------
         an np.array of length np.sum(N) by
     '''
     w = N/np.sum(N)
     K = len(N)
-    n = [len(x_k) for x_k in x]
+    if for_samples:
+        n = [len(x_k)-1 for x_k in x]
+    else:
+        n = [len(x_k) for x_k in x]
     #selections from 0 in each stratum; time 1 is first sample
     T_k = np.zeros((np.sum(n) + 1, K), dtype = int)
     running_T_k = np.zeros(K, dtype = int)
@@ -684,8 +697,6 @@ def random_truncated_gaussian(mean, sd, size):
     return samples
 
 
-
-
 def negexp_ui_mart(x, N, allocation_func, eta_0):
     '''
     compute the union-intersection NNSM when bets are negative exponential:
@@ -718,7 +729,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
     b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
 
     T_k = selector(x, N, allocation_func, eta = None, lam_func = Bets.smooth_predictable)
-    interleaving[0:i,:] is the samples in each stratum up to time i
+    #interleaving[0:i,:] is the samples in each stratum up to time i
     interleaving = np.zeros((T_k.shape[0], K))
     running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
