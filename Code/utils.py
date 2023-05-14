@@ -696,6 +696,48 @@ def random_truncated_gaussian(mean, sd, size):
                 break
     return samples
 
+class PGD:
+    '''
+    class of helper functions to compute UI-NNSM for negative exponential bets by projected gradient descent
+    '''
+
+    def log_mart(samples, eta):
+        '''
+        return the log value of within-stratum martingale evaluated at eta_k
+        bets are exponential in negative eta, offset by current sample mean
+        '''
+        if samples.size == 0:
+            return 0
+        else:
+            #TODO: mean needs to be lagged, not clear what the best way to do this is yet...
+            return np.sum(np.log(1 + exp(np.mean(samples) - eta) * (samples - eta)))
+
+    def global_log_mart(samples, eta):
+        '''
+        return the log value of the product-combined I-NNSM evaluated at eta
+        '''
+        return np.sum([PGD.log_mart(samples[k], eta[k]) for k in np.arange(K)])
+
+    def partial(samples, eta):
+        '''
+        return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
+        '''
+        if samples.size == 0:
+            return 0
+        else:
+            return -np.sum(exp(np.mean(samples) - eta) / (1 + exp(np.mean(samples) - * (samples - eta))))
+
+    def grad(samples, eta):
+        '''
+        return the gradient (WRT eta) of the log I-NNSM evaluated at eta
+        '''
+        return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(K)])
+
+    def proj(eta):
+        '''
+        project the vector eta onto the constraining polytope calC, the null space
+        '''
+        return pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
 
 def negexp_ui_mart(x, N, allocation_func, eta_0):
     '''
@@ -728,36 +770,30 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
         np.identity(K)))
     b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
 
-    T_k = selector(x, N, allocation_func, eta = None, lam_func = Bets.smooth_predictable)
+    T_k = selector(x, N, allocation_func, eta = None,\
+        lam_func = Bets.smooth_predictable, for_samples = True)
     #interleaving[0:i,:] is the samples in each stratum up to time i
     samples_t = [[]]
     running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
-       for k in np.arange(K):
-           interleaving[i][k] = np.array(x[k][T_k[i, k]])
+        for k in np.arange(K):
+            samples_t[i][k] = np.array(x[k][T_k[i, k]])
 
-    #lambda functions used to evaluate values of martingales given a list of samples
-    #TODO: may need to define the martingales when no samples exist as 1
-    log_mart = lambda samples, eta, k: np.sum(np.log(1 + exp(np.mean(samples[k]) - eta[k]) * (samples[k] - eta[k])))
-    global_log_mart = lambda samples, eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
-    partial = lambda samples, eta, k: -np.sum(exp(np.mean(samples[k]) - eta[k]) / (1 + exp(np.mean(samples[k]) - * (samples[k] - eta[k])))
-    grad = lambda samples, eta: np.array([partial(eta, k) for k in np.arange(K)])
-    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     delta = 1e-3
-    uinnsms = []
+    uinnsms = [1]
 
-    for i in np.arange(T_k.shape[0]):
+    for i in np.arange(1, T_k.shape[0]):
         #initial estimate of minimum by projecting sample mean onto null space
-        eta_l = proj(sample_means)
+        eta_l = PGD.proj(sample_means)
         step_size = 1
         counter = 0
         while step_size > 1e-20:
             counter += 1
-            grad_l = grad(samples_t[i], eta_l)
-            next_eta = proj(eta_l - delta * grad_l)
-            step_size = global_log_mart(samples_t[i], eta_l) - global_log_mart(samples_t[i], next_eta)
+            grad_l = PGD.grad(samples_t[i], eta_l)
+            next_eta = PGD.proj(eta_l - delta * grad_l)
+            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
             eta_l = next_eta
         eta_star = eta_l
-        log_mart = global_log_mart(samples_t[i], eta_star)
+        log_mart = PGD.global_log_mart(samples_t[i], eta_star)
         uinnsms.append(exp(log_mart))
     return counter, eta_star, log_mart
