@@ -699,9 +699,10 @@ def random_truncated_gaussian(mean, sd, size):
 class PGD:
     '''
     class of helper functions to compute UI-NNSM for negative exponential bets by projected gradient descent
+    currently everything is computed on assumption of sampling with replacement
     '''
 
-    def log_mart(samples, eta):
+    def log_mart(samples, past_samples, eta):
         '''
         return the log value of within-stratum martingale evaluated at eta_k
         bets are exponential in negative eta, offset by current sample mean
@@ -710,28 +711,28 @@ class PGD:
             return 0
         else:
             #TODO: mean needs to be lagged, not clear what the best way to do this is yet...
-            return np.sum(np.log(1 + exp(np.mean(samples) - eta) * (samples - eta)))
+            return np.sum(np.log(1 + np.exp(np.mean(past_samples) - eta) * (samples - eta)))
 
-    def global_log_mart(samples, eta):
+    def global_log_mart(samples, past_samples, eta):
         '''
         return the log value of the product-combined I-NNSM evaluated at eta
         '''
-        return np.sum([PGD.log_mart(samples[k], eta[k]) for k in np.arange(K)])
+        return np.sum([PGD.log_mart(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
 
-    def partial(samples, eta):
+    def partial(samples, past_samples, eta):
         '''
         return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
         '''
         if samples.size == 0:
             return 0
         else:
-            return -np.sum(exp(np.mean(samples) - eta) / (1 + exp(np.mean(samples) - * (samples - eta))))
+            return -np.sum(np.exp(np.mean(past_samples) - eta) / (1 + np.exp(np.mean(past_samples) - eta) * (samples - eta)))
 
-    def grad(samples, eta):
+    def grad(samples, past_samples, eta):
         '''
         return the gradient (WRT eta) of the log I-NNSM evaluated at eta
         '''
-        return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(K)])
+        return np.array([PGD.partial(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
 
     def proj(eta):
         '''
@@ -769,10 +770,11 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
         -np.identity(K),
         np.identity(K)))
     b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
+    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
 
+    #construct the sequence of samples that are available at each time
     T_k = selector(x, N, allocation_func, eta = None,\
         lam_func = Bets.smooth_predictable, for_samples = True)
-    #interleaving[0:i,:] is the samples in each stratum up to time i
     samples_t = [[]]
     running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
@@ -784,16 +786,20 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
 
     for i in np.arange(1, T_k.shape[0]):
         #initial estimate of minimum by projecting sample mean onto null space
-        eta_l = PGD.proj(sample_means)
+        if any(samples.size == 0 for samples in samples_t[i]):
+            sample_means = [1/2 for _ in range(K)]
+        else:
+            sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
+        eta_l = proj(np.log(sample_means))
         step_size = 1
         counter = 0
         while step_size > 1e-20:
             counter += 1
-            grad_l = PGD.grad(samples_t[i], eta_l)
-            next_eta = PGD.proj(eta_l - delta * grad_l)
-            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
+            grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
+            next_eta = proj(eta_l - delta * grad_l)
+            step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
             eta_l = next_eta
         eta_star = eta_l
-        log_mart = PGD.global_log_mart(samples_t[i], eta_star)
+        log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_star)
         uinnsms.append(exp(log_mart))
     return counter, eta_star, log_mart
