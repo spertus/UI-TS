@@ -121,13 +121,18 @@ class Allocations:
 
     def more_to_larger_means(x, running_T_k, n, N, eta, lam_func):
         #eta-nonadaptive
-        #samples more from strata with larger average values of x
-        eps = 0.1
-        means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
-        probs = means/np.sum(means)
-        next = np.random.choice(np.arange(K), size = 1, p = probs)
-
-
+        #samples more from strata with larger values of x on average
+        #does round robin until every stratum has been sampled once
+        if any(running_T_k == 0):
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+        else:
+            K = len(x)
+            eps = 0.1
+            means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
+            means = np.where(running_T_k == n, 0, means)
+            probs = means/np.sum(means)
+            next = np.random.choice(np.arange(K), size = 1, p = probs)
+        return next
 
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
         #eta-adaptive strategy, based on size of martingale for given intersection null
@@ -223,7 +228,7 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
     return mart
 
 
-def selector(x, N, allocation_func, eta = None, lam_func = None):
+def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = False):
     '''
     takes data and predictable tuning parameters and returns a sequence of stratum sample sizes
     equivalent to [T_k(t) for k in 1:K]
@@ -239,13 +244,20 @@ def selector(x, N, allocation_func, eta = None, lam_func = None):
             the intersection null for H_0: mu <= eta, can be None
         lam_func: callable, a function from Bets class
         allocation_func: callable, a function from Allocations class
+        for_samples: boolean
+            this is only True when used in negexp_ui_mart,
+            which needs an interleaving of _samples_ not martingales,
+            and needs a slightly different indexing (one shorter)
     Returns
     ----------
         an np.array of length np.sum(N) by
     '''
     w = N/np.sum(N)
     K = len(N)
-    n = [len(x_k) for x_k in x]
+    if for_samples:
+        n = [len(x_k)-1 for x_k in x]
+    else:
+        n = [len(x_k) for x_k in x]
     #selections from 0 in each stratum; time 1 is first sample
     T_k = np.zeros((np.sum(n) + 1, K), dtype = int)
     running_T_k = np.zeros(K, dtype = int)
@@ -320,7 +332,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func,
-            #alpha = 1 - (1 - alpha)**(1/K), #<- if we were using sidak correction (not necessary w evalues)
+            #alpha = 1 - (1 - alpha)**(1/K), <- if we were using sidak correction (not necessary w evalues)
             alpha = alpha,
             N = N_k,
             breaks = breaks))
@@ -684,26 +696,73 @@ def random_truncated_gaussian(mean, sd, size):
                 break
     return samples
 
-
-############## functions for betting SMG #############
-def maximize_bsmg(samples, lam, N, theta = 1/2):
+class PGD:
     '''
-    maximize a stratified betting supermartingale over possible values of eta (the within-stratum means)
+    class of helper functions to compute UI-NNSM for negative exponential bets by projected gradient descent
+    currently everything is computed on assumption of sampling with replacement
+    '''
+
+    def log_mart(samples, past_samples, eta):
+        '''
+        return the log value of within-stratum martingale evaluated at eta_k
+        bets are exponential in negative eta, offset by current sample mean
+        '''
+        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
+        if samples.size == 0:
+            return 0
+        else:
+            #TODO: mean needs to be lagged, not clear what the best way to do this is yet...
+            return np.sum(np.log(1 + np.exp(lag_mean - eta) * (samples - eta)))
+
+    def global_log_mart(samples, past_samples, eta):
+        '''
+        return the log value of the product-combined I-NNSM evaluated at eta
+        '''
+        return np.sum([PGD.log_mart(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
+
+    def partial(samples, past_samples, eta):
+        '''
+        return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
+        '''
+        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
+        if samples.size == 0:
+            return 0
+        else:
+            return -np.sum(np.exp(lag_mean - eta) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
+
+    def grad(samples, past_samples, eta):
+        '''
+        return the gradient (WRT eta) of the log I-NNSM evaluated at eta
+        '''
+        return np.array([PGD.partial(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
+
+    def proj(eta):
+        '''
+        project the vector eta onto the constraining polytope calC, the null space
+        '''
+        return pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+
+def negexp_ui_mart(x, N, allocation_func, eta_0):
+    '''
+    compute the union-intersection NNSM when bets are negative exponential:
+    lambda = exp(barX - eta)
 
     Parameters
     ----------
-    samples: length-K list of np.arrays
+    x: length-K list of np.arrays
         samples from each stratum in random order
-    lam: np.array of length K
-        the fixed lambda (bet) within each stratum, must be in [0,1]
     N: np.array of length K
         the number of elements in each stratum in the population
-    theta: double in [0,1]
+    allocation_func: callable, a function from class Allocations
+        the desired allocation strategy, cannot be eta-adaptive
+    eta_0: double in [0,1]
         the global null mean
-
-    prng : np.Random.RandomState
-        a PRNG (or seed, or none)
+    Returns
+    --------
+    the value of the union-intersection supermartingale
     '''
+    assert allocation_func not in [Allocations.proportional_to_mart], "Allocation cannot be eta-adaptive"
+
     w = N / np.sum(N)
     K = len(N)
     #define constraint set for pypoman projection
@@ -712,25 +771,37 @@ def maximize_bsmg(samples, lam, N, theta = 1/2):
         np.expand_dims(-w, axis = 0),
         -np.identity(K),
         np.identity(K)))
-    b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
-    sample_means = np.array([np.mean(x) for x in samples])
-    log_mart = lambda eta, k: np.sum(np.log(1 + lam[k] * (samples[k] - eta[k])))
-    global_log_mart = lambda eta: np.sum([log_mart(eta, k) for k in np.arange(K)])
-    partial = lambda eta, k: -np.sum(lam[k] / (1 + lam[k] * (samples[k] - eta[k])))
-    grad = lambda eta: np.array([partial(eta, k) for k in np.arange(K)])
-    #proj = lambda eta: np.maximum(0, np.minimum(1, eta - w * (np.dot(w, eta) - theta) / np.sum(w**2)))
+    b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+
+    #construct the sequence of samples that are available at each time
+    T_k = selector(x, N, allocation_func, eta = None,\
+        lam_func = Bets.smooth_predictable, for_samples = True)
+    samples_t = [[[] for _ in range(K)] for _ in range(T_k.shape[0])]
+    running_means = np.zeros((T_k.shape[0], K))
+    for i in np.arange(T_k.shape[0]):
+        for k in np.arange(K):
+            samples_t[i][k] = x[k][np.arange(T_k[i, k])]
+
     delta = 1e-3
-    eta_l = proj(sample_means)
-    step_size = 1
-    counter = 0
-    while step_size > 1e-20:
-        counter += 1
-        grad_l = grad(eta_l)
-        next_eta = proj(eta_l - delta * grad_l)
-        step_size = global_log_mart(eta_l) - global_log_mart(next_eta)
-        eta_l = next_eta
-    eta_star = eta_l
-    log_mart = global_log_mart(eta_star)
-    p_value = 1/np.maximum(1, np.exp(log_mart))
-    return counter, eta_star, log_mart, p_value
+    uinnsms = [1]
+
+    for i in np.arange(1, T_k.shape[0]):
+        #initial estimate of minimum by projecting sample mean onto null space
+        if any(samples.size == 0 for samples in samples_t[i]):
+            sample_means = [eta_0 for _ in range(K)]
+        else:
+            sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
+        eta_l = proj(np.log(sample_means))
+        step_size = 1
+        counter = 0
+        while step_size > 1e-20:
+            counter += 1
+            grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
+            next_eta = proj(eta_l - delta * grad_l)
+            step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
+            eta_l = next_eta
+        eta_star = eta_l
+        log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_star)
+        uinnsms.append(np.exp(log_mart))
+    return uinnsms
