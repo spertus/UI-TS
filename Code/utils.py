@@ -707,11 +707,12 @@ class PGD:
         return the log value of within-stratum martingale evaluated at eta_k
         bets are exponential in negative eta, offset by current sample mean
         '''
+        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
         if samples.size == 0:
             return 0
         else:
             #TODO: mean needs to be lagged, not clear what the best way to do this is yet...
-            return np.sum(np.log(1 + np.exp(np.mean(past_samples) - eta) * (samples - eta)))
+            return np.sum(np.log(1 + np.exp(lag_mean - eta) * (samples - eta)))
 
     def global_log_mart(samples, past_samples, eta):
         '''
@@ -723,10 +724,11 @@ class PGD:
         '''
         return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
         '''
+        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
         if samples.size == 0:
             return 0
         else:
-            return -np.sum(np.exp(np.mean(past_samples) - eta) / (1 + np.exp(np.mean(past_samples) - eta) * (samples - eta)))
+            return -np.sum(np.exp(lag_mean - eta) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
 
     def grad(samples, past_samples, eta):
         '''
@@ -769,17 +771,17 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
         np.expand_dims(-w, axis = 0),
         -np.identity(K),
         np.identity(K)))
-    b = np.concatenate((1/2 * np.ones(2), np.zeros(K), np.ones(K)))
+    b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
 
     #construct the sequence of samples that are available at each time
     T_k = selector(x, N, allocation_func, eta = None,\
         lam_func = Bets.smooth_predictable, for_samples = True)
-    samples_t = [[]]
+    samples_t = [[[] for _ in range(K)] for _ in range(T_k.shape[0])]
     running_means = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
         for k in np.arange(K):
-            samples_t[i][k] = np.array(x[k][T_k[i, k]])
+            samples_t[i][k] = x[k][np.arange(T_k[i, k])]
 
     delta = 1e-3
     uinnsms = [1]
@@ -787,7 +789,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
     for i in np.arange(1, T_k.shape[0]):
         #initial estimate of minimum by projecting sample mean onto null space
         if any(samples.size == 0 for samples in samples_t[i]):
-            sample_means = [1/2 for _ in range(K)]
+            sample_means = [eta_0 for _ in range(K)]
         else:
             sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
         eta_l = proj(np.log(sample_means))
@@ -801,5 +803,5 @@ def negexp_ui_mart(x, N, allocation_func, eta_0):
             eta_l = next_eta
         eta_star = eta_l
         log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_star)
-        uinnsms.append(exp(log_mart))
-    return counter, eta_star, log_mart
+        uinnsms.append(np.exp(log_mart))
+    return uinnsms
