@@ -10,7 +10,8 @@ import coverage
 
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
-    construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit
+    construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit,\
+    random_truncated_gaussian
 
 
 def test_mart():
@@ -167,3 +168,10 @@ def test_simulate_comparison_audit():
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, Bets.fixed, Allocations.round_robin, WOR = True, reps = 1) < 40
+
+
+def test_random_truncated_gaussian():
+    assert len(random_truncated_gaussian(0.5, 0.1, 30)) == 30
+    samples = random_truncated_gaussian(0.5, 1, 20)
+    assert ((0 < samples) & (samples < 1)).all()
+    assert 0.4 < random_truncated_gaussian(0.5, 0.005, 1) < 0.5
