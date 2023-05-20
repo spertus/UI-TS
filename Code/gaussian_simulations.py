@@ -11,18 +11,21 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
     construct_eta_grid_plurcomp, simulate_comparison_audit, construct_vertex_etas,\
     random_truncated_gaussian, PGD, negexp_ui_mart
 import time
+import os
 start_time = time.time()
 
 
 alpha = 0.05
 eta_0 = 1/2
-reps = 1 #this should be enough to compute the expected stopping time
+#reps = 1 #this should be enough to compute the expected stopping time
+sim_rep = os.get_env('SLURM_ARRAY_TASK_ID')
+
 
 K_grid = [2, 5]
 global_mean_grid = np.linspace(0.5, 0.7, 10)
-delta_grid = [0, 0.1, 0.2, 0.3] #maximum spread of the stratum means
+delta_grid = [0, 0.2] #maximum spread of the stratum means
 sd_grid = [0.01, 0.05]
-allocation_grid = ["round_robin","larger_means"]
+allocation_grid = ["round_robin"]
 allocation_mapping = {"round_robin":Allocations.round_robin, "larger_means":Allocations.more_to_larger_means}
 
 results = []
@@ -30,10 +33,12 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     shifts = np.linspace(-0.5,0.5,K)
     deltas = shifts * delta
     N = [int(1000/K) for _ in range(K)]
-    w = N/np.sum(N)s
+    w = N/np.sum(N)
     etas = construct_vertex_etas(N = N, eta_0 = eta_0)
     allocation_rule = allocation_mapping[allocation]
 
+    #this is all set up so that reps can be modified to be larger than 1
+    #however I am just going to run everything in parallel
     stopping_times_unstrat_fixed = np.zeros(reps)
     stopping_times_unstrat_agrapa = np.zeros(reps)
     stopping_times_uinnsm_fixed = np.zeros(reps)
@@ -47,7 +52,6 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
         for i in range(np.sum(N)):
             rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
             x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
-
 
         unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed)
         unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa)
@@ -75,6 +79,7 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
         "global_mean":global_mean,
         "delta":delta,
         "sd":sd,
+        "rep":sim_rep,
         "allocation_rule":allocation,
         "mean_stop_unstrat_fixed":mean_stop_unstrat_fixed,
         "mean_stop_unstrat_agrapa":mean_stop_unstrat_agrapa,
@@ -85,5 +90,5 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     }
     results.append(results_dict)
 results = pd.DataFrame(results)
-results.to_csv("full_gaussian_simulation_results.csv", index = False)
+results.to_csv("gaussian_simulation_results_parallel_" + sim_rep + ".csv", index = False)
 print("--- %s seconds ---" % (time.time() - start_time))
