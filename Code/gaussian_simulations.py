@@ -17,8 +17,8 @@ start_time = time.time()
 
 alpha = 0.05
 eta_0 = 1/2
-#reps = 1 #this should be enough to compute the expected stopping time
-sim_rep = os.get_env('SLURM_ARRAY_TASK_ID')
+reps = 1 #this should be enough to compute the expected stopping time
+sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
 
 
 K_grid = [2, 5]
