@@ -174,12 +174,12 @@ def test_random_truncated_gaussian():
     assert len(random_truncated_gaussian(0.5, 0.1, 30)) == 30
     samples = random_truncated_gaussian(0.5, 1, 20)
     assert ((0 < samples) & (samples < 1)).all()
-    assert 0.4 < random_truncated_gaussian(0.5, 0.005, 1) < 0.5
+    assert 0.4 < random_truncated_gaussian(0.5, 0.001, 1) < 0.6
 
 
 def test_negexp_ui_mart():
     #these tests are probabilistic, they may sometimes fail (but should rarely)
-    N = [100, 100]
+    N = [500, 500]
     x_null_1 = [random_truncated_gaussian(0.5, 0.05, N[0]), random_truncated_gaussian(0.5, 0.05, N[1])]
     assert np.max(negexp_ui_mart(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)) < 100 #there should be less than 1% chance this doesnt happen
     x_null_2 = [random_truncated_gaussian(0.2, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
@@ -190,3 +190,9 @@ def test_negexp_ui_mart():
     assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > 20
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
     assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) > 20
+
+    #check PGD works for higher dimensions
+    K = 5
+    N = [100 for _ in range(K)]
+    x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[k]) for k in range (K)]
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > 20
