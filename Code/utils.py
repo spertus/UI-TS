@@ -742,7 +742,7 @@ class PGD:
         '''
         return pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
 
-def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2):
+def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
     compute the union-intersection NNSM when bets are negative exponential:
     lambda = exp(barX - eta)
@@ -803,5 +803,8 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2):
             eta_l = next_eta
         eta_star = eta_l
         log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_star)
-        uinnsms.append(np.exp(log_mart))
+        if log:
+            uinnsms.append(log_mart)
+        else:
+            uinnsms.append(np.exp(log_mart))
     return uinnsms

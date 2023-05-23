@@ -14,11 +14,11 @@ import time
 import os
 start_time = time.time()
 
-
 alpha = 0.05
 eta_0 = 1/2
 reps = 1 #this should be enough to compute the expected stopping time
 sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
+np.random.seed(int(sim_rep)) #this sets a different seed for every rep
 
 
 K_grid = [2, 5]
@@ -90,5 +90,5 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     }
     results.append(results_dict)
 results = pd.DataFrame(results)
-results.to_csv("gaussian_simulation_results_parallel_" + sim_rep + ".csv", index = False)
+results.to_csv("Gaussian_Results/gaussian_simulation_results_parallel_" + sim_rep + ".csv", index = False)
 print("--- %s seconds ---" % (time.time() - start_time))
