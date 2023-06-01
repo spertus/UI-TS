@@ -711,7 +711,6 @@ class PGD:
         if samples.size == 0:
             return 0
         else:
-            #TODO: mean needs to be lagged, not clear what the best way to do this is yet...
             return np.sum(np.log(1 + np.exp(lag_mean - eta) * (samples - eta)))
 
     def global_log_mart(samples, past_samples, eta):
@@ -783,7 +782,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         for k in np.arange(K):
             samples_t[i][k] = x[k][np.arange(T_k[i, k])]
 
-    delta = 1e-3
+    delta = 1e-3 #this was 1e-3
     uinnsms = [1]
 
     for i in np.arange(1, T_k.shape[0]):
@@ -795,7 +794,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         eta_l = proj(np.log(sample_means))
         step_size = 1
         counter = 0
-        while step_size > 1e-20:
+        while step_size > 1e-5: #this was 1e-20
             counter += 1
             grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
             next_eta = proj(eta_l - delta * grad_l)

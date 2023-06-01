@@ -1,9 +1,18 @@
 #get stopping times for error-free stratified comparison audits
+import scipy as sp
+import pandas as pd
+import itertools
+import random
+import numpy as np
+from iteround import saferound
+from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
+    intersection_mart, plot_marts_eta, construct_eta_grid, union_intersection_mart, selector,\
+    construct_eta_grid_plurcomp, simulate_comparison_audit
 
 
 N = [500, 500]
 
-grand_means = [0.51, 0.53, 0.55, 0.57, 0.6, 0.65, 0.7, 0.75]
+grand_means = [0.5, 0.51, 0.53, 0.55, 0.57, 0.6, 0.65, 0.7, 0.75]
 stratum_gaps = [0.0, 0.1, 0.5]
 
 bets_dict = {"fixed":Bets.fixed, "agrapa":Bets.agrapa, "smooth_predictable":Bets.smooth_predictable}
@@ -40,3 +49,4 @@ for grand_mean, gap, bet in itertools.product(grand_means, stratum_gaps, bets_li
     }
     results.append(data_dict)
 results = pd.DataFrame(results)
+results.to_csv("comparison_audit_results.csv", index = False)
