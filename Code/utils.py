@@ -727,7 +727,7 @@ class PGD:
         if samples.size == 0:
             return 0
         else:
-            return -np.sum(np.exp(lag_mean - eta) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
+            return -np.sum(np.exp(lag_mean - eta) * (samples - eta + 1) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
 
     def grad(samples, past_samples, eta):
         '''
