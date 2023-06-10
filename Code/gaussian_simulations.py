@@ -16,12 +16,12 @@ start_time = time.time()
 
 alpha = 0.05
 eta_0 = 1/2
-reps = 1 #this should be enough to compute the expected stopping time
+reps = 1 #sort of deprecated. Repetions now occur in parallel, through SLURM
 sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_rep)) #this sets a different seed for every rep
 
 
-K_grid = [2, 5]
+K_grid = [2]
 global_mean_grid = np.linspace(0.5, 0.7, 10)
 delta_grid = [0, 0.2] #maximum spread of the stratum means
 sd_grid = [0.01, 0.05]
@@ -43,6 +43,8 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     stopping_times_unstrat_agrapa = np.zeros(reps)
     stopping_times_uinnsm_fixed = np.zeros(reps)
     stopping_times_uinnsm_adaptive = np.zeros(reps)
+    stopping_times_uinnsm_vertex = np.zeros(reps)
+    stopping_times_uinnsm_uniform = np.zeros(reps)
     stopping_times_lcb_fixed = np.zeros(reps)
     stopping_times_lcb_agrapa = np.zeros(reps)
     for r in range(reps):
@@ -53,12 +55,14 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
             rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
             x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
 
-        unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed)
-        unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa)
+        unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed, log = True)
+        unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa, log = True)
         lcb_fixed = global_lower_bound(x, N, Bets.fixed, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
         lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
-        uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, allocation_rule, WOR = False, combine = "product")[0]
-        uinnsm_adaptive = negexp_ui_mart(x, N, allocation_rule)
+        uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, allocation_rule, WOR = False, combine = "product", log = True)[0]
+        uinnsm_vertex = union_intersection_mart(x, N, etas, None, allocation_rule, mixture = "vertex", WOR = False, combine = "product", log = True)[0]
+        uinnsm_uniform = union_intersection_mart(x, N, etas, None, allocation_rule, mixture = "uniform", WOR = False, combine = "product", log = True)[0]
+        uinnsm_adaptive = negexp_ui_mart(x, N, allocation_rule, log = True)
 
         stopping_times_unstrat_fixed[r] = np.where(any(unstrat_fixed > -np.log(alpha)), np.argmax(unstrat_fixed > -np.log(alpha)), np.sum(N))
         stopping_times_unstrat_agrapa[r] = np.where(any(unstrat_agrapa > -np.log(alpha)), np.argmax(unstrat_agrapa > -np.log(alpha)), np.sum(N))
@@ -66,6 +70,8 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
         stopping_times_lcb_fixed[r] = np.where(any(lcb_fixed > eta_0), np.argmax(lcb_fixed > eta_0), np.sum(N))
         stopping_times_uinnsm_fixed[r] = np.where(any(uinnsm_fixed > -np.log(alpha)), np.argmax(uinnsm_fixed > -np.log(alpha)), np.sum(N))
         stopping_times_uinnsm_adaptive[r] = np.where(any(uinnsm_adaptive > -np.log(alpha)), np.argmax(uinnsm_adaptive > -np.log(alpha)), np.sum(N))
+        stopping_times_uinnsm_vertex[r] = np.where(any(uinnsm_vertex > -np.log(alpha)), np.argmax(uinnsm_vertex > -np.log(alpha)), np.sum(N))
+        stopping_times_uinnsm_uniform[r] = np.where(any(uinnsm_uniform > -np.log(alpha)), np.argmax(uinnsm_uniform > -np.log(alpha)), np.sum(N))
 
     mean_stop_unstrat_fixed = np.mean(stopping_times_unstrat_fixed)
     mean_stop_unstrat_agrapa = np.mean(stopping_times_unstrat_agrapa)
@@ -73,6 +79,8 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     mean_stop_lcb_agrapa = np.mean(stopping_times_lcb_agrapa)
     mean_stop_uinnsm_fixed = np.mean(stopping_times_uinnsm_fixed)
     mean_stop_uinnsm_adaptive = np.mean(stopping_times_uinnsm_adaptive)
+    mean_stop_uinnsm_vertex = np.mean(stopping_times_uinnsm_vertex)
+    mean_stop_uinnsm_uniform = np.mean(stopping_times_uinnsm_uniform)
 
     results_dict = {
         "K":K,
@@ -86,7 +94,9 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
         "mean_stop_lcb_fixed":mean_stop_lcb_fixed,
         "mean_stop_lcb_agrapa":mean_stop_lcb_agrapa,
         "mean_stop_uinnsm_fixed":mean_stop_uinnsm_fixed,
-        "mean_stop_uinnsm_adaptive":mean_stop_uinnsm_adaptive
+        "mean_stop_uinnsm_adaptive":mean_stop_uinnsm_adaptive,
+        "mean_stop_uinnsm_vertex":mean_stop_uinnsm_vertex,
+        "mean_stop_uinnsm_uniform":mean_stop_uinnsm_uniform
     }
     results.append(results_dict)
 results = pd.DataFrame(results)

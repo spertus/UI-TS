@@ -101,7 +101,7 @@ def test_selector():
 
 def test_intersection_mart():
     #null is true
-    N = [10,10,10]
+    N = [10,10,5]
     sample = [np.ones(N[0]) * 0.5, np.ones(N[1]) * 0.5, np.ones(N[2]) * 0.5]
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[-1] == 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum")[-1] == 0
@@ -116,6 +116,11 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", log = False, WOR = True)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", log = False, WOR = True)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", log = False, WOR = True)[-1] == 1
+    #mixing distribution
+    md = np.array([[0.5,0.5,0.5], [0.25, 0.5, 0.75]])
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", WOR = False)[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", log=False, WOR = True)[-1] == 1
+
     #alternative is true
     sample = [np.ones(N[0]) * 0.6, np.ones(N[1]) * 0.6, np.ones(N[2]) * 0.6]
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[-1] > 0
@@ -125,6 +130,7 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", WOR = True)[-1] > 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", WOR = True)[-1] > 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", WOR = True)[-1] < 0
+
 
 def test_construct_eta_grid():
     N = [15, 15, 15]
@@ -151,23 +157,24 @@ def test_construct_vertex_etas():
     assert len(construct_vertex_etas(N = [10, 10, 10, 10, 10, 10], eta_0 = 1/2)) == 20
 
 
-
 def test_union_intersection_mart():
     N = [5, 5, 5]
     sample = [np.ones(N[0])*0.5, np.ones(N[1])*0.5, np.ones(N[2])*0.5]
     etas = [(0, 0.5, 1), (0.5, 0.5, 0.5)]
-    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "product")[0] <= 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, Allocations.round_robin, combine = "fisher")[0] == 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, Allocations.round_robin, combine = "product")[0] >= 0)
-
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher")[0] == 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.round_robin, combine = "product")[0] >= 0)
+    # check mixture distributions
+    assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "vertex", combine = "product")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "uniform", combine = "product")[0] <= 0)
 
 def test_simulate_comparison_audit():
     N = [20, 20]
     A_c = [0.8, 0.8]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, Bets.fixed, Allocations.round_robin, WOR = True, reps = 1) < 40
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1) < 40
 
 
 def test_random_truncated_gaussian():
@@ -179,20 +186,24 @@ def test_random_truncated_gaussian():
 
 def test_negexp_ui_mart():
     #these tests are probabilistic, they may sometimes fail (but should rarely)
-    N = [500, 500]
+    N = [100, 50]
     x_null_1 = [random_truncated_gaussian(0.5, 0.05, N[0]), random_truncated_gaussian(0.5, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)) < 100 #there should be less than 1% chance this doesnt happen
+    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100) #there should be less than 1% chance this doesnt happen
     x_null_2 = [random_truncated_gaussian(0.2, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) < 100
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100)
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) < np.log(100)
+    x_null_3 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.6, 0.05, N[1])]
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100)
+
 
     #test that it does reject eventually under alternative
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > 20
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > np.log(20)
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) > 20
+    assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) > np.log(20)
 
     #check PGD works for higher dimensions
     K = 5
     N = [100 for _ in range(K)]
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[k]) for k in range (K)]
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > 20
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > np.log(20)

@@ -28,12 +28,12 @@ class Bets:
 
     '''
 
-    def fixed(x, eta):
+    def fixed(x, eta, c = 0.75):
         '''
         lambda fixed to 0.75
         eta-nonadaptive
         '''
-        lam = 0.75 * np.ones(x.size)
+        lam = c * np.ones(x.size)
         return lam
 
     def agrapa(x, eta):
@@ -147,7 +147,7 @@ class Allocations:
 
 class Weights:
     '''
-    Predictable and eta-adaptive methods to set weights for combining across strata by summing
+    Methods to set weights for combining across strata by summing
     Generally will be less powerful than taking products
     (see Vovk and Wang 2020 on E-value combining)
 
@@ -165,29 +165,14 @@ class Weights:
             the weights for combining the martingales as a sum I-NNSM E-value at time t
 
     '''
-    def fixed(x, eta, lam_func):
+    def fixed(eta):
         '''
         balanced, fixed weights (usual average)
         '''
         theta = np.ones(len(eta))/len(eta)
         return theta
 
-    def max_predictable(x, eta, lam_func):
-        '''
-        puts all weight on the last (lagged) largest within-stratum martingale
-        '''
-        lag_marts = [np.prod(1 + lam_func(eta[k], x[k][:-1]) * (x[k][:-1] - eta[k])) for k in np.arange(K)]
-        theta = np.zeros(len(eta))
-        theta[np.argmax(lag_marts)] = 1
-        return theta
 
-    def smooth_predictable(x, eta, lam_func):
-        '''
-        makes weights proportional to last (lagged) size of martingales
-        '''
-        lag_marts = [np.prod(1 + lam_func(eta[k], x[k][:-1]) * (x[k][:-1] - eta[k])) for k in np.arange(K)]
-        theta = lag_marts / np.sum(lag_marts)
-        return theta
 
 def mart(x, eta, lam_func, N = np.inf, log = True):
     '''
@@ -344,7 +329,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
+def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product",  theta_func = None, log = True, WOR = False):
     '''
     an intersection martingale (I-NNSM) for a vector bs{eta}
     assumes sampling is with replacement: no population size is required
@@ -361,6 +346,8 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
         allocation_func: callable, a function from class Allocations
         combine: string, in ["product", "sum", "fisher"]
             how to combine within-stratum martingales to test the intersection null
+        mixing_dist: a B by K np.array in [0,1]
+            lambdas to mix over, B is just any positive integer (the size of the mixing distribution)
         WOR: Boolean
             should martingales be computed under sampling with or without replacement?
         theta_func: callable, a function from class Weights
@@ -372,25 +359,41 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
         the value of an intersection martingale that uses all the data (not running max)
     '''
     K = len(eta)
-
-    #compute within-stratum martingales given the sequence of x values
+    assert (lam_func is None) or (mixing_dist is None), "Cannot specify both a mixing distribution and a predictable lambda function"
+    assert (lam_func is not None) or ((combine == "product") and (mixing_dist is not None)), "Currently, mixing distribution can only be used with product combining"
     ws_log = False if combine == "sum" else log
     ws_N = N if WOR else np.inf*np.ones(K)
-    ws_marts = np.array([mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)])
 
-    #construct the interleaving
-    T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
-    marts = np.zeros((T_k.shape[0], K))
-    for i in np.arange(T_k.shape[0]):
-        marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
-        #make all marts infinite if one is, when product is taken this enforces rule:
-        #we reject intersection null if certainly False in one stratum
-        marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
+    if lam_func is not None:
+        #compute within-stratum martingales using a predictable lambda sequence
+        ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
+        #construct the interleaving
+        T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+        marts = np.zeros((T_k.shape[0], K))
+        for i in np.arange(T_k.shape[0]):
+            marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
+            #make all marts infinite if one is, when product is taken this enforces rule:
+            #we reject intersection null if certainly False in one stratum
+            marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
+    elif mixing_dist is not None:
+        B = mixing_dist.shape[0]
+        T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+        marts = np.zeros((B, T_k.shape[0], K))
+        for b in range(B):
+            ws_marts = [mart(x[k], eta[k], lambda x, eta: Bets.fixed(x, eta, c = mixing_dist[b,k]), ws_N[k], log = False) for k in np.arange(K)]
+            for i in np.arange(T_k.shape[0]):
+                marts_bi = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
+                marts[b,i,:] = marts_bi if not any(np.isposinf(marts_bi)) else np.inf * np.ones(K)
     if combine == "product":
-        int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
+        if lam_func is not None:
+            int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
+        elif mixing_dist is not None:
+            #this take the product across strata and the mean across the mixing distribution
+            int_mart = np.mean(np.prod(marts, 2), 0)
+            int_mart = np.log(int_mart) if log else int_mart
     elif combine == "sum":
         assert theta_func is not None, "Need to specify a theta function from Weights if using sum"
-        thetas = theta_func(eta, x, lam_func)
+        thetas = theta_func(eta)
         int_mart = np.log(np.sum(thetas * marts, 1)) if log else np.sum(thetas * marts, 1)
     elif combine == "fisher":
         pvals = np.exp(-np.maximum(0, marts)) if log else 1 / np.maximum(1, marts)
@@ -401,7 +404,8 @@ def intersection_mart(x, N, eta, lam_func, allocation_func, combine = "product",
         raise NotImplementedError("combine must be product, sum, or fisher")
     return int_mart if combine != "fisher" else pval
 
-def plot_marts_eta(x, N, lam_func, allocation_func, combine = "product", theta_func = None, log = True, res = 1e-2):
+
+def plot_marts_eta(x, N, lam_func, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2):
     '''
     generate a 2-D or 3-D plot of an intersection martingale over possible values of bs{eta}
     the global null is always eta <= 1/2; future update: general global nulls
@@ -434,7 +438,7 @@ def plot_marts_eta(x, N, lam_func, allocation_func, combine = "product", theta_f
         for eta_x in eta_grid:
             eta_y = (1/2 - w[0] * eta_x) / w[1]
             if eta_y > 1 or eta_x < 0: continue
-            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func, allocation_func, combine, theta_func, log)[-1]
+            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func, mixing_dist, allocation_func, combine, theta_func, log)[-1]
             eta_xs.append(eta_x)
             eta_ys.append(eta_y)
             objs.append(obj)
@@ -447,7 +451,7 @@ def plot_marts_eta(x, N, lam_func, allocation_func, combine = "product", theta_f
             for eta_y in eta_grid:
                 eta_z = (1/2 - w[0]*eta_x-w[1]*eta_y)/w[2]
                 if eta_z > 1 or eta_z < 0: continue
-                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func, allocation_func, combine, theta_func, log)[-1]
+                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func, mixing_dist, allocation_func, combine, theta_func, log)[-1]
                 eta_xs.append(eta_x)
                 eta_ys.append(eta_y)
                 eta_zs.append(eta_z)
@@ -478,8 +482,6 @@ def construct_eta_grid(eta_0, calX, N):
     ----------
         a grid of within stratum null means, to be passed into union_intersection_mart
     '''
-    #From Mayuri:
-        #reduce calX to set of coprime numbers e.g. from [2,3,4,5,6,7,8,9,10] -> [2,3,5,7]
     K = len(N)
     w = N / np.sum(N)
     u_k = np.array([np.max(x) for x in calX])
@@ -574,8 +576,7 @@ def construct_vertex_etas(eta_0, N):
     return etas
 
 
-
-def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "product", theta_func = None, log = True, WOR = False):
+def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False):
     '''
     compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible eta, passed as etas
 
@@ -587,12 +588,16 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
             the size of each stratum
         etas: list of length-K tuples
             intersection nulls over which the minimum will be taken
-        combine: string, either "product" or "sum"
-            how to combine within-stratum martingales to test the intersection null
         lam_func: callable, a function from class Bets
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
+        mixture: string or None, either "vertex" or "uniform"
+            if present, defines one of two mixing strategies for each I-NNSM and builds mixing_dist
+                "vertex": mixes over a discrete uniform distribution on lambda = 1 - etas
+                "uniform": mixes over a uniform distribution on [0,1]^K, gridded into 10 equally-spaced points
+        combine: string, either "product" or "sum"
+            how to combine within-stratum martingales to test the intersection null
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
@@ -603,10 +608,19 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
     ----------
         the value of a union-intersection martingale using all data x
     '''
+    assert (lam_func is None) or (mixture is None), "cannot specify both a mixture strategy and predictable lambda function"
+    K = len(x)
+    if mixture == "vertex":
+        mixing_dist = 1 - np.array(etas)
+    elif mixture == "uniform":
+        lam_grids = K * [np.linspace(0.01,0.99,10)]
+        mixing_dist = np.array(list(itertools.product(*lam_grids)))
+    else:
+        mixing_dist = None
     #evaluate intersection mart on every eta
     obj = np.zeros((len(etas), np.sum(N) + 1))
     for i in np.arange(len(etas)):
-        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, allocation_func, combine, theta_func, log, WOR)
+        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, mixing_dist, allocation_func, combine, theta_func, log, WOR)
     opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
     eta_opt = np.zeros((np.sum(N) + 1, len(x)))
     mart_opt = np.zeros(np.sum(N) + 1)
@@ -616,7 +630,7 @@ def union_intersection_mart(x, N, etas, lam_func, allocation_func, combine = "pr
     return mart_opt, eta_opt
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500):
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500):
     '''
     repeatedly simulate a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -635,6 +649,11 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, metho
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
+        mixture: string or None, either "vertex" or "uniform"
+            Only works if method == "ui-nnsm"
+            if present, defines one of two mixing strategies for each I-NNSM and builds mixing_dist
+                "vertex": mixes over a discrete uniform distribution on lambda = 1 - etas
+                "uniform": mixes over a uniform distribution on [0,1]^K, gridded into 10 equally-spaced points
         method: string, either "ui-nnsm" or "lcbs"
             the method for testing the global null
             either union-intersection testing or combining lower confidence bounds as in Wright's method
@@ -651,6 +670,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, metho
     ----------
         a length reps list of stopping times
     '''
+    assert method == "ui-nnsm" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
     K = len(N)
     w = N/np.sum(N)
     A_c_global = np.dot(w, A_c)
@@ -663,7 +683,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func, allocation_func, metho
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = False) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, combine, WOR = WOR, log = True)[0]
+            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR = WOR, log = True)[0]
             stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
         elif method == "lcbs":
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
