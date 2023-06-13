@@ -615,8 +615,10 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
     elif mixture == "uniform":
         lam_grids = K * [np.linspace(0.01,0.99,10)]
         mixing_dist = np.array(list(itertools.product(*lam_grids)))
-    else:
+    elif mixture is None:
         mixing_dist = None
+    else:
+        stop("Specify a valid mixture method; either uniform or vertex")
     #evaluate intersection mart on every eta
     obj = np.zeros((len(etas), np.sum(N) + 1))
     for i in np.arange(len(etas)):
