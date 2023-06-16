@@ -143,8 +143,9 @@ class Allocations:
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
-            sds = np.array([np.std(x[k][0:running_T_k[k]]) for k in range(K)])
-            sds = np.where(running_T_k == n, np.inf, vars)
+            eps = 1e-5 #lower bound on sd
+            sds = np.array([np.std(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
+            sds = np.where(running_T_k == n, 0, sds)
             neyman_weights = N * sds
             probs = neyman_weights / np.sum(neyman_weights)
             next = np.random.choice(np.arange(K), size = 1, p = probs)
@@ -384,7 +385,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         #compute within-stratum martingales using a predictable lambda sequence
         ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
-        T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+        T_k = selector(x, N, allocation_func, eta = eta, lam_func = lam_func)
         marts = np.zeros((T_k.shape[0], K))
         for i in np.arange(T_k.shape[0]):
             marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
