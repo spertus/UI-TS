@@ -134,6 +134,23 @@ class Allocations:
             next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
+    def neyman(x, running_T_k, n, N, eta, lam_func):
+        #eta-adaptive
+        #uses a predictable Neyman allocation to set allocation probabilities
+        #see Neyman (1934)
+        if any(running_T_k <= 2):
+            #use round robin until we have at least 2 samples from each stratum
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+        else:
+            K = len(x)
+            eps = 1e-5 #lower bound on sd
+            sds = np.array([np.std(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
+            sds = np.where(running_T_k == n, 0, sds)
+            neyman_weights = N * sds
+            probs = neyman_weights / np.sum(neyman_weights)
+            next = np.random.choice(np.arange(K), size = 1, p = probs)
+        return next
+
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
         #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
@@ -368,7 +385,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         #compute within-stratum martingales using a predictable lambda sequence
         ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
-        T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+        T_k = selector(x, N, allocation_func, eta = eta, lam_func = lam_func)
         marts = np.zeros((T_k.shape[0], K))
         for i in np.arange(T_k.shape[0]):
             marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
@@ -405,7 +422,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
     return int_mart if combine != "fisher" else pval
 
 
-def plot_marts_eta(x, N, lam_func, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2):
+def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2):
     '''
     generate a 2-D or 3-D plot of an intersection martingale over possible values of bs{eta}
     the global null is always eta <= 1/2; future update: general global nulls
@@ -417,8 +434,10 @@ def plot_marts_eta(x, N, lam_func, mixing_dist = None, allocation_func = Allocat
         N: length-K np.array of positive ints,
             the vector of stratum sizes
         lam_func: callable, a function from class Bets
+        mixture: either "vertex" or "uniform"; cannot specify if lam_func is not None
         combine: string, either "product" or "sum"
             how to combine within-stratum martingales to test the intersection null
+        allocation_func: callable, a function from class Allocations
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
@@ -430,7 +449,16 @@ def plot_marts_eta(x, N, lam_func, mixing_dist = None, allocation_func = Allocat
         generates and shows a plot of the last value of an I-NNSM over different values of the null mean
     '''
     K = len(x)
-
+    if mixture == "vertex":
+        vertices = construct_vertex_etas(1/2, N)
+        mixing_dist = 1 - np.array(vertices)
+    elif mixture == "uniform":
+        lam_grids = K * [np.linspace(0.01,0.99,5)]
+        mixing_dist = np.array(list(itertools.product(*lam_grids)))
+    elif mixture is None:
+        mixing_dist = None
+    else:
+        stop("Specify a valid mixture method; either uniform or vertex")
     eta_grid = np.arange(res, 1-res, step=res)
     eta_xs, eta_ys, eta_zs, objs = [], [], [], []
     w = N / np.sum(N)
@@ -576,7 +604,7 @@ def construct_vertex_etas(eta_0, N):
     return etas
 
 
-def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False):
+def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False, eta_0_mixture = 1/2):
     '''
     compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible eta, passed as etas
 
@@ -604,14 +632,19 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
             return the log UI-NNSM if true, otherwise return on original scale
         WOR: Boolean
             should the intersection martingales be computed under sampling without replacement
+        eta_0_mixture: float in [0,1]
+            the global null mean, only used to construct the vertices of calC for mixture == "vertex";
+            in other cases can be ignored. Defaults to 1/2
     Returns
     ----------
         the value of a union-intersection martingale using all data x
     '''
     assert (lam_func is None) or (mixture is None), "cannot specify both a mixture strategy and predictable lambda function"
     K = len(x)
+    w = N / np.sum(N)
     if mixture == "vertex":
-        mixing_dist = 1 - np.array(etas)
+        vertices = construct_vertex_etas(eta_0_mixture, N)
+        mixing_dist = 1 - np.array(vertices)
     elif mixture == "uniform":
         lam_grids = K * [np.linspace(0.01,0.99,10)]
         mixing_dist = np.array(list(itertools.product(*lam_grids)))
