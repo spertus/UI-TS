@@ -26,7 +26,7 @@ for grand_mean, gap, bet, allocation in itertools.product(grand_means, stratum_g
     A_c = [grand_mean - 0.5*gap, grand_mean + 0.5*gap]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    if bet == "uniform_mixture":
+    if bet == "uniform_mixture": #lcb doesn't do intersection mixtures
         stopping_time_uinnsm = simulate_comparison_audit(
             N, A_c, p_1, p_2,
             lam_func = None,
@@ -46,13 +46,16 @@ for grand_mean, gap, bet, allocation in itertools.product(grand_means, stratum_g
             combine = "product",
             reps = 1,
             WOR = True)[0]
-        stopping_time_lcb = simulate_comparison_audit(
-            N, A_c, p_1, p_2,
-            lam_func = bets_dict[bet],
-            allocation_func = allocations_dict[allocation],
-            method = "lcbs",
-            reps = 1,
-            WOR = True)[0]
+        if allocation == "proportional_to_mart": #lcb doesn't do eta adaptive allocation
+            stopping_time_lcb = None
+        else:
+            stopping_time_lcb = simulate_comparison_audit(
+                N, A_c, p_1, p_2,
+                lam_func = bets_dict[bet],
+                allocation_func = allocations_dict[allocation],
+                method = "lcbs",
+                reps = 1,
+                WOR = True)[0]
     data_dict = {
         "A_c":grand_mean,
         "stratum_gap":gap,
