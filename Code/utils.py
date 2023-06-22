@@ -385,7 +385,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         #compute within-stratum martingales using a predictable lambda sequence
         ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
-        T_k = selector(x, N, allocation_func, eta = eta, lam_func = lam_func)
+        T_k = selector(x, N, allocation_func, eta, lam_func)
         marts = np.zeros((T_k.shape[0], K))
         for i in np.arange(T_k.shape[0]):
             marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
@@ -394,7 +394,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
             marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     elif mixing_dist is not None:
         B = mixing_dist.shape[0]
-        T_k = selector(x, N, allocation_func, eta = None, lam_func = None)
+        T_k = selector(x, N, allocation_func, eta, lam_func = Bets.fixed) #this supplants a fixed bet to construct martingales in Allocations.prop_to_mart
         marts = np.zeros((B, T_k.shape[0], K))
         for b in range(B):
             ws_marts = [mart(x[k], eta[k], lambda x, eta: Bets.fixed(x, eta, c = mixing_dist[b,k]), ws_N[k], log = False) for k in np.arange(K)]
@@ -716,9 +716,9 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
         x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
     stopping_times = np.zeros(reps)
     for r in np.arange(reps):
-        X = [np.random.choice(x[k],  len(x[k]), replace = False) for k in np.arange(K)]
+        X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR = WOR, log = True)[0]
+            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)[0]
             stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
         elif method == "lcbs":
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
