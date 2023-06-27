@@ -703,7 +703,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             the number of simulations of the audit to run
     Returns
     ----------
-        a length reps list of stopping times
+        a scalar, the expected stopping time of the audit
     '''
     assert method == "ui-nnsm" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
     K = len(N)
@@ -724,7 +724,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
-    return stopping_times
+    return np.mean(stopping_times)
 
 
 

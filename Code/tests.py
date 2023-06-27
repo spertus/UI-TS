@@ -182,8 +182,8 @@ def test_simulate_comparison_audit():
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1) < 40
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 1)
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 1)
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)
 
 
 def test_random_truncated_gaussian():
