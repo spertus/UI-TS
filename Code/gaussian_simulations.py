@@ -21,7 +21,7 @@ sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_rep)) #this sets a different seed for every rep
 
 
-K_grid = [2,3,5]
+K_grid = [2,4,5]
 global_mean_grid = np.linspace(0.5, 0.7, 10)
 delta_grid = [0, 0.1, 0.2] #maximum spread of the stratum means
 sd_grid = [0.01, 0.05]
