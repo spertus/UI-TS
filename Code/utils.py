@@ -27,12 +27,22 @@ class Bets:
             prod_{i=1}^{T_k(t)} [1 + lambda_{ki (X_{ki} - eta_k)]
 
     '''
+    def __init__(self, x: np.array=None, eta: float=None, **kwargs):
+        self.x = x
+        self.eta = eta
+        self.kwargs = kwargs
 
-    def fixed(x, eta, c = 0.75):
+    #work in progress: rewrite classes to define and inherit arguments from init
+    #use kwargs for additional arguments specific to each method
+    def fixed(self):
         '''
-        lambda fixed to 0.75
+        lambda fixed to c
         eta-nonadaptive
         '''
+        x = self.x
+        eta = self.eta
+        kwargs = self.kwargs
+        c = kwargs.get('c', 0.75)
         lam = c * np.ones(x.size)
         return lam
 
@@ -52,6 +62,8 @@ class Bets:
             sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
         sdj = np.sqrt(sdj/j)
         sdj = np.insert(np.maximum(sdj,.1),0,1)[0:-1]
+        #parameterize the truncation of sdj w kwargs and the truncation of the bet?
+        #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
         #avoid divide by zero errors
         eps = 1e-5
         lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2 + eps)
@@ -202,6 +214,8 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
         eta: scalar in [0,1]
             null mean
         lam_func: callable, a function from the Bets class
+        N: positive integer,
+            the size of the population from which x is drawn (x could be the entire population)
         log: Boolean
             indicates whether the martingale should be returned on the log scale or not
     Returns
@@ -220,11 +234,11 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
     #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if log:
-        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta_t))), 0, 0)
+        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta_t) * (x - eta_t))), 0, 0)
         mart[np.insert(eta_t < 0, 0, False)] = np.inf
         mart[np.insert(eta_t > 1, 0, False)] = -np.inf
     else:
-        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta_t)), 0, 1)
+        mart = np.insert(np.cumprod(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 1)
         mart[np.insert(eta_t < 0, 0, False)] = np.inf
         mart[np.insert(eta_t > 1, 0, False)] = 0
     return mart
