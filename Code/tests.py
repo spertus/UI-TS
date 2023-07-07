@@ -25,6 +25,9 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.smooth_predictable, log = False)[-1] == 1
     assert mart(sample, eta = 0.5, lam_func = Bets.agrapa, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.agrapa, log = False)[-1] > 1
+    #test kwargs
+    assert mart(sample, eta = 0.5, lam_func = Bets.agrapa(c = 0.9), log = False)[-1] == 1
+    assert mart(sample, eta = 0.4, lam_func = Bets.agrapa(sd_min = 0.2), log = False)[-1] > 1
     #WOR
     assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1
@@ -87,6 +90,7 @@ def test_selector():
     np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[-1,:], [1000, 2000, 3000])
     np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[3000,:], [500, 1000, 1500])
 
+    #eta-adaptive methods
     N = [1000, 2000, 3000]
     n = [1000, 2000, 3000]
     eta = [0.5, 0.5, 0.5]
@@ -96,6 +100,12 @@ def test_selector():
     np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)[-1,:], [1000, 2000, 3000])
     #check whether the first stratum is preferentially sampled
     selections = selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)
+    assert selections[1000,0] > selections[1000,2]
+    #same as above but for predictable_kelly
+    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[0] == 6001
+    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[1] == 3
+    np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)[-1,:], [1000, 2000, 3000])
+    selections = selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)
     assert selections[1000,0] > selections[1000,2]
 
 
