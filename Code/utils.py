@@ -20,28 +20,44 @@ class Bets:
             the null mean within stratum k
         x: 1-dimensional np.array of length n_k := T_k(t) with elements in [0,1]
             the data sampled from stratum k
-
+        kwargs: additional arguments specific to each strategy
         Returns
         ----------
         lam: a length-1 or length-n_k corresponding to lambda_{ki} in the I-NNSM:
             prod_{i=1}^{T_k(t)} [1 + lambda_{ki (X_{ki} - eta_k)]
 
     '''
+    # def __init__(self, x: np.array=None, eta: float=None, **kwargs):
+    #    self.x = x
+    #    self.eta = eta
+    #    self.kwargs = kwargs
 
-    def fixed(x, eta, c = 0.75):
+    #work in progress: rewrite classes to define and inherit arguments from init
+    #use kwargs for additional arguments specific to each method
+    def fixed(x, eta, **kwargs):
         '''
-        lambda fixed to 0.75
+        lambda fixed to c
         eta-nonadaptive
+        ---------------
+        kwargs:
+            c: the fixed bet size
         '''
+        c = kwargs.get('c', 0.75)
         lam = c * np.ones(x.size)
         return lam
 
-    def agrapa(x, eta):
+    def agrapa(x, eta, **kwargs):
         '''
         AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
         lambda is set to approximately maximize a Kelly-like objective (expectation of log martingale)
         eta-adaptive
+        -------------
+        kwargs:
+            sd_min: scalar, the minimum value allowed for the estimated standard deviation
+            c: scalar, the maximum value allowed for bets
         '''
+        sd_min = kwargs.get('sd_min', 0.01)
+        c = kwargs.get('c', 0.75)
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
@@ -51,14 +67,14 @@ class Bets:
             mj.append(mj[-1]+(xj-mj[-1])/(i+1))
             sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
         sdj = np.sqrt(sdj/j)
-        sdj = np.insert(np.maximum(sdj,.1),0,1)[0:-1]
-        #avoid divide by zero errors
-        eps = 1e-5
-        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2 + eps)
-        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, .75/(eta + eps)))
+        sdj = np.insert(np.maximum(sdj,sd_min),0,1)[0:-1]
+        #parameterize the truncation of sdj w kwargs and the truncation of the bet?
+        #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
+        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
+        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, c/eta))
         return lam_trunc
 
-    def trunc(x, eta):
+    def trunc(x, eta, **kwargs):
         '''
         doesn't bet if running mean is less than null, otherwise bets inversely proportional to null
         eta-adaptive
@@ -70,14 +86,14 @@ class Bets:
         lam_trunc = np.where(eta <= mu_hat, .75 / (eta + eps), 0)
         return lam_trunc
 
-    def smooth(x, eta):
+    def smooth(x, eta, **kwargs):
         '''
         eta-adaptive; smooth, negative exponential in eta (doesn't use data)
         '''
         lam = np.exp(-eta)
         return lam
 
-    def smooth_predictable(x, eta):
+    def smooth_predictable(x, eta, **kwargs):
         '''
         eta-adaptive; smooth, bets more the more the empirical mean is above the null mean
         '''
@@ -162,6 +178,24 @@ class Allocations:
         next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
+    def predictable_kelly(x, running_T_k, n, N, eta, lam_func, **kwargs):
+        #this estimates the expected log-growth of each martingale
+        #and then draws with probability proportional to this growth
+        #currently, can't use randomized betting rules (would need to pass in terms directly)
+        if any(running_T_k <= 1):
+            #use round robin until we have at least 1 sample from each stratum
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+        else:
+            K = len(x)
+            eps = kwargs.get("eps", 0.01) #lower bound on probability of sampling
+            past_terms = [(1 + lam_func(x[k], eta[k]) * (x[k] - eta[k]))[0:running_T_k[k]] for k in range(K)]
+            est_log_growth = np.array([np.mean(np.log(t)) for t in past_terms])
+            scores = np.exp(est_log_growth) + eps #exponentiating makes scores equivalent to the geometric mean
+            scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
+            probs = scores / np.sum(scores)
+            next = np.random.choice(np.arange(K), size = 1, p = probs)
+        return next
+
 class Weights:
     '''
     Methods to set weights for combining across strata by summing
@@ -202,6 +236,8 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
         eta: scalar in [0,1]
             null mean
         lam_func: callable, a function from the Bets class
+        N: positive integer,
+            the size of the population from which x is drawn (x could be the entire population)
         log: Boolean
             indicates whether the martingale should be returned on the log scale or not
     Returns
@@ -220,11 +256,11 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
     #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if log:
-        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta) * (x - eta_t))), 0, 0)
+        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta_t) * (x - eta_t))), 0, 0)
         mart[np.insert(eta_t < 0, 0, False)] = np.inf
         mart[np.insert(eta_t > 1, 0, False)] = -np.inf
     else:
-        mart = np.insert(np.cumprod(1 + lam_func(x, eta) * (x - eta_t)), 0, 1)
+        mart = np.insert(np.cumprod(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 1)
         mart[np.insert(eta_t < 0, 0, False)] = np.inf
         mart[np.insert(eta_t > 1, 0, False)] = 0
     return mart
