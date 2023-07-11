@@ -26,8 +26,8 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.agrapa, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.agrapa, log = False)[-1] > 1
     #test kwargs
-    assert mart(sample, eta = 0.5, lam_func = Bets.agrapa(c = 0.9), log = False)[-1] == 1
-    assert mart(sample, eta = 0.4, lam_func = Bets.agrapa(sd_min = 0.2), log = False)[-1] > 1
+    agrapa = lambda x, eta: Bets.agrapa(x, eta, c = 0.9, sd_min = 0.2) #is there an easier way to specify?
+    assert mart(sample, eta = 0.5, lam_func = agrapa, log = False)[-1] == 1
     #WOR
     assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1
