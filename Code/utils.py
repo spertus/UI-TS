@@ -190,7 +190,7 @@ class Allocations:
             eps = kwargs.get("eps", 0.01) #lower bound on probability of sampling
             past_terms = [(1 + lam_func(x[k], eta[k]) * (x[k] - eta[k]))[0:running_T_k[k]] for k in range(K)]
             est_log_growth = np.array([np.mean(np.log(t)) for t in past_terms])
-            scores = 1/(1 + np.exp(-est_log_growth)) + eps #sigmoid
+            scores = np.exp(est_log_growth) + eps #exponentiating makes scores equivalent to the geometric mean
             scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
             probs = scores / np.sum(scores)
             next = np.random.choice(np.arange(K), size = 1, p = probs)
