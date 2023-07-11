@@ -13,12 +13,19 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 N = [200, 200]
 
 grand_means = [0.5, 0.51, 0.53, 0.55, 0.57, 0.6, 0.65, 0.7, 0.75]
-stratum_gaps = [0.0, 0.1, 0.5]
+stratum_gaps = [0.0, 0.5]
 
-bets_dict = {"fixed":Bets.fixed, "agrapa":Bets.agrapa, "smooth_predictable":Bets.smooth_predictable}
+bets_dict = {
+    "fixed":Bets.fixed,
+    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
+    "smooth_predictable":Bets.smooth_predictable}
 bets_list = ["fixed", "agrapa", "smooth_predictable"]
-allocations_dict = {"round_robin":Allocations.round_robin, "larger_means":Allocations.more_to_larger_means, "proportional_to_mart":Allocations.proportional_to_mart}
-allocations_list = ["round_robin", "larger_means", "proportional_to_mart"]
+allocations_dict = {
+    "round_robin":Allocations.round_robin,
+    "larger_means":Allocations.more_to_larger_means,
+    "proportional_to_mart":Allocations.proportional_to_mart,
+    "predictable_kelly":Allocations.predictable_kelly}
+allocations_list = ["round_robin", "larger_means", "proportional_to_mart", "predictable_kelly"]
 methods_list = ['lcbs', 'ui-nnsm']
 
 
@@ -28,9 +35,9 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     #error rates are "0"
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    reps = 1 if allocation == "round_robin" else 30
+    reps = 1 if allocation == "round_robin" else 20
     if method == "lcbs":
-        if allocation == "proportional_to_mart":
+        if allocation in ["proportional_to_mart","predictable_kelly"]:
             stopping_time = None
         else:
             stopping_time = simulate_comparison_audit(
@@ -39,7 +46,7 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
                 allocation_func = allocations_dict[allocation],
                 method = "lcbs",
                 reps = reps,
-                WOR = True)[0]
+                WOR = True)
     elif method == "ui-nnsm":
         stopping_time = simulate_comparison_audit(
             N, A_c, p_1, p_2,
@@ -48,7 +55,7 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
             method = "ui-nnsm",
             combine = "product",
             reps = reps,
-            WOR = True)[0]
+            WOR = True)
     data_dict = {
         "A_c":grand_mean,
         "stratum_gap":gap,
