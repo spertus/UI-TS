@@ -170,6 +170,8 @@ class Allocations:
     def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
         #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
+        if any(running_T_k <= 1):
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         K = len(x)
         marts = np.array([mart(x[k], eta[k], lam_func, N[k], log = False)[running_T_k[k]] for k in range(K)])
         scores = np.minimum(np.maximum(marts, 1), 1e3)
@@ -182,18 +184,25 @@ class Allocations:
         #this estimates the expected log-growth of each martingale
         #and then draws with probability proportional to this growth
         #currently, can't use randomized betting rules (would need to pass in terms directly)
-        if any(running_T_k <= 1):
-            #use round robin until we have at least 1 sample from each stratum
+        if any(running_T_k <= 2):
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
             eps = kwargs.get("eps", 0.01) #lower bound on probability of sampling
             past_terms = [(1 + lam_func(x[k], eta[k]) * (x[k] - eta[k]))[0:running_T_k[k]] for k in range(K)]
             est_log_growth = np.array([np.mean(np.log(t)) for t in past_terms])
-            scores = np.exp(est_log_growth) + eps #exponentiating makes scores equivalent to the geometric mean
-            scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
-            probs = scores / np.sum(scores)
-            next = np.random.choice(np.arange(K), size = 1, p = probs)
+
+            #draws at random with probability proportional to geometric mean of past terms
+            #scores = np.exp(est_log_growth) + eps #exponentiating makes scores equivalent to geometric mean of unlogged terms
+            #scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
+            #probs = scores / np.sum(scores)
+            #next = np.random.choice(np.arange(K), size = 1, p = probs)
+
+            #using a UCB-like approach to selecting next stratum
+            se_log_growth = np.array([np.std(np.log(t)) for t in past_terms]) / np.sqrt(running_T_k)
+            ucbs_log_growth = est_log_growth + 2 * se_log_growth
+            scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
+            next = np.argmax(scores)
         return next
 
 class Weights:
