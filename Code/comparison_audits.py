@@ -23,9 +23,9 @@ bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "larger_means":Allocations.more_to_larger_means,
-    "proportional_to_mart":Allocations.proportional_to_mart,
+    #"proportional_to_mart":Allocations.proportional_to_mart,
     "predictable_kelly":Allocations.predictable_kelly}
-allocations_list = ["round_robin", "larger_means", "proportional_to_mart", "predictable_kelly"]
+allocations_list = ["round_robin", "larger_means", "predictable_kelly"]
 methods_list = ['lcbs', 'ui-nnsm']
 
 

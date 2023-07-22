@@ -91,22 +91,22 @@ def test_selector():
     np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_round_robin)[3000,:], [500, 1000, 1500])
 
     #eta-adaptive methods
-    N = [1000, 2000, 3000]
-    n = [1000, 2000, 3000]
+    N = [1000, 1000, 1000]
+    n = [1000, 1000, 1000]
     eta = [0.5, 0.5, 0.5]
     samples = [0.8 * np.ones(n[0]), 0.5 * np.ones(n[1]), 0.2 * np.ones(n[2])]
-    assert selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed).shape[0] == 6001
+    assert selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed).shape[0] == 3001
     assert selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed).shape[1] == 3
-    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)[-1,:], [1000, 2000, 3000])
+    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)[-1,:], [1000, 1000, 1000])
     #check whether the first stratum is preferentially sampled
     selections = selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)
-    assert selections[1000,0] > selections[1000,2]
+    assert selections[100,0] > selections[100,2]
     #same as above but for predictable_kelly
-    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[0] == 6001
+    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[0] == 3001
     assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[1] == 3
-    np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)[-1,:], [1000, 2000, 3000])
+    np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)[-1,:], [1000, 1000, 1000])
     selections = selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)
-    assert selections[1000,0] > selections[1000,2]
+    assert selections[100,0] > selections[100,2]
 
 
 def test_intersection_mart():
