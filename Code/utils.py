@@ -188,7 +188,8 @@ class Allocations:
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
-            eps = kwargs.get("eps", 0.01) #lower bound on probability of sampling
+            eps = kwargs.get("eps", 0.01)
+            sd_min = kwargs.get("sd_min", 0.05)
             past_terms = [(1 + lam_func(x[k], eta[k]) * (x[k] - eta[k]))[0:running_T_k[k]] for k in range(K)]
             est_log_growth = np.array([np.mean(np.log(t)) for t in past_terms])
 
@@ -199,7 +200,7 @@ class Allocations:
             #next = np.random.choice(np.arange(K), size = 1, p = probs)
 
             #using a UCB-like approach to selecting next stratum
-            se_log_growth = np.array([np.std(np.log(t)) for t in past_terms]) / np.sqrt(running_T_k)
+            se_log_growth = np.array([np.maximum(np.std(np.log(pt)), sd_min) for pt in past_terms]) / np.sqrt(running_T_k)
             ucbs_log_growth = est_log_growth + 2 * se_log_growth
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
             next = np.argmax(scores)
