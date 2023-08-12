@@ -135,7 +135,7 @@ class Allocations:
         next = np.argmin(exhausted * running_T_k / n)
         return next
 
-    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func):
+    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func, **kwargs):
         #eta-nonadaptive
         #samples more from strata with larger values of x on average
         #does round robin until every stratum has been sampled once
@@ -143,11 +143,15 @@ class Allocations:
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
-            eps = 0.1
-            means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
-            means = np.where(running_T_k == n, 0, means)
-            probs = means/np.sum(means)
-            next = np.random.choice(np.arange(K), size = 1, p = probs)
+            eps = kwargs.get("eps", 0.01)
+            sd_min = kwargs.get("sd_min", 0.05)
+            #UCB-like algorithm targeting the largest stratum mean
+            past_x = [x[k][0:running_T_k[k]] for k in range(K)]
+            means = np.array([np.mean(px) for px in past_x])
+            std_errors = np.array([np.maximum(np.std(px), sd_min) for px in past_x]) / np.sqrt(running_T_k)
+            ucbs = means + 2 * std_errors
+            scores = np.where(running_T_k == n, -np.inf, ucbs)
+            next = np.argmax(scores)
         return next
 
     def neyman(x, running_T_k, n, N, eta, lam_func, **kwargs):
