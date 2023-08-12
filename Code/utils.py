@@ -135,7 +135,7 @@ class Allocations:
         next = np.argmin(exhausted * running_T_k / n)
         return next
 
-    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func):
+    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func, **kwargs):
         #eta-nonadaptive
         #samples more from strata with larger values of x on average
         #does round robin until every stratum has been sampled once
@@ -143,14 +143,18 @@ class Allocations:
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
-            eps = 0.1
-            means = np.array([np.mean(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
-            means = np.where(running_T_k == n, 0, means)
-            probs = means/np.sum(means)
-            next = np.random.choice(np.arange(K), size = 1, p = probs)
+            eps = kwargs.get("eps", 0.01)
+            sd_min = kwargs.get("sd_min", 0.05)
+            #UCB-like algorithm targeting the largest stratum mean
+            past_x = [x[k][0:running_T_k[k]] for k in range(K)]
+            means = np.array([np.mean(px) for px in past_x])
+            std_errors = np.array([np.maximum(np.std(px), sd_min) for px in past_x]) / np.sqrt(running_T_k)
+            ucbs = means + 2 * std_errors
+            scores = np.where(running_T_k == n, -np.inf, ucbs)
+            next = np.argmax(scores)
         return next
 
-    def neyman(x, running_T_k, n, N, eta, lam_func):
+    def neyman(x, running_T_k, n, N, eta, lam_func, **kwargs):
         #eta-adaptive
         #uses a predictable Neyman allocation to set allocation probabilities
         #see Neyman (1934)
@@ -159,7 +163,7 @@ class Allocations:
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
         else:
             K = len(x)
-            eps = 1e-5 #lower bound on sd
+            eps = kwargs.get("eps", 0.01) #lower bound on sd
             sds = np.array([np.std(x[k][0:running_T_k[k]]) for k in range(K)]) + eps
             sds = np.where(running_T_k == n, 0, sds)
             neyman_weights = N * sds
@@ -167,7 +171,7 @@ class Allocations:
             next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
-    def proportional_to_mart(x, running_T_k, n, N, eta, lam_func):
+    def proportional_to_mart(x, running_T_k, n, N, eta, lam_func, **kwargs):
         #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
         if any(running_T_k <= 1):
@@ -190,17 +194,12 @@ class Allocations:
             K = len(x)
             eps = kwargs.get("eps", 0.01)
             sd_min = kwargs.get("sd_min", 0.05)
-            past_terms = [(1 + lam_func(x[k], eta[k]) * (x[k] - eta[k]))[0:running_T_k[k]] for k in range(K)]
-            est_log_growth = np.array([np.mean(np.log(t)) for t in past_terms])
+            #return past terms for each stratum on log scale
+            past_terms = [mart(x[k], eta[k], lam_func, N[k], True, True)[0:running_T_k[k]] for k in range(K)]
 
-            #draws at random with probability proportional to geometric mean of past terms
-            #scores = np.exp(est_log_growth) + eps #exponentiating makes scores equivalent to geometric mean of unlogged terms
-            #scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
-            #probs = scores / np.sum(scores)
-            #next = np.random.choice(np.arange(K), size = 1, p = probs)
-
-            #using a UCB-like approach to selecting next stratum
-            se_log_growth = np.array([np.maximum(np.std(np.log(pt)), sd_min) for pt in past_terms]) / np.sqrt(running_T_k)
+            #use a UCB-like approach to select next stratum
+            est_log_growth = np.array([np.mean(t) for t in past_terms])
+            se_log_growth = np.array([np.maximum(np.std(pt), sd_min) for pt in past_terms]) / np.sqrt(running_T_k)
             ucbs_log_growth = est_log_growth + 2 * se_log_growth
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
             next = np.argmax(scores)
@@ -235,7 +234,7 @@ class Weights:
 
 
 
-def mart(x, eta, lam_func, N = np.inf, log = True):
+def mart(x, eta, lam_func, N = np.inf, log = True, terms = False):
     '''
     betting martingale
 
@@ -250,6 +249,8 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
             the size of the population from which x is drawn (x could be the entire population)
         log: Boolean
             indicates whether the martingale should be returned on the log scale or not
+        terms: Boolean
+            indicates whether to return the martingale or just the sequence of terms (without multiplying them)
     Returns
     ----------
         mart: scalar; the value of the (log) betting martingale at time n_k
@@ -265,15 +266,26 @@ def mart(x, eta, lam_func, N = np.inf, log = True):
         raise ValueError("Input an integer value for N, possibly np.inf")
     #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
-    if log:
-        mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta_t) * (x - eta_t))), 0, 0)
-        mart[np.insert(eta_t < 0, 0, False)] = np.inf
-        mart[np.insert(eta_t > 1, 0, False)] = -np.inf
+    if terms:
+        if log:
+            terms = np.insert(np.log(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 0)
+            terms[np.insert(eta_t < 0, 0, False)] = np.inf
+            terms[np.insert(eta_t > 1, 0, False)] = -np.inf
+        else:
+            terms = np.insert(np.log(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 0)
+            terms[np.insert(eta_t < 0, 0, False)] = np.inf
+            terms[np.insert(eta_t > 1, 0, False)] = 0
+        return terms
     else:
-        mart = np.insert(np.cumprod(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 1)
-        mart[np.insert(eta_t < 0, 0, False)] = np.inf
-        mart[np.insert(eta_t > 1, 0, False)] = 0
-    return mart
+        if log:
+            mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta_t) * (x - eta_t))), 0, 0)
+            mart[np.insert(eta_t < 0, 0, False)] = np.inf
+            mart[np.insert(eta_t > 1, 0, False)] = -np.inf
+        else:
+            mart = np.insert(np.cumprod(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 1)
+            mart[np.insert(eta_t < 0, 0, False)] = np.inf
+            mart[np.insert(eta_t > 1, 0, False)] = 0
+        return mart
 
 
 def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = False):
@@ -765,7 +777,10 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
         X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
         if method == "ui-nnsm":
             uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)[0]
-            stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
+            if combine == "fisher":
+                stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
+            else:
+                stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
         elif method == "lcbs":
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
