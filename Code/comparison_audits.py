@@ -22,11 +22,11 @@ bets_dict = {
 bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
-    #"larger_means":Allocations.more_to_larger_means,
+    "larger_means":Allocations.more_to_larger_means,
     #"proportional_to_mart":Allocations.proportional_to_mart,
     "predictable_kelly":Allocations.predictable_kelly}
-allocations_list = ["round_robin", "predictable_kelly"]
-methods_list = ['lcbs', 'uinnsm_product','uinnsm_fisher']
+allocations_list = ["round_robin", "predictable_kelly", "larger_means"]
+methods_list = ['lcbs', 'uinnsm_product', 'uinnsm_fisher']
 
 
 results = []
@@ -35,7 +35,8 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     #error rates are "0"
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    reps = 1 if allocation in ["round_robin", "predictable_kelly"] else 30
+    #only need 1 simulation rep unless there is auxilliary randomization
+    reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means"] else 30
     if method == "lcbs":
         if allocation in ["proportional_to_mart","predictable_kelly"]:
             stopping_time = None
