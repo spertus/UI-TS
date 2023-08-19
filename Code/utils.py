@@ -5,7 +5,7 @@ import math
 import pypoman
 import itertools
 from iteround import saferound
-from scipy.stats import bernoulli, multinomial, chi2
+from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
 
 
@@ -95,7 +95,7 @@ class Bets:
 
     def smooth_predictable(x, eta, **kwargs):
         '''
-        eta-adaptive; smooth, bets more the more the empirical mean is above the null mean
+        eta-adaptive; smooth, bets more the higher the empirical mean is above the null mean
         '''
         lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
@@ -404,7 +404,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product",  theta_func = None, log = True, WOR = False):
+def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product",  theta_func = None, log = True, WOR = False, return_selections = False):
     '''
     an intersection martingale (I-NNSM) for a vector bs{eta}
     assumes sampling is with replacement: no population size is required
@@ -423,12 +423,14 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
             how to combine within-stratum martingales to test the intersection null
         mixing_dist: a B by K np.array in [0,1]
             lambdas to mix over, B is just any positive integer (the size of the mixing distribution)
-        WOR: Boolean
-            should martingales be computed under sampling with or without replacement?
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
-        log: Boolean
+        log: boolean
             return the log I-NNSM if true, otherwise return on original scale
+        WOR: boolean
+            should martingales be computed under sampling with or without replacement?
+        return_selections: boolean
+            return matrix of stratum sample sizes (T_k) if True, otherwise just return combined martingale
     Returns
     ----------
         the value of an intersection martingale that uses all the data (not running max)
@@ -477,7 +479,11 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         pval = np.log(pval) if log else pval
     else:
         raise NotImplementedError("combine must be product, sum, or fisher")
-    return int_mart if combine != "fisher" else pval
+    result = int_mart if combine != 'fisher' else pval
+    if return_selections:
+        return result, T_k
+    else:
+        return result
 
 
 def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2):
@@ -812,6 +818,60 @@ def random_truncated_gaussian(mean, sd, size):
                 break
     return samples
 
+
+def t_test(x, eta_0, N = np.inf, WOR = False):
+    '''
+    run a one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
+
+    Parameters
+    ----------
+        x: length-n np.array
+            n samples drawn with or without replacement
+        eta_0: double
+            a hypothesized null mean
+        N: int or np.inf
+            the size of the population, may be infinite
+        WOR: boolean
+            was x drawn with or without replacement
+    Returns
+    ----------
+        a P-value for the hypothesis that the mean of the population from which x is drawn is less than eta_0
+    '''
+    n = x.size[0]
+    #currently fpc is not employed so this is conservative for sampling WOR
+    fpc = np.sqrt((N - n) / (N-1)) if WOR else 1
+    SE = fpc * np.std(x) / np.sqrt(n)
+    test_stat = (np.mean(x) - eta_0) / SE
+    p_val = 1 - t.cdf(test_stat, n-1)
+    return p_val
+
+def stratified_t_test(x, eta_0, N):
+    '''
+    run a stratified, one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
+
+    Parameters
+    ----------
+        x: length-K list of np.arrays
+            n_k samples drawn with replacement from each stratum 1 to K
+        eta_0: double
+            the hypothesized global null mean
+        N: length-K list of ints
+            the size of each stratum, used to calculate stratum weights
+    Returns
+    ----------
+        a P-value for the hypothesis that the global mean of the population from which x is drawn is less than eta_0
+    '''
+    n = np.array([x_k.size for x_k in x])
+    w = N/np.sum(N)
+    sample_means = np.array([np.mean(x_k) for x_k in x])
+    sample_vars = np.array([np.var(x_k) for x_k in x])
+    mean_est = np.sum(w * sample_means)
+    SE_est = np.sqrt(np.sum((w**2) * sample_vars / n))
+    test_stat = (mean_est - eta_0) / SE_est
+    p_val = 1 - t.cdf(test_stat, np.min(n))
+    return p_val
+
+
 class PGD:
     '''
     class of helper functions to compute UI-NNSM for negative exponential bets by projected gradient descent
@@ -851,11 +911,6 @@ class PGD:
         '''
         return np.array([PGD.partial(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
 
-    def proj(eta):
-        '''
-        project the vector eta onto the constraining polytope calC, the null space
-        '''
-        return pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
 
 def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
