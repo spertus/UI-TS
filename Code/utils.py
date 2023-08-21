@@ -195,7 +195,8 @@ class Allocations:
             eps = kwargs.get("eps", 0.01)
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
-            past_terms = [mart(x[k], eta[k], lam_func, N[k], True, True)[0:running_T_k[k]] for k in range(K)]
+            #compute martingale as if sampling were with replacement (N = np.inf)
+            past_terms = [mart(x[k], eta[k], lam_func, np.inf, True, True)[0:running_T_k[k]] for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -729,7 +730,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
     return mart_opt, eta_opt
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500):
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500, return_eta = False):
     '''
     repeatedly simulate a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -765,6 +766,8 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             should the martingales be computed under sampling without replacement?
         reps: an integer
             the number of simulations of the audit to run
+        return_eta: boolean
+            return the worst case null mean; averaged across simulation reps
     Returns
     ----------
         a scalar, the expected stopping time of the audit
@@ -782,7 +785,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)[0]
+            uinnsm, eta_min = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
             if combine == "fisher":
                 stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
             else:
