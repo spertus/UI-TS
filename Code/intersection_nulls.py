@@ -22,9 +22,11 @@ delta_grid = [0, 0.1, 0.5]
 alpha = 0.05
 eta_0 = 0.5
 N = [50, 50]
+w = N / np.sum(N)
+proj = lambda mu: mu - ((np.dot(w, mu) - eta_0) / np.sum(w**2)) * w
 results = []
+stopping_times = True #<- change this to False to return the complete martingales, not stopping times
 
-#methods_list = ['product', 'fisher']
 methods_list = ['product']
 bets_dict = {
     "fixed":Bets.fixed,
@@ -39,36 +41,50 @@ allocations_list = ["round_robin", "larger_means", "predictable_kelly"]
 
 
 
-for alt, delta, method, bet, allocation, eta in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, etas):
+for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list):
     means = [alt - 0.5*delta, alt + 0.5*delta]
     samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
-    time = np.arange(np.sum(N))
-    result = intersection_mart(
-                x = samples,
-                N = N,
-                eta = eta,
-                lam_func = bets_dict[bet],
-                allocation_func = allocations_dict[allocation],
-                combine = method,
-                log = True,
-                WOR = False,
-                return_selections = True)
-    #pval = result if method == "fisher" else np.minimum(-result, 0)
-    #stopping_time = np.where(any(pval < np.log(alpha)), np.argmax(pval < np.log(alpha)), np.sum(N))
-    for i in np.arange(result[0].size):
-        data_dict = {
-                "eta":str(eta),
-                "alt":alt,
-                "delta":delta,
-                "method":str(method),
-                "bet":str(bet),
-                "allocation":str(allocation),
-                "time":i,
-                #"pval":pval[i],
-                "n_1":result[1][i,0],
-                "mart":result[0][i]}
-            #"stopping_time":stopping_time}
-        results.append(data_dict)
+    #list of etas includes 3 standards and 1 that is a projection of the truth onto the null
+    etas = [[0, 1], [1,0], [0.5, 0.5], list(np.round(proj(means), 2))]
+    for eta in etas:
+        time = np.arange(np.sum(N))
+        result = intersection_mart(
+                    x = samples,
+                    N = N,
+                    eta = eta,
+                    lam_func = bets_dict[bet],
+                    allocation_func = allocations_dict[allocation],
+                    combine = method,
+                    log = True,
+                    WOR = False,
+                    return_selections = True)
+
+        if stopping_times:
+            pval = result[0] if method == "fisher" else np.minimum(-result[0], 0)
+            stopping_time = np.where(any(pval < np.log(alpha)), np.argmax(pval < np.log(alpha)), np.sum(N))
+            data_dict = {
+                    "eta":str(eta),
+                    "alt":alt,
+                    "delta":delta,
+                    "method":str(method),
+                    "bet":str(bet),
+                    "allocation":str(allocation),
+                    "stopping_time":stopping_time}
+            results.append(data_dict)
+        else:
+            for i in np.arange(result[0].size):
+                data_dict = {
+                        "eta":str(eta),
+                        "alt":alt,
+                        "delta":delta,
+                        "method":str(method),
+                        "bet":str(bet),
+                        "allocation":str(allocation),
+                        "time":i,
+                        "n_1":result[1][i,0],
+                        "mart":result[0][i]}
+                    #"stopping_time":stopping_time}
+                results.append(data_dict)
 
 results = pd.DataFrame(results)
 results.to_csv("intersection_null_stopping_times.csv", index = False)
