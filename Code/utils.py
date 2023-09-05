@@ -866,12 +866,16 @@ def stratified_t_test(x, eta_0, N):
     '''
     n = np.array([x_k.size for x_k in x])
     w = N/np.sum(N)
+    g = N * (N - n) / n #used to calculate effective degrees of freedom from Cochran (1977) p. 69
     sample_means = np.array([np.mean(x_k) for x_k in x])
     sample_vars = np.array([np.var(x_k) for x_k in x])
     mean_est = np.sum(w * sample_means)
-    SE_est = np.sqrt(np.sum((w**2) * sample_vars / n))
+    #SE_est = np.sqrt((1/np.sum(N)**2) * np.sum(g * sample_vars))
+    SE_est = np.sqrt(np.sum((N / np.sum(N))**2 * sample_vars / n))
+    #dof = (np.sum(g * sample_vars)**2) / np.sum((g**2 * sample_vars**2) / (n - 1))
+    dof = np.min(n - 1) #simpler but conservative (always no larger than above)
     test_stat = (mean_est - eta_0) / SE_est
-    p_val = 1 - t.cdf(test_stat, np.min(n))
+    p_val = 1 - t.cdf(test_stat, dof)
     return p_val
 
 
