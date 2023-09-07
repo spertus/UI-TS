@@ -15,8 +15,9 @@ start_time = time.time()
 # technically we sample from an infinite superpopulation
 # but the T-test uses N under the assumption of sampling with replacement, setting N very large will suffice
 N = [1e7, 1e7]
-n_grid = np.int64(np.round(np.exp(np.linspace(np.log(5),np.log(200),40))))
-num_sims = 5000
+#n_grid = np.int64(np.round(np.exp(np.linspace(np.log(5),np.log(200),40))))
+n_grid = np.int64(np.concatenate([np.linspace(5, 130, 40), np.linspace(131, 140, 10), np.linspace(142,500,80)]))
+num_sims = 8000
 alpha = 0.05
 results = []
 
@@ -32,8 +33,8 @@ for n in n_grid:
         #randomly draws a 0 with probability p, or a truncated Gaussian RV with probability 1-p
         for i in np.arange(n):
             for k in np.arange(2):
-                if np.random.choice([True, False], size = 1, p = [p, 1-p]):
-                    samples[k][i] = random_truncated_gaussian(mu, sigma, 1)
+                samples[k][i] = (0 if np.random.rand() <= 1-p else mu)
+                    #else random_truncated_gaussian(mu, sigma, 1))
         p_vals[sim] = stratified_t_test(x = samples, eta_0 = 1/2, N = N)
     results_dict = {
         'n':n,
