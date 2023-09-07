@@ -45,7 +45,7 @@ for(i in 1:length(n_grid)){
 
 sim_data <- data.frame(n = n_grid, t_test_level = levels)
 
-ggplot(significance_data, aes(x = n, y = t_test_level)) +
+ggplot(sim_data, aes(x = n, y = t_test_level)) +
   geom_line(size = 1.5) +
   geom_hline(yintercept = 0.05, linetype = 'dashed') +
   theme_bw() +
@@ -57,4 +57,18 @@ ggplot(significance_data, aes(x = n, y = t_test_level)) +
   ylim(0,1) +
   ylab("Estimated significance level") +
   xlab("Sample size in each stratum")
+
+
+#T-scores with varying numbers of zeros
+#125 samples 1 zero
+sam_125 <- c(c(rep(mu, 124), 0), rep(mu, 125))
+sam_135 <- c(c(rep(mu, 134), 0), rep(mu, 135))
+SE_125 <- 1/2 * sqrt((var(sam_125[1:125]) + var(sam_125[126:250])) / 125)
+SE_135 <- 1/2 * sqrt((var(sam_135[1:135]) + var(sam_135[136:270])) / 135)
+T_125 <- (mean(sam_125) - 0.5) / SE_125
+T_135 <- (mean(sam_135) - 0.5) / SE_135
+P_125 <- 1 - pt(T_125, df = 125 - 1)
+P_135 <- 1 - pt(T_135, df = 135 - 1)
+
+
 
