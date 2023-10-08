@@ -50,10 +50,10 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                 allocation_func = allocations_dict[allocation],
                 alpha = alpha,
                 breaks = 1000,
-                WOR = True)
+                WOR = False)
             stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N))
     elif method == 'uinnsm_product':
-        mart, min_eta = union_intersection_mart(
+        ui_mart, min_eta = union_intersection_mart(
                     x = samples,
                     N = N,
                     etas = eta_grid,
@@ -61,10 +61,10 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     allocation_func = allocations_dict[allocation],
                     combine = "product",
                     log = False,
-                    WOR = True)
-        pval = np.minimum(1, 1/mart)
-        #stopping_time = np.where(any(mart > 1/alpha), np.argmax(mart > 1/alpha), np.sum(N))
-        #min_eta = np.where(any(mart > 1/alpha), min_eta[stopping_time], min_eta[np.sum(N)])
+                    WOR = False)
+        pval = np.minimum(1, 1/ui_mart)
+        #stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N))
+        #min_eta = np.where(any(ui_mart > 1/alpha), min_eta[stopping_time], min_eta[np.sum(N)])
     elif method == 'uinnsm_fisher':
         pval, min_eta = union_intersection_mart(
                     x = samples,
@@ -74,11 +74,11 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     allocation_func = allocations_dict[allocation],
                     combine = "fisher",
                     log = False,
-                    WOR = True)
+                    WOR = False)
 
         #stopping_time = np.where(any(mart < alpha), np.argmax(mart > alpha), np.sum(N))
         #min_eta = np.where(any(mart < alpha), min_eta[stopping_time], min_eta[np.sum(N)])
-    #instead of recording stopping times, we record the p-value at every time
+    #instead of recording stopping times, we record the P-value at every time
     for i in range(pval.shape[0]):
         data_dict = {
             "alt":alt,
@@ -88,7 +88,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
             "allocation":str(allocation),
             "time": i + 1,
             "pval": pval[i],
-            "min_eta": min_eta[i,:]
+            "min_eta_1": min_eta[i,0]
             }
         #"stopping_time":stopping_time,
         #"worst_case_eta":min_eta}
