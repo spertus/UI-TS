@@ -610,7 +610,6 @@ def construct_eta_grid_plurcomp(N, A_c):
             the size of each stratum
         A_c: a length-K np.array of floats
             the reported assorter mean bar{A}_c in each stratum
-
     Returns
     ----------
         every eta that is possible in a comparison risk-limiting audit\
