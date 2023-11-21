@@ -718,18 +718,32 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
         stop("Specify a valid mixture method; either uniform or vertex")
     #evaluate intersection mart on every eta
     obj = np.zeros((len(etas), np.sum(N) + 1))
+    sel = np.zeros((len(etas), np.sum(N) + 1, K))
     for i in np.arange(len(etas)):
-        obj[i,:] = intersection_mart(x, N, etas[i], lam_func, mixing_dist, allocation_func, combine, theta_func, log, WOR)
+        obj[i,:], sel[i,:,:] = intersection_mart(
+            x = x,
+            N = N,
+            eta = etas[i],
+            lam_func = lam_func,
+            mixing_dist = mixing_dist,
+            allocation_func = allocation_func,
+            combine = combine,
+            theta_func = theta_func,
+            log = log,
+            WOR = WOR,
+            return_selections = True
+            )
     opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
     eta_opt = np.zeros((np.sum(N) + 1, len(x)))
     mart_opt = np.zeros(np.sum(N) + 1)
+    global_sample_size = np.sum(np.max(sel, 0), 1)
     for i in np.arange(np.sum(N) + 1):
         eta_opt[i,:] = etas[opt_index[i]]
         mart_opt[i] = obj[opt_index[i],i]
-    return mart_opt, eta_opt
+    return mart_opt, eta_opt, global_sample_size
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 500, return_eta = False):
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30, return_eta = False):
     '''
     repeatedly simulate a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -765,11 +779,11 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             should the martingales be computed under sampling without replacement?
         reps: an integer
             the number of simulations of the audit to run
-        return_eta: boolean
-            return the worst case null mean; averaged across simulation reps
+
     Returns
     ----------
-        a scalar, the expected stopping time of the audit
+        two scalars, the expected stopping time of the audit and the global sample size of the audit;
+        these are the same whenever the allocation rule is nonadaptive
     '''
     assert method == "ui-nnsm" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
     K = len(N)
@@ -780,20 +794,23 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
     for k in np.arange(K):
         num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
         x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
-    stopping_times = np.zeros(reps)
+    stopping_times = np.zeros(reps) #container for global stopping times
+    sample_sizes = np.zeros(reps) #container for global sample sizes
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm, eta_min = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
+            uinnsm, eta_min, global_ss = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
             if combine == "fisher":
                 stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
             else:
                 stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
+            sample_sizes[r] = global_ss[int(stopping_times[r])]
         elif method == "lcbs":
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
-    return np.mean(stopping_times)
+            sample_sizes[r] = stopping_times[r]
+    return np.mean(stopping_times), np.mean(sample_sizes)
 
 
 
@@ -917,6 +934,9 @@ class PGD:
         '''
         return np.array([PGD.partial(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
 
+#add a nonadaptive allocation rule that chooses the next sample
+#based on the Kelly-optimal selection for the current minimimum I-TSM
+#bets can still be convexifying / negative exponential
 
 def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
