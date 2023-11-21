@@ -804,7 +804,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
                 stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
             else:
                 stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
-            sample_sizes[r] = global_ss[stopping_times[r]]
+            sample_sizes[r] = global_ss[int(stopping_times[r])]
         elif method == "lcbs":
             eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)

@@ -107,6 +107,16 @@ def test_selector():
     np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)[-1,:], [1000, 1000, 1000])
     selections = selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)
     assert selections[100,0] > selections[100,2]
+    #check whether predictable Kelly allocates more to strata where null is False
+    N = [100, 100]
+    n = [100, 100]
+    eta_1 = [1,0]
+    eta_2 = [0,1]
+    samples = [0.6 * np.ones(n[0]), 0.6 * np.ones(n[1])]
+    selections_1 = selector(samples, N, Allocations.predictable_kelly, eta_1, Bets.fixed)
+    selections_2 = selector(samples, N, Allocations.predictable_kelly, eta_2, Bets.fixed)
+    assert selections_1[10,1] > selections_2[10,1]
+    assert selections_1[10,0] < selections_2[10,0]
 
 
 def test_intersection_mart():
@@ -191,9 +201,17 @@ def test_simulate_comparison_audit():
     A_c = [0.8, 0.8]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1) < 40
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)
+    #check global stopping times
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[0] < 40
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)[0]
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)[0]
+    #check global sample sizes
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)[1]
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)[1]
+    #check if sample size is larger than stopping time
+    g_st, g_ss = simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True, reps = 1)
+    assert g_st < g_ss
 
 
 def test_random_truncated_gaussian():
