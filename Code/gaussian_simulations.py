@@ -36,29 +36,28 @@ for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_me
     allocation_rule = Allocations.proportional_round_robin
 
 
-        x = [random_truncated_gaussian(mean = global_mean + deltas[k], sd = sd, size = N[k]) for k in range(K)]
-        #unstratified sample by mixing
-        x_unstrat = np.zeros(np.sum(N))
-        for i in range(np.sum(N)):
-            rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
-            x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
+    x = [random_truncated_gaussian(mean = global_mean + deltas[k], sd = sd, size = N[k]) for k in range(K)]
+    #unstratified sample by mixing
+    x_unstrat = np.zeros(np.sum(N))
+    for i in range(np.sum(N)):
+        rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
+        x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
 
+    unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed, log = True)
+    unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa, log = True)
+    lcb_fixed = global_lower_bound(x, N, Bets.fixed, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
+    lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
+    uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, allocation_rule, WOR = False, combine = "product", log = True)[0]
+    uinnsm_smooth = negexp_ui_mart(x, N, allocation_rule, log = True)
+    uinnsm_smooth_predkelly = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
 
-        unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed, log = True)
-        unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa, log = True)
-        lcb_fixed = global_lower_bound(x, N, Bets.fixed, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
-        lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
-        uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, allocation_rule, WOR = False, combine = "product", log = True)[0]
-        uinnsm_smooth = negexp_ui_mart(x, N, allocation_rule, log = True)
-        uinnsm_smooth_predkelly = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
-
-        stop_unstrat_fixed = np.where(any(unstrat_fixed > -np.log(alpha)), np.argmax(unstrat_fixed > -np.log(alpha)), np.sum(N))
-        stop_unstrat_agrapa = np.where(any(unstrat_agrapa > -np.log(alpha)), np.argmax(unstrat_agrapa > -np.log(alpha)), np.sum(N))
-        stop_lcb_agrapa = np.where(any(lcb_agrapa > eta_0), np.argmax(lcb_agrapa > eta_0), np.sum(N))
-        stop_lcb_fixed = np.where(any(lcb_fixed > eta_0), np.argmax(lcb_fixed > eta_0), np.sum(N))
-        stop_uinnsm_fixed = np.where(any(uinnsm_fixed > -np.log(alpha)), np.argmax(uinnsm_fixed > -np.log(alpha)), np.sum(N))
-        stop_uinnsm_smooth = np.where(any(uinnsm_smooth > -np.log(alpha)), np.argmax(uinnsm_smooth > -np.log(alpha)), np.sum(N))
-        stop_uinnsm_smooth_predkelly = np.where(any(uinnsm_smooth_predkelly > -np.log(alpha)), np.argmax(uinnsm_smooth_predkelly > -np.log(alpha)), np.sum(N))
+    stop_unstrat_fixed = np.where(any(unstrat_fixed > -np.log(alpha)), np.argmax(unstrat_fixed > -np.log(alpha)), np.sum(N))
+    stop_unstrat_agrapa = np.where(any(unstrat_agrapa > -np.log(alpha)), np.argmax(unstrat_agrapa > -np.log(alpha)), np.sum(N))
+    stop_lcb_agrapa = np.where(any(lcb_agrapa > eta_0), np.argmax(lcb_agrapa > eta_0), np.sum(N))
+    stop_lcb_fixed = np.where(any(lcb_fixed > eta_0), np.argmax(lcb_fixed > eta_0), np.sum(N))
+    stop_uinnsm_fixed = np.where(any(uinnsm_fixed > -np.log(alpha)), np.argmax(uinnsm_fixed > -np.log(alpha)), np.sum(N))
+    stop_uinnsm_smooth = np.where(any(uinnsm_smooth > -np.log(alpha)), np.argmax(uinnsm_smooth > -np.log(alpha)), np.sum(N))
+    stop_uinnsm_smooth_predkelly = np.where(any(uinnsm_smooth_predkelly > -np.log(alpha)), np.argmax(uinnsm_smooth_predkelly > -np.log(alpha)), np.sum(N))
 
     results_dict = {
         "K":K,
