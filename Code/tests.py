@@ -239,6 +239,10 @@ def test_negexp_ui_mart():
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
     assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) > np.log(20)
 
+    #test minimax-eta strategy (predictable kelly) under null and alternative
+    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.predictable_kelly, eta_0 = 0.5)) < np.log(100)
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.predictable_kelly, eta_0 = 0.5)) > np.log(20)
+
     #check PGD works for higher dimensions
     K = 5
     N = [100 for _ in range(K)]
