@@ -296,7 +296,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = F
 
     Parameters
     ----------
-        x: length-K list of length-N_k np.arrays with elements in [0,1]
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
             data, may be sample from population or an entire population
             in which case N[k] = len(x[k])
         N: length-K list or np.array of ints
@@ -938,7 +938,7 @@ class PGD:
 #based on the Kelly-optimal selection for the current minimimum I-TSM
 #bets can still be convexifying / negative exponential
 
-def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
+def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, minimax_allocation = False):
     '''
     compute the union-intersection NNSM when bets are negative exponential:
     lambda = exp(barX - eta)
@@ -953,14 +953,17 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         the desired allocation strategy, cannot be eta-adaptive
     eta_0: double in [0,1]
         the global null mean
+    minimax_allocation: Boolean
+        should allocation_func be applied to the last smallest eta?
     Returns
     --------
     the value of the union-intersection supermartingale
     '''
-    assert allocation_func not in [Allocations.proportional_to_mart], "Allocation cannot be eta-adaptive"
+    assert allocation_func not in [Allocations.proportional_to_mart, Allocations.predictable_kelly], "Allocation cannot be eta-adaptive"
 
-    w = N / np.sum(N)
-    K = len(N)
+    w = N / np.sum(N) #stratum weights
+    K = len(N) #number of strata
+    n = [x[k].shape[0] for k in range(K)]
     #define constraint set for pypoman projection
     A = np.concatenate((
         np.expand_dims(w, axis = 0),
@@ -969,21 +972,25 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         np.identity(K)))
     b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+    delta = 1e-3 #tuning parameter for optimizer (size of gradient step)
 
-    #construct the sequence of samples that are available at each time
-    T_k = selector(x, N, allocation_func, eta = None,\
-        lam_func = Bets.smooth_predictable, for_samples = True)
-    samples_t = [[[] for _ in range(K)] for _ in range(T_k.shape[0])]
-    running_means = np.zeros((T_k.shape[0], K))
-    for i in np.arange(T_k.shape[0]):
+    #this stores the samples available in each stratum at time i = 1,2,...,n
+    samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
+    #initialize with no samples
+    uinnsms = [1] #uinnsm starts at 1 at time 0
+    samples_t[0] = [np.array([]) for _ in range(K)]
+    T_k = np.zeros(K, dtype = int)
+    #adhoc initialization of eta for selection;
+    #this is just a dummy, it isn't used (first few rounds must be round robin...)
+    eta_star = [0 for _ in range(K)]
+
+    for i in np.arange(1, np.sum(n)):
+        #select next stratum
+        S_i = allocation_func(x, T_k, n, N, eta = eta_star, lam_func = Bets.smooth_predictable)
+        T_k[S_i] += 1
         for k in np.arange(K):
-            samples_t[i][k] = x[k][np.arange(T_k[i, k])]
-
-    delta = 1e-3 #this was 1e-3
-    uinnsms = [1]
-
-    for i in np.arange(1, T_k.shape[0]):
-        #initial estimate of minimum by projecting sample mean onto null space
+            samples_t[i][k] = x[k][np.arange(T_k[k])] #update available samples
+        #initial estimate of minimum by projecting current sample mean onto null space
         if any(samples.size == 0 for samples in samples_t[i]):
             sample_means = [eta_0 for _ in range(K)]
         else:
@@ -991,7 +998,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         eta_l = proj(np.log(sample_means))
         step_size = 1
         counter = 0
-        while step_size > 1e-5: #this was 1e-20
+        while step_size > 1e-5:
             counter += 1
             grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
             next_eta = proj(eta_l - delta * grad_l)
