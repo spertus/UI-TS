@@ -27,7 +27,7 @@ delta_grid = [0, 0.1, 0.2] #maximum spread of the stratum means
 sd_grid = [0.01, 0.05]
 
 results = []
-for K, global_mean, delta, sd, allocation in itertools.product(K_grid, global_mean_grid, delta_grid, sd_grid, allocation_grid):
+for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, delta_grid, sd_grid):
     shifts = np.linspace(-0.5,0.5,K)
     deltas = shifts * delta
     N = [int(1000/K) for _ in range(K)]
