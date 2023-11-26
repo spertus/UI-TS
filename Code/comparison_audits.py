@@ -7,7 +7,7 @@ import numpy as np
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_eta_grid, union_intersection_mart, selector,\
-    construct_eta_grid_plurcomp, simulate_comparison_audit
+    construct_eta_grid_plurcomp, simulate_comparison_audit, PGD, negexp_ui_mart
 
 
 N = [200, 200]
@@ -51,8 +51,18 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     elif method == "uinnsm_product":
         if allocation == "minimax_predictable_kelly":
             if bet == "smooth_predictable":
+                #NOTE: constructs comparison audit samples explicitly here, eventually should just place in simulate_comparison_audit
+                K = len(N)
+                w = N/np.sum(N)
+                A_c_global = np.dot(w, A_c)
+                etas = construct_eta_grid_plurcomp(N, A_c)[0]
+                x = []
+                for k in np.arange(K):
+                    num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
+                    x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
+                X = [np.random.choice(x[k],  len(x[k]), replace = True) for k in np.arange(K)]
                 #NOTE: this is currently computed under sampling with replacement
-                uinnsm = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
+                uinnsm = negexp_ui_mart(X, N, Allocations.predictable_kelly, log = True)
                 stopping_time = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
                 sample_size = stopping_time
             else:
