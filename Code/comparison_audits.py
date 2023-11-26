@@ -23,9 +23,8 @@ bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "larger_means":Allocations.more_to_larger_means,
-    #"proportional_to_mart":Allocations.proportional_to_mart,
     "predictable_kelly":Allocations.predictable_kelly,
-    "minimax_predictable_kelly":Allocations.predictable_kelly}
+    "minimax_predictable_kelly":None}
 allocations_list = ["round_robin", "predictable_kelly", "minimax_predictable_kelly"]
 methods_list = ['lcbs', 'uinnsm_product', 'uinnsm_fisher']
 
@@ -50,7 +49,7 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
                 reps = 1,
                 WOR = False)
     elif method == "uinnsm_product":
-        if allocation == "predictable_kelly_minimax":
+        if allocation == "minimax_predictable_kelly":
             if bet == "smooth_predictable":
                 #NOTE: this is currently computed under sampling with replacement
                 uinnsm = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
@@ -68,7 +67,7 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
                 reps = 1,
                 WOR = False)
     elif method == "uinnsm_fisher":
-        if allocation == 'predictable_kelly_minimax':
+        if allocation == "minimax_predictable_kelly":
             stopping_time, sample_size = [None, None]
         else:
             stopping_time, sample_size = simulate_comparison_audit(
