@@ -24,8 +24,9 @@ allocations_dict = {
     "round_robin":Allocations.round_robin,
     "larger_means":Allocations.more_to_larger_means,
     #"proportional_to_mart":Allocations.proportional_to_mart,
-    "predictable_kelly":Allocations.predictable_kelly}
-allocations_list = ["round_robin", "predictable_kelly", "larger_means"]
+    "predictable_kelly":Allocations.predictable_kelly,
+    "minimax_predictable_kelly":Allocations.predictable_kelly}
+allocations_list = ["round_robin", "predictable_kelly", "minimax_predictable_kelly"]
 methods_list = ['lcbs', 'uinnsm_product', 'uinnsm_fisher']
 
 
@@ -36,36 +37,48 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
     #only need 1 simulation rep unless there is auxilliary randomization
-    reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means"] else 30
+    #reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means","minimax_predictable_kelly"] else 30
     if method == "lcbs":
-        if allocation in ["proportional_to_mart","predictable_kelly"]:
-            stopping_time = None
+        if allocation in ["proportional_to_mart","predictable_kelly","minimax_predictable_kelly"]:
+            stopping_time, sample_size = [None, None]
         else:
-            stopping_time = simulate_comparison_audit(
+            stopping_time, sample_size = simulate_comparison_audit(
                 N, A_c, p_1, p_2,
                 lam_func = bets_dict[bet],
                 allocation_func = allocations_dict[allocation],
                 method = "lcbs",
-                reps = reps,
-                WOR = True)
+                reps = 1,
+                WOR = False)
     elif method == "uinnsm_product":
-        stopping_time = simulate_comparison_audit(
-            N, A_c, p_1, p_2,
-            lam_func = bets_dict[bet],
-            allocation_func = allocations_dict[allocation],
-            method = "ui-nnsm",
-            combine = "product",
-            reps = reps,
-            WOR = True)
+        if allocation == "predictable_kelly_minimax":
+            if bet == "smooth_predictable":
+                #NOTE: this is currently computed under sampling with replacement
+                uinnsm = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
+                stopping_time = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
+                sample_size = stopping_time
+            else:
+                stopping_time, sample_size = [None, None]
+        else:
+            stopping_time, sample_size = simulate_comparison_audit(
+                N, A_c, p_1, p_2,
+                lam_func = bets_dict[bet],
+                allocation_func = allocations_dict[allocation],
+                method = "ui-nnsm",
+                combine = "product",
+                reps = 1,
+                WOR = False)
     elif method == "uinnsm_fisher":
-        stopping_time = simulate_comparison_audit(
-            N, A_c, p_1, p_2,
-            lam_func = bets_dict[bet],
-            allocation_func = allocations_dict[allocation],
-            method = "ui-nnsm",
-            combine = "fisher",
-            reps = reps,
-            WOR = True)
+        if allocation == 'predictable_kelly_minimax':
+            stopping_time, sample_size = [None, None]
+        else:
+            stopping_time, sample_size = simulate_comparison_audit(
+                N, A_c, p_1, p_2,
+                lam_func = bets_dict[bet],
+                allocation_func = allocations_dict[allocation],
+                method = "ui-nnsm",
+                combine = "fisher",
+                reps = 1,
+                WOR = False)
     data_dict = {
         "A_c":grand_mean,
         "stratum_gap":gap,
@@ -74,7 +87,8 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
         "method":str(method),
         "bet":str(bet),
         "allocation":str(allocation),
-        "stopping_time":stopping_time
+        "stopping_time":stopping_time,
+        "sample_size":sample_size
     }
     results.append(data_dict)
 results = pd.DataFrame(results)

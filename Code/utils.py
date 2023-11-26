@@ -731,8 +731,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
             theta_func = theta_func,
             log = log,
             WOR = WOR,
-            return_selections = True
-            )
+            return_selections = True)
     opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
     eta_opt = np.zeros((np.sum(N) + 1, len(x)))
     mart_opt = np.zeros(np.sum(N) + 1)
@@ -743,9 +742,9 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
     return mart_opt, eta_opt, global_sample_size
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30, return_eta = False):
+def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
     '''
-    repeatedly simulate a comparison audit of a plurality contest
+    simulate (repateadly, if desired) a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
 
     Parameters
@@ -777,9 +776,8 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             the significance level of the test
         WOR: boolean
             should the martingales be computed under sampling without replacement?
-        reps: an integer
+        reps: int
             the number of simulations of the audit to run
-
     Returns
     ----------
         two scalars, the expected stopping time of the audit and the global sample size of the audit;
@@ -937,11 +935,11 @@ class PGD:
 #add a nonadaptive allocation rule that chooses the next sample
 #based on the Kelly-optimal selection for the current minimimum I-TSM
 #bets can still be convexifying / negative exponential
-
-def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, minimax_allocation = False):
+def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
     compute the union-intersection NNSM when bets are negative exponential:
     lambda = exp(barX - eta)
+    currently only works for sampling with replacement
 
     Parameters
     ----------
@@ -950,16 +948,14 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, minimax_alloc
     N: np.array of length K
         the number of elements in each stratum in the population
     allocation_func: callable, a function from class Allocations
-        the desired allocation strategy, cannot be eta-adaptive
+        the desired allocation strategy. If "eta-adaptive" (e.g. predictable_kelly), the eta used is the
+        last minimizing eta, employing a minimax-type selection strategy.
     eta_0: double in [0,1]
         the global null mean
-    minimax_allocation: Boolean
-        should allocation_func be applied to the last smallest eta?
     Returns
     --------
     the value of the union-intersection supermartingale
     '''
-    assert allocation_func not in [Allocations.proportional_to_mart, Allocations.predictable_kelly], "Allocation cannot be eta-adaptive"
 
     w = N / np.sum(N) #stratum weights
     K = len(N) #number of strata
