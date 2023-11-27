@@ -952,7 +952,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         last minimizing eta, employing a minimax-type selection strategy.
     eta_0: double in [0,1]
         the global null mean
-        
+
     Returns
     --------
     the value of the union-intersection supermartingale
@@ -976,23 +976,25 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     #initialize with no samples
     uinnsms = [1] #uinnsm starts at 1 at time 0
     samples_t[0] = [np.array([]) for _ in range(K)]
-    T_k = np.zeros(K, dtype = int)
+    T_k = np.zeros((np.sum(n), K), dtype = int)
     eta_stars = np.zeros((np.sum(n), K))
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum
-        S_i = allocation_func(x, T_k, n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
-        T_k[S_i] += 1
+        T_k[i,:] = T_k[i-1,:]
+        S_i = allocation_func(x, T_k[i,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
+        T_k[i,S_i] += 1
         for k in np.arange(K):
-            samples_t[i][k] = x[k][np.arange(T_k[k])] #update available samples
+            samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
         #initial estimate of minimum by projecting current sample mean onto null space
-        if any(T_k == 0):
+        if any(T_k[i,:] == 0):
             sample_means = [eta_0 for _ in range(K)]
         else:
             sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
         eta_l = proj(np.log(sample_means))
         step_size = 1
         counter = 0
+        #find optimum
         while step_size > 1e-5:
             counter += 1
             grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
@@ -1000,9 +1002,10 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
             step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
             eta_l = next_eta
         eta_stars[i] = eta_l
-        log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_stars[i])
+        #store current value of UI-TS
+        log_ts = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_stars[i])
         if log:
-            uinnsms.append(log_mart)
+            uinnsms.append(log_ts)
         else:
-            uinnsms.append(np.exp(log_mart))
-    return np.array(uinnsms), eta_stars
+            uinnsms.append(np.exp(log_ts))
+    return np.array(uinnsms), eta_stars, T_k
