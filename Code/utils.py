@@ -952,6 +952,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         last minimizing eta, employing a minimax-type selection strategy.
     eta_0: double in [0,1]
         the global null mean
+
     Returns
     --------
     the value of the union-intersection supermartingale
@@ -970,40 +971,41 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     delta = 1e-3 #tuning parameter for optimizer (size of gradient step)
 
-    #this stores the samples available in each stratum at time i = 1,2,...,n
+    #this stores the samples available in each stratum at time i = 0,1,2,...,n
     samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
     #initialize with no samples
     uinnsms = [1] #uinnsm starts at 1 at time 0
     samples_t[0] = [np.array([]) for _ in range(K)]
-    T_k = np.zeros(K, dtype = int)
-    #adhoc initialization of eta for selection;
-    #this is just a dummy, it isn't used (first few rounds must be round robin...)
-    eta_star = [0 for _ in range(K)]
+    T_k = np.zeros((np.sum(n), K), dtype = int)
+    eta_stars = np.zeros((np.sum(n), K))
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum
-        S_i = allocation_func(x, T_k, n, N, eta = eta_star, lam_func = Bets.smooth_predictable)
-        T_k[S_i] += 1
+        T_k[i,:] = T_k[i-1,:]
+        S_i = allocation_func(x, T_k[i,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
+        T_k[i,S_i] += 1
         for k in np.arange(K):
-            samples_t[i][k] = x[k][np.arange(T_k[k])] #update available samples
+            samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
         #initial estimate of minimum by projecting current sample mean onto null space
-        if any(samples.size == 0 for samples in samples_t[i]):
+        if any(T_k[i,:] == 0):
             sample_means = [eta_0 for _ in range(K)]
         else:
             sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
         eta_l = proj(np.log(sample_means))
         step_size = 1
         counter = 0
+        #find optimum
         while step_size > 1e-5:
             counter += 1
             grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
             next_eta = proj(eta_l - delta * grad_l)
             step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
             eta_l = next_eta
-        eta_star = eta_l
-        log_mart = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_star)
+        eta_stars[i] = eta_l
+        #store current value of UI-TS
+        log_ts = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_stars[i])
         if log:
-            uinnsms.append(log_mart)
+            uinnsms.append(log_ts)
         else:
-            uinnsms.append(np.exp(log_mart))
-    return uinnsms
+            uinnsms.append(np.exp(log_ts))
+    return np.array(uinnsms), eta_stars, T_k

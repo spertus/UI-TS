@@ -33,7 +33,6 @@ for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, del
     N = [int(1000/K) for _ in range(K)]
     w = N/np.sum(N)
     etas = construct_vertex_etas(N = N, eta_0 = eta_0)
-    allocation_rule = Allocations.proportional_round_robin
 
 
     x = [random_truncated_gaussian(mean = global_mean + deltas[k], sd = sd, size = N[k]) for k in range(K)]
@@ -45,11 +44,11 @@ for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, del
 
     unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed, log = True)
     unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa, log = True)
-    lcb_fixed = global_lower_bound(x, N, Bets.fixed, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
-    lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, allocation_rule, alpha = 0.05, WOR = False, breaks = 1000)
-    uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, allocation_rule, WOR = False, combine = "product", log = True)[0]
-    uinnsm_smooth = negexp_ui_mart(x, N, allocation_rule, log = True)
-    uinnsm_smooth_predkelly = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)
+    lcb_fixed = global_lower_bound(x, N, Bets.fixed, Allocations.proportional_round_robin, alpha = 0.05, WOR = False, breaks = 1000)
+    lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, Allocations.proportional_round_robin, alpha = 0.05, WOR = False, breaks = 1000)
+    uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, Allocations.proportional_round_robin, WOR = False, combine = "product", log = True)[0]
+    uinnsm_smooth = negexp_ui_mart(x, N, Allocations.proportional_round_robin, log = True)[0]
+    uinnsm_smooth_minimax = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)[0]
 
     stop_unstrat_fixed = np.where(any(unstrat_fixed > -np.log(alpha)), np.argmax(unstrat_fixed > -np.log(alpha)), np.sum(N))
     stop_unstrat_agrapa = np.where(any(unstrat_agrapa > -np.log(alpha)), np.argmax(unstrat_agrapa > -np.log(alpha)), np.sum(N))
@@ -57,7 +56,7 @@ for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, del
     stop_lcb_fixed = np.where(any(lcb_fixed > eta_0), np.argmax(lcb_fixed > eta_0), np.sum(N))
     stop_uinnsm_fixed = np.where(any(uinnsm_fixed > -np.log(alpha)), np.argmax(uinnsm_fixed > -np.log(alpha)), np.sum(N))
     stop_uinnsm_smooth = np.where(any(uinnsm_smooth > -np.log(alpha)), np.argmax(uinnsm_smooth > -np.log(alpha)), np.sum(N))
-    stop_uinnsm_smooth_predkelly = np.where(any(uinnsm_smooth_predkelly > -np.log(alpha)), np.argmax(uinnsm_smooth_predkelly > -np.log(alpha)), np.sum(N))
+    stop_uinnsm_smooth_minimax = np.where(any(uinnsm_smooth_minimax > -np.log(alpha)), np.argmax(uinnsm_smooth_minimax > -np.log(alpha)), np.sum(N))
 
     results_dict = {
         "K":K,
@@ -71,7 +70,7 @@ for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, del
         "stop_lcb_agrapa":stop_lcb_agrapa,
         "stop_uinnsm_fixed":stop_uinnsm_fixed,
         "stop_uinnsm_smooth":stop_uinnsm_smooth,
-        "stop_uinnsm_smooth_predkelly":stop_uinnsm_smooth_predkelly
+        "stop_uinnsm_smooth_minimax":stop_uinnsm_smooth_minimax
     }
     results.append(results_dict)
 results = pd.DataFrame(results)

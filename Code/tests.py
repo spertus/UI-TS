@@ -225,26 +225,33 @@ def test_negexp_ui_mart():
     #these tests are probabilistic, they may sometimes fail (but should rarely)
     N = [100, 50]
     x_null_1 = [random_truncated_gaussian(0.5, 0.05, N[0]), random_truncated_gaussian(0.5, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100) #there should be less than 1% chance this doesnt happen
+    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100) #there should be less than 1% chance this doesnt happen
     x_null_2 = [random_truncated_gaussian(0.2, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100)
-    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) < np.log(100)
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) < np.log(100)
     x_null_3 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.6, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)) < np.log(100)
+    assert np.max(negexp_ui_mart(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
 
 
     #test that it does reject eventually under alternative
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > np.log(20)
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)) > np.log(20)
+    assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) > np.log(20)
 
     #test minimax-eta strategy (predictable kelly) under null and alternative
-    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.predictable_kelly, eta_0 = 0.5)) < np.log(100)
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.predictable_kelly, eta_0 = 0.5)) > np.log(20)
+    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.predictable_kelly, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.predictable_kelly, eta_0 = 0.5)[0]) > np.log(20)
+
+    #check that minimax pulls different strata than round robin when strata are different
+    uits_rr_alt2 = negexp_ui_mart(x_alt_2, N, Allocations.round_robin, eta_0 = 0.5)
+    uits_minimax_alt2 = negexp_ui_mart(x_alt_2, N, Allocations.predictable_kelly, eta_0 = 0.5)
+    assert all(uits_rr_alt2[2][2,:] == uits_minimax_alt2[2][2,:]) #first 2 selections should always be round robin
+    assert any(uits_rr_alt2[2][30,:] != uits_minimax_alt2[2][30,:]) #but should eventually diverge...
+    assert uits_minimax_alt2[0][30] > uits_rr_alt2[0][30] #check if minimax is larger
 
     #check PGD works for higher dimensions
     K = 5
     N = [100 for _ in range(K)]
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[k]) for k in range (K)]
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)) > np.log(20)
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
