@@ -742,6 +742,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
     return mart_opt, eta_opt, global_sample_size
 
 
+#add option to use non-adaptive, "minimax" allocation 
 def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
     '''
     simulate (repateadly, if desired) a comparison audit of a plurality contest
