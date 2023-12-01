@@ -908,38 +908,40 @@ class PGD:
     currently everything is computed on assumption of sampling with replacement
     '''
 
-    def log_mart(samples, past_samples, eta):
+    def log_mart(samples, eta):
         '''
         return the log value of within-stratum martingale evaluated at eta_k
-        bets are exponential in negative eta, offset by current sample mean
+        bets are exponential in negative eta, offset by lagged sample mean
         '''
-        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
+        #lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
+        #for the bet on the first sample, just guesses a mean of 1/2; after that, uses the sample mean
+        lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
         if samples.size == 0:
             return 0
         else:
             return np.sum(np.log(1 + np.exp(lag_mean - eta) * (samples - eta)))
 
-    def global_log_mart(samples, past_samples, eta):
+    def global_log_mart(samples, eta):
         '''
         return the log value of the product-combined I-NNSM evaluated at eta
         '''
-        return np.sum([PGD.log_mart(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
+        return np.sum([PGD.log_mart(samples[k], eta[k]) for k in np.arange(len(eta))])
 
-    def partial(samples, past_samples, eta):
+    def partial(samples, eta):
         '''
         return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
         '''
-        lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
+        lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
         if samples.size == 0:
             return 0
         else:
             return -np.sum(np.exp(lag_mean - eta) * (samples - eta + 1) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
 
-    def grad(samples, past_samples, eta):
+    def grad(samples, eta):
         '''
         return the gradient (WRT eta) of the log I-NNSM evaluated at eta
         '''
-        return np.array([PGD.partial(samples[k], past_samples[k], eta[k]) for k in np.arange(len(eta))])
+        return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(len(eta))])
 
 #add a nonadaptive allocation rule that chooses the next sample
 #based on the Kelly-optimal selection for the current minimimum I-TSM
@@ -979,6 +981,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
         np.identity(K)))
     b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+    #TODO: find a good value for delta (the "learning rate")
     delta = 1e-2 #tuning parameter for optimizer (size of gradient step)
 
     #this is a nested list of arrays
@@ -999,24 +1002,24 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
             samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
         #initial estimate of minimum by projecting current sample mean onto null space
         if any(T_k[i,:] == 0):
-            sample_means = [eta_0 for _ in range(K)]
+            sample_means = np.array([eta_0 for _ in range(K)])
         else:
             sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
-        eta_l = proj(np.log(sample_means))
+        eta_l = proj(sample_means)
         step_size = 1
         counter = 0
         #find optimum
-        while step_size > 1e-6:
+        while step_size > 1e-4:
             counter += 1
             if counter == 1000:
                 raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
-            grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
+            grad_l = PGD.grad(samples_t[i], eta_l)
             next_eta = proj(eta_l - delta * grad_l)
-            step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
+            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
             eta_l = next_eta
         eta_stars[i] = eta_l
         #store current value of UI-TS
-        log_ts = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_stars[i])
+        log_ts = PGD.global_log_mart(samples_t[i], eta_stars[i])
         if log:
             uinnsms.append(log_ts)
         else:
