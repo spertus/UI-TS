@@ -44,6 +44,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
         min_eta = None
         if bet == 'uniform_mixture' or allocation in ['proportional_to_mart','predictable_kelly','minimax']:
             stopping_time = None
+            sample_size = None
         else:
             lower_bound = global_lower_bound(
                 x = samples,
@@ -54,16 +55,18 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                 breaks = 1000,
                 WOR = False)
             stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N))
-            min_eta = None
+            sample_size = stopping_time
     elif method == 'uinnsm_product':
         if allocation == 'minimax':
             if bet == 'smooth_predictable':
                 ui_mart, min_etas = negexp_ui_mart(samples, N, Allocations.predictable_kelly, log = False)
                 stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N))
                 min_eta = min_etas[stopping_time]
+                sample_size = stopping_time
             else:
                 stopping_time = None
                 min_eta = None
+                sample_size = None
         else:
             ui_mart, min_etas, global_ss = union_intersection_mart(
                         x = samples,
@@ -77,6 +80,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
             pval = np.minimum(1, 1/ui_mart)
             stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N))
             min_eta = min_etas[stopping_time]
+            sample_size = global_ss[stopping_time]
     elif method == 'uinnsm_fisher' and allocation != 'minimax':
         pval, min_etas, global_ss = union_intersection_mart(
                     x = samples,
@@ -89,6 +93,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     WOR = False)
         stopping_time = np.where(any(pval < alpha), np.argmax(pval < alpha), np.sum(N))
         min_eta = min_etas[stopping_time]
+        sample_size = global_ss[stopping_time]
     #instead of recording stopping times, we record the P-value at every time
     # for i in range(pval.shape[0]):
     #     data_dict = {
@@ -108,6 +113,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
         "bet":str(bet),
         "allocation":str(allocation),
         "stopping_time":stopping_time,
+        "sample_size":sample_size,
         "worst_case_eta":min_eta}
     results.append(data_dict)
 results = pd.DataFrame(results)
