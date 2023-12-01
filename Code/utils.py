@@ -97,7 +97,7 @@ class Bets:
         '''
         eta-adaptive; smooth, bets more the higher the empirical mean is above the null mean
         '''
-        lag_mean = np.insert(np.cumsum(x),0,0)[0:-1] / np.arange(1,len(x)+1)
+        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
         lam = np.exp(lag_mean - eta)
         return lam
 
@@ -120,6 +120,7 @@ class Allocations:
     ----------
         allocation: a length sum(n_k) sequence of interleaved stratum selections in each round
     '''
+
 
     def round_robin(x, running_T_k, n, N, eta, lam_func):
         #eta-nonadaptive round robin strategy
@@ -205,6 +206,8 @@ class Allocations:
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
             next = np.argmax(scores)
         return next
+#record which allocation rules are nonadaptive, useful in some functions/assertions below
+nonadaptive_allocations = [Allocations.round_robin, Allocations.proportional_round_robin, Allocations.neyman, Allocations.more_to_larger_means]
 
 class Weights:
     '''
@@ -407,7 +410,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
 
 def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = Allocations.proportional_round_robin, combine = "product",  theta_func = None, log = True, WOR = False, return_selections = False):
     '''
-    an intersection martingale (I-NNSM) for a vector bs{eta}
+    an intersection martingale (I-NNSM) for a vector \bs{eta}
     assumes sampling is with replacement: no population size is required
 
     Parameters
@@ -732,6 +735,11 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
             log = log,
             WOR = WOR,
             return_selections = True)
+    #return the global selections if nonadaptive; otherwise return None
+    if allocation_func in nonadaptive_allocations:
+        T_k = sel[0,:,:]
+    else:
+        T_k = None
     opt_index = np.argmin(obj, 0) if combine != "fisher" else np.argmax(obj, 0)
     eta_opt = np.zeros((np.sum(N) + 1, len(x)))
     mart_opt = np.zeros(np.sum(N) + 1)
@@ -739,10 +747,10 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
     for i in np.arange(np.sum(N) + 1):
         eta_opt[i,:] = etas[opt_index[i]]
         mart_opt[i] = obj[opt_index[i],i]
-    return mart_opt, eta_opt, global_sample_size
+    return mart_opt, eta_opt, global_sample_size, T_k
 
 
-#add option to use non-adaptive, "minimax" allocation 
+#add option to use non-adaptive, "minimax" allocation
 def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
     '''
     simulate (repateadly, if desired) a comparison audit of a plurality contest
@@ -798,7 +806,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
         if method == "ui-nnsm":
-            uinnsm, eta_min, global_ss = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
+            uinnsm, eta_min, global_ss, T_k = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
             if combine == "fisher":
                 stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
             else:
@@ -936,10 +944,10 @@ class PGD:
 #add a nonadaptive allocation rule that chooses the next sample
 #based on the Kelly-optimal selection for the current minimimum I-TSM
 #bets can still be convexifying / negative exponential
-def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
+def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
     '''
-    compute the union-intersection NNSM when bets are negative exponential:
-    lambda = exp(barX - eta)
+    compute the UI-NNSM when bets are negative exponential:
+        lambda = exp(barX - eta)
     currently only works for sampling with replacement
 
     Parameters
@@ -953,7 +961,8 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         last minimizing eta, employing a minimax-type selection strategy.
     eta_0: double in [0,1]
         the global null mean
-
+    max_iterations: int
+        the maximum number of iterations for projected gradient descent to try before stopping with error
     Returns
     --------
     the value of the union-intersection supermartingale
@@ -970,20 +979,21 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         np.identity(K)))
     b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
-    delta = 1e-3 #tuning parameter for optimizer (size of gradient step)
+    delta = 1e-2 #tuning parameter for optimizer (size of gradient step)
 
-    #this stores the samples available in each stratum at time i = 0,1,2,...,n
+    #this is a nested list of arrays
+    #it stores the samples available in each stratum at time i = 0,1,2,...,n
     samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
     #initialize with no samples
     uinnsms = [1] #uinnsm starts at 1 at time 0
-    samples_t[0] = [np.array([]) for _ in range(K)]
+    samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
     T_k = np.zeros((np.sum(n), K), dtype = int)
     eta_stars = np.zeros((np.sum(n), K))
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum
+        S_i = allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
         T_k[i,:] = T_k[i-1,:]
-        S_i = allocation_func(x, T_k[i,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
         T_k[i,S_i] += 1
         for k in np.arange(K):
             samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
@@ -996,8 +1006,10 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True):
         step_size = 1
         counter = 0
         #find optimum
-        while step_size > 1e-5:
+        while step_size > 1e-6:
             counter += 1
+            if counter == 1000:
+                raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
             grad_l = PGD.grad(samples_t[i], samples_t[i-1], eta_l)
             next_eta = proj(eta_l - delta * grad_l)
             step_size = PGD.global_log_mart(samples_t[i], samples_t[i-1], eta_l) - PGD.global_log_mart(samples_t[i], samples_t[i-1], next_eta)
