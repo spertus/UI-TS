@@ -603,7 +603,7 @@ def construct_eta_grid(eta_0, calX, N):
     calC = len(etas)
     return etas, calC, ub_calC
 
-def construct_eta_grid_plurcomp(N, A_c):
+def construct_eta_grid_plurcomp(N, A_c, assorter_method):
     '''
     construct all the intersection nulls possible in a comparison audit of a plurality contest
 
@@ -613,11 +613,16 @@ def construct_eta_grid_plurcomp(N, A_c):
             the size of each stratum
         A_c: a length-K np.array of floats
             the reported assorter mean bar{A}_c in each stratum
+        assorter_method: str, either "sts" or "global"
+            method for constructing the audit, effects values of means produced within strata
+            "sts": as described in Sweeter than Suite Section 3.2
+            "global": canonical means summing to 1/2 (no adjustment for stratum-wise reported assorter means)
     Returns
     ----------
         every eta that is possible in a comparison risk-limiting audit\
         given the input diluted margins and stratum sizes
     '''
+    assert assorter_method in ["sts", "global"]
     w = N/np.sum(N)
     #assert np.dot(w, A_c) > 0.5, "global reported margin <= 1/2"
     K = len(N)
@@ -631,9 +636,12 @@ def construct_eta_grid_plurcomp(N, A_c):
     eps = np.max(eps_k)
     for crt_prd in itertools.product(*means):
         if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
-            #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
-            #but divided by two, to map population from [0,2] to [0,1]
-            etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
+            if assorter_method == "sts":
+                #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
+                #but divided by two, to map population from [0,2] to [0,1]
+                etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
+            else:
+                etas.append(crt_prd)
     calC = len(etas)
     return etas, calC
 
@@ -751,7 +759,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
 
 
 #add option to use non-adaptive, "minimax" allocation
-def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
+def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
     '''
     simulate (repateadly, if desired) a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -766,6 +774,11 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
             the true rate of 1 vote overstatements in each stratum
         p_2: a length-K np.array of floats
             the true rate of 2 vote overstatements in each stratum
+        assort_method: str, either "sts" or "global"
+            how to construct the comparison audit
+            if sts, uses the parameterization in Section 3.2 of Sweeter than SUITE (Spertus and Stark, 2022)
+            if global, uses the global method of construcing overstatement assorters for an unstratified population\\
+                e.g., as presented in COBRA (Spertus, 2023)
         lam_func: callable, a function from class Bets
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
@@ -792,15 +805,24 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
         two scalars, the expected stopping time of the audit and the global sample size of the audit;
         these are the same whenever the allocation rule is nonadaptive
     '''
+    assert assort_method in ["sts","global"], "invalid value for assorters"
     assert method == "ui-nnsm" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
     K = len(N)
     w = N/np.sum(N)
     A_c_global = np.dot(w, A_c)
-    etas = construct_eta_grid_plurcomp(N, A_c)[0]
+    etas = construct_eta_grid_plurcomp(N, A_c, assort_method)[0] #etas depends on the method of assorting
+
     x = []
+    #construct assorter populations within each stratum
+    v = 2 * A_c_global - 1
+    a = 1/(2-v)
     for k in np.arange(K):
         num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
-        x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
+        if assort_method == "sts":
+            x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
+        else:
+            x.append(np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * a/2, np.ones(num_errors[2])]) * a)
+
     stopping_times = np.zeros(reps) #container for global stopping times
     sample_sizes = np.zeros(reps) #container for global sample sizes
     for r in np.arange(reps):
@@ -813,7 +835,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func
                 stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
             sample_sizes[r] = global_ss[int(stopping_times[r])]
         elif method == "lcbs":
-            eta_0 = (1/2 + 1 - A_c_global)/2 # this is the implied global null mean in the setup described in 3.2 of Sweeter than SUITE
+            eta_0 = (1/2 + 1 - A_c_global)/2 if (assort_method == "sts") else 1/2
             lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
             sample_sizes[r] = stopping_times[r]
@@ -942,6 +964,19 @@ class PGD:
         return the gradient (WRT eta) of the log I-NNSM evaluated at eta
         '''
         return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(len(eta))])
+
+    # def second_partial(samples, eta):
+    #     '''
+    #     computes the second partial derivative (WRT) of the log I-NNSM evaluated at eta_k
+    #     Mixed partials are zero.
+    #     '''
+    #     lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
+    #     if samples.size == 0:
+    #         return 0
+    #     else:
+    #         TODO: Finish
+
+
 
 #add a nonadaptive allocation rule that chooses the next sample
 #based on the Kelly-optimal selection for the current minimimum I-TSM
