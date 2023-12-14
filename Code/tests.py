@@ -169,10 +169,15 @@ def test_construct_eta_grid():
 
 def test_construct_eta_grid_plurcomp():
     N = [15, 15]
-    etas = construct_eta_grid_plurcomp(N = N, A_c = [1, 0.5])[0]
+    etas = construct_eta_grid_plurcomp(N = N, A_c = [1, 0.5], assorter_method = "sts")[0]
     assert etas.count((0, 0.75)) == 1
     assert etas.count((0.25, 0.5)) == 1
     assert etas.count((0.125, 0.625)) == 0
+    etas = construct_eta_grid_plurcomp(N = N, A_c = [1, 0.5], assorter_method = "global")[0]
+    assert etas.count((0.5,0.5)) == 1
+    assert etas.count((0,1)) == 1
+    assert etas.count((1,0)) == 1
+    assert etas.count((1,1)) == 0
 
 def test_construct_vertex_etas():
     assert construct_vertex_etas(N = [10000, 10000], eta_0 = 1/2).count((1,0)) == 1

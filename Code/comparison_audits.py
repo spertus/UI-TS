@@ -11,9 +11,11 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 
 N = [200, 200]
-
+K = len(N)
+w = N/np.sum(N)
 grand_means = [0.5, 0.51, 0.53, 0.55, 0.57, 0.6, 0.65, 0.7, 0.75]
 stratum_gaps = [0.0, 0.5]
+alpha = 0.05
 
 bets_dict = {
     "fixed":Bets.fixed,
@@ -24,8 +26,8 @@ allocations_dict = {
     "round_robin":Allocations.round_robin,
     "larger_means":Allocations.more_to_larger_means,
     "predictable_kelly":Allocations.predictable_kelly,
-    "minimax_predictable_kelly":None}
-allocations_list = ["round_robin", "predictable_kelly", "minimax_predictable_kelly"]
+    "minimax":None}
+allocations_list = ["round_robin", "predictable_kelly", "minimax"]
 methods_list = ['lcbs', 'uinnsm_product', 'uinnsm_fisher']
 
 
@@ -36,33 +38,34 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
     #only need 1 simulation rep unless there is auxilliary randomization
-    #reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means","minimax_predictable_kelly"] else 30
+    #reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means","minimax"] else 30
     if method == "lcbs":
-        if allocation in ["proportional_to_mart","predictable_kelly","minimax_predictable_kelly"]:
+        if allocation in ["proportional_to_mart","predictable_kelly","minimax"]:
             stopping_time, sample_size = [None, None]
         else:
             stopping_time, sample_size = simulate_comparison_audit(
                 N, A_c, p_1, p_2,
+                assort_method = "global",
                 lam_func = bets_dict[bet],
                 allocation_func = allocations_dict[allocation],
                 method = "lcbs",
                 reps = 1,
+                alpha = alpha,
                 WOR = False)
     elif method == "uinnsm_product":
-        if allocation == "minimax_predictable_kelly":
+        if allocation == "minimax":
             if bet == "smooth_predictable":
-                #NOTE: constructs comparison audit samples explicitly here, eventually should just place in simulate_comparison_audit
-                K = len(N)
-                w = N/np.sum(N)
+                #setup here is slightly different since it uses negexp_ui_mart
                 A_c_global = np.dot(w, A_c)
-                etas = construct_eta_grid_plurcomp(N, A_c)[0]
+                v = 2 * A_c_global - 1
+                a = 1/(2-v)
                 x = []
                 for k in np.arange(K):
                     num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
-                    x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
+                    x.append(np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * a/2, np.ones(num_errors[2])]) * a)
                 X = [np.random.choice(x[k],  len(x[k]), replace = True) for k in np.arange(K)]
                 #NOTE: this is currently computed under sampling with replacement
-                uinnsm = negexp_ui_mart(X, N, Allocations.predictable_kelly, log = True)
+                uinnsm = negexp_ui_mart(X, N, Allocations.predictable_kelly, log = True)[0]
                 stopping_time = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
                 sample_size = stopping_time
             else:
@@ -70,22 +73,26 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
         else:
             stopping_time, sample_size = simulate_comparison_audit(
                 N, A_c, p_1, p_2,
+                assort_method = "global",
                 lam_func = bets_dict[bet],
                 allocation_func = allocations_dict[allocation],
                 method = "ui-nnsm",
                 combine = "product",
+                alpha = alpha,
                 reps = 1,
                 WOR = False)
     elif method == "uinnsm_fisher":
-        if allocation == "minimax_predictable_kelly":
+        if allocation == "minimax":
             stopping_time, sample_size = [None, None]
         else:
             stopping_time, sample_size = simulate_comparison_audit(
                 N, A_c, p_1, p_2,
+                assort_method = "global",
                 lam_func = bets_dict[bet],
                 allocation_func = allocations_dict[allocation],
                 method = "ui-nnsm",
                 combine = "fisher",
+                alpha = alpha,
                 reps = 1,
                 WOR = False)
     data_dict = {
