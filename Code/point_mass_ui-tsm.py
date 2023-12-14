@@ -24,10 +24,9 @@ bets_dict = {
 bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
-    "larger_means":Allocations.more_to_larger_means,
     "predictable_kelly":Allocations.predictable_kelly,
     "minimax":Allocations.predictable_kelly}
-allocations_list = ["round_robin", "larger_means", "predictable_kelly", "minimax"]
+allocations_list = ["round_robin", "predictable_kelly", "minimax"]
 
 K = 2
 N = [200, 200]
@@ -59,7 +58,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
     elif method == 'uinnsm_product':
         if allocation == 'minimax':
             if bet == 'smooth_predictable':
-                ui_mart, min_etas = negexp_ui_mart(samples, N, Allocations.predictable_kelly, log = False)
+                ui_mart, min_etas, T_k = negexp_ui_mart(samples, N, Allocations.predictable_kelly, log = False)
                 stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N))
                 min_eta = min_etas[stopping_time]
                 sample_size = stopping_time
@@ -68,7 +67,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                 min_eta = None
                 sample_size = None
         else:
-            ui_mart, min_etas, global_ss = union_intersection_mart(
+            ui_mart, min_etas, global_ss, T_k = union_intersection_mart(
                         x = samples,
                         N = N,
                         etas = eta_grid,
@@ -82,7 +81,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
             min_eta = min_etas[stopping_time]
             sample_size = global_ss[stopping_time]
     elif method == 'uinnsm_fisher' and allocation != 'minimax':
-        pval, min_etas, global_ss = union_intersection_mart(
+        pval, min_etas, global_ss, T_k = union_intersection_mart(
                     x = samples,
                     N = N,
                     etas = eta_grid,

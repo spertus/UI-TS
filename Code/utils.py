@@ -965,16 +965,32 @@ class PGD:
         '''
         return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(len(eta))])
 
-    # def second_partial(samples, eta):
-    #     '''
-    #     computes the second partial derivative (WRT) of the log I-NNSM evaluated at eta_k
-    #     Mixed partials are zero.
-    #     '''
-    #     lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
-    #     if samples.size == 0:
-    #         return 0
-    #     else:
-    #         TODO: Finish
+    def second_partial(samples, eta):
+        '''
+        computes the second partial derivative (WRT) of the log I-NNSM evaluated at eta_k
+        Mixed partials are zero.
+        '''
+        #lag mean
+        lm = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
+        x = samples #rename to shorten
+        if x.size == 0:
+            return 0.5
+        else:
+            g = 1 + np.exp(lm-eta) * (x-eta)
+            g_prime = np.exp(lm-eta) * (1+x-eta)
+            f = np.exp(lm-eta) * (1+x-eta)
+            f_prime = -np.exp(lm-eta) * (2+x-eta)
+            numerator = g * f_prime - g_prime * f
+            denominator = g**2
+            return -np.sum(numerator/denominator)
+
+    def hessian(samples, eta):
+        '''
+        return the diagonal of the Hessian matrix of the log I-TSM evaluated at eta
+        the off-diagonals (mixed-partials) are all zero
+        '''
+        return np.array([PGD.second_partial(samples[k], eta[k]) for k in np.arange(len(eta))])
+
 
 
 
@@ -1016,8 +1032,9 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
         np.identity(K)))
     b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
-    #TODO: find a good value for delta (the "learning rate")
-    delta = 1e-2 #tuning parameter for optimizer (size of gradient step)
+    #TODO: pick a good value for delta, which dampens the Newton step.
+    #could also choose through learn by backtracking line search
+    delta = 0.5
 
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
@@ -1046,10 +1063,12 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
         #find optimum
         while step_size > 1e-4:
             counter += 1
-            if counter == 1000:
+            if counter == max_iterations:
                 raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
             grad_l = PGD.grad(samples_t[i], eta_l)
-            next_eta = proj(eta_l - delta * grad_l)
+            hess_l = PGD.hessian(samples_t[i], eta_l)
+            #take dampened Newton step and then project onto null
+            next_eta = proj(eta_l - (delta/hess_l) * grad_l)
             step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
             eta_l = next_eta
         eta_stars[i] = eta_l
