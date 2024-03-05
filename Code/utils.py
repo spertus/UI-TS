@@ -490,7 +490,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         return result
 
 
-def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2):
+def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2, range = [0,1]):
     '''
     generate a 2-D or 3-D plot of an intersection martingale over possible values of bs{eta}
     the global null is always eta <= 1/2; future update: general global nulls
@@ -527,7 +527,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         mixing_dist = None
     else:
         stop("Specify a valid mixture method; either uniform or vertex")
-    eta_grid = np.arange(res, 1-res, step=res)
+    eta_grid = np.arange(range[0] + res, range[1]-res, step=res)
     eta_xs, eta_ys, eta_zs, objs = [], [], [], []
     w = N / np.sum(N)
     if K == 2:
@@ -538,8 +538,11 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
             eta_xs.append(eta_x)
             eta_ys.append(eta_y)
             objs.append(obj)
+        min_ix = np.argmin(objs)
+        min_eta = np.round([eta_xs[min_ix], eta_ys[min_ix]], 2)
         plt.plot(eta_xs, objs, linewidth = 1)
         plt.show()
+        print("minimum eta = " + str(min_eta))
     elif K == 3:
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
@@ -553,8 +556,11 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
                 eta_zs.append(eta_z)
                 objs.append(obj)
         ax.scatter(eta_xs, eta_ys, objs, c = objs)
+        min_ix = np.argmin(objs)
+        min_eta = np.round([eta_xs[min_ix], eta_ys[min_ix], eta_zs[min_ix]], 2)
         ax.view_init(20, 120)
         plt.show()
+        print("minimum eta = " + str(min_eta))
     else:
         raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
 
@@ -977,7 +983,7 @@ class PGD:
             return 0.5
         else:
             g = 1 + np.exp(lm-eta) * (x-eta)
-            g_prime = np.exp(lm-eta) * (1+x-eta)
+            g_prime = np.exp(lm-eta) * (1-x+eta)
             f = np.exp(lm-eta) * (1+x-eta)
             f_prime = -np.exp(lm-eta) * (2+x-eta)
             numerator = g * f_prime - g_prime * f
@@ -1034,7 +1040,7 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     #TODO: pick a good value for delta, which dampens the Newton step.
     #could also choose through learn by backtracking line search
-    delta = 0.5
+    delta = 1
 
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
