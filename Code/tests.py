@@ -197,9 +197,12 @@ def test_union_intersection_mart():
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher")[0] == 0)
     assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.round_robin, combine = "product")[0] >= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.greedy_kelly, combine = "product")[0] >= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.agrapa, allocation_func = Allocations.greedy_kelly, combine = "product")[0] >= 0)
     # check mixture distributions
     assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "vertex", combine = "product")[0] <= 0)
     assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "uniform", combine = "product")[0] <= 0)
+
 
 def test_simulate_comparison_audit():
     N = [20, 20]
@@ -244,13 +247,13 @@ def test_negexp_ui_mart():
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
     assert np.max(negexp_ui_mart(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) > np.log(20)
 
-    #test minimax-eta strategy (predictable kelly) under null and alternative
-    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.predictable_kelly, eta_0 = 0.5)[0]) < np.log(100)
-    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.predictable_kelly, eta_0 = 0.5)[0]) > np.log(20)
+    #test minimax-eta strategy (greedy kelly) under null and alternative
+    assert np.max(negexp_ui_mart(x_null_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(negexp_ui_mart(x_alt_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) > np.log(20)
 
-    #check that minimax pulls different strata than round robin when strata are different
+    #check that greedy_kelly pulls different strata than round robin when the strata are different
     uits_rr_alt2 = negexp_ui_mart(x_alt_2, N, Allocations.round_robin, eta_0 = 0.5)
-    uits_minimax_alt2 = negexp_ui_mart(x_alt_2, N, Allocations.predictable_kelly, eta_0 = 0.5)
+    uits_minimax_alt2 = negexp_ui_mart(x_alt_2, N, Allocations.greedy_kelly, eta_0 = 0.5)
     assert all(uits_rr_alt2[2][2,:] == uits_minimax_alt2[2][2,:]) #first 2 selections should always be round robin
     assert any(uits_rr_alt2[2][30,:] != uits_minimax_alt2[2][30,:]) #but should eventually diverge...
     assert uits_minimax_alt2[0][30] > uits_rr_alt2[0][30] #check if minimax is larger

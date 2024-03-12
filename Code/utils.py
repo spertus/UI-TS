@@ -473,7 +473,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         #compute within-stratum martingales using a predictable lambda sequence
         ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
-        if allocation_func is not None:
+        if T_k is None:
             T_k = selector(x, N, allocation_func, eta, lam_func)
         marts = np.zeros((T_k.shape[0], K))
         for i in np.arange(T_k.shape[0]):
@@ -483,7 +483,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
             marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     elif mixing_dist is not None:
         B = mixing_dist.shape[0]
-        if allocation_func is not None:
+        if T_k is None:
             T_k = selector(x, N, allocation_func, eta, lam_func = Bets.fixed)
         marts = np.zeros((B, T_k.shape[0], K))
         for b in range(B):
@@ -491,7 +491,6 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
             for i in np.arange(T_k.shape[0]):
                 marts_bi = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
                 marts[b,i,:] = marts_bi if not any(np.isposinf(marts_bi)) else np.inf * np.ones(K)
-
     if combine == "product":
         if lam_func is not None:
             int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
@@ -779,7 +778,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
             for i in np.arange(len(etas)):
                 obj[i,t] = intersection_mart(x = x, N = N, eta = etas[i], T_k = T_k[0:(t+1),:],
                     lam_func = lam_func, combine = combine, theta_func = theta_func, log = log, WOR = WOR)[-1]
-            eta_star = etas[np.argmin(obj[:,t])] if combine != "fisher" else np.argmax(obj, 0)
+            eta_star = etas[np.argmin(obj[:,t])] if combine != "fisher" else etas[np.argmax(obj[:,t], 0)]
 
     else:
         for i in np.arange(len(etas)):
