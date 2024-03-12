@@ -24,10 +24,9 @@ bets_dict = {
 bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
-    "larger_means":Allocations.more_to_larger_means,
     "predictable_kelly":Allocations.predictable_kelly,
-    "minimax":None}
-allocations_list = ["round_robin", "predictable_kelly", "minimax"]
+    "greedy_kelly":Allocations.greedy_kelly}
+allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
 methods_list = ['lcbs', 'uinnsm_product', 'uinnsm_fisher']
 
 
@@ -40,7 +39,7 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
     #only need 1 simulation rep unless there is auxilliary randomization
     #reps = 1 if allocation in ["round_robin","predictable_kelly","larger_means","minimax"] else 30
     if method == "lcbs":
-        if allocation in ["proportional_to_mart","predictable_kelly","minimax"]:
+        if allocation in ["proportional_to_mart","predictable_kelly","greedy_kelly"]:
             stopping_time, sample_size = [None, None]
         else:
             stopping_time, sample_size = simulate_comparison_audit(
@@ -53,48 +52,48 @@ for grand_mean, gap, method, bet, allocation in itertools.product(grand_means, s
                 alpha = alpha,
                 WOR = False)
     elif method == "uinnsm_product":
-        if allocation == "minimax":
-            if bet == "smooth_predictable":
-                #setup here is slightly different since it uses negexp_ui_mart
-                A_c_global = np.dot(w, A_c)
-                v = 2 * A_c_global - 1
-                a = 1/(2-v)
-                x = []
-                for k in np.arange(K):
-                    num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
-                    x.append(np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * a/2, np.ones(num_errors[2])]) * a)
-                X = [np.random.choice(x[k],  len(x[k]), replace = True) for k in np.arange(K)]
-                #NOTE: this is currently computed under sampling with replacement
-                uinnsm = negexp_ui_mart(X, N, Allocations.predictable_kelly, log = True)[0]
-                stopping_time = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
-                sample_size = stopping_time
-            else:
-                stopping_time, sample_size = [None, None]
-        else:
-            stopping_time, sample_size = simulate_comparison_audit(
-                N, A_c, p_1, p_2,
-                assort_method = "global",
-                lam_func = bets_dict[bet],
-                allocation_func = allocations_dict[allocation],
-                method = "ui-nnsm",
-                combine = "product",
-                alpha = alpha,
-                reps = 1,
-                WOR = False)
+        # if allocation == "greedy_kelly":
+        #     if bet == "smooth_predictable":
+        #         #setup here is slightly different since it uses negexp_ui_mart
+        #         #in particular, the population needs to be defined explicitly
+        #         A_c_global = np.dot(w, A_c)
+        #         v = 2 * A_c_global - 1
+        #         a = 1/(2-v)
+        #         x = []
+        #         for k in np.arange(K):
+        #             num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
+        #             x.append(np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * a/2, np.ones(num_errors[2])]) * a)
+        #         X = [np.random.choice(x[k],  len(x[k]), replace = True) for k in np.arange(K)]
+        #         uinnsm = negexp_ui_mart(X, N, Allocations.predictable_kelly, log = True)[0]
+        #         stopping_time = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
+        #         sample_size = stopping_time
+        #     else:
+        #         stopping_time, sample_size = [None, None]
+        # else:
+        stopping_time, sample_size = simulate_comparison_audit(
+            N, A_c, p_1, p_2,
+            assort_method = "global",
+            lam_func = bets_dict[bet],
+            allocation_func = allocations_dict[allocation],
+            method = "ui-nnsm",
+            combine = "product",
+            alpha = alpha,
+            reps = 1,
+            WOR = False)
     elif method == "uinnsm_fisher":
-        if allocation == "minimax":
-            stopping_time, sample_size = [None, None]
-        else:
-            stopping_time, sample_size = simulate_comparison_audit(
-                N, A_c, p_1, p_2,
-                assort_method = "global",
-                lam_func = bets_dict[bet],
-                allocation_func = allocations_dict[allocation],
-                method = "ui-nnsm",
-                combine = "fisher",
-                alpha = alpha,
-                reps = 1,
-                WOR = False)
+        # if allocation == "minimax":
+        #     stopping_time, sample_size = [None, None]
+        # else:
+        stopping_time, sample_size = simulate_comparison_audit(
+            N, A_c, p_1, p_2,
+            assort_method = "global",
+            lam_func = bets_dict[bet],
+            allocation_func = allocations_dict[allocation],
+            method = "ui-nnsm",
+            combine = "fisher",
+            alpha = alpha,
+            reps = 1,
+            WOR = False)
     data_dict = {
         "A_c":grand_mean,
         "stratum_gap":gap,
