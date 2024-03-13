@@ -25,8 +25,8 @@ bets_list = ["fixed", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
-    "minimax":Allocations.predictable_kelly}
-allocations_list = ["round_robin", "predictable_kelly", "minimax"]
+    "greedy_kelly":Allocations.greedy_kelly}
+allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
 
 K = 2
 N = [200, 200]
@@ -41,7 +41,7 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
 
     if method == 'lcb':
         min_eta = None
-        if bet == 'uniform_mixture' or allocation in ['proportional_to_mart','predictable_kelly','minimax']:
+        if bet == 'uniform_mixture' or allocation in ['proportional_to_mart','predictable_kelly','greedy_kelly']:
             stopping_time = None
             sample_size = None
         else:
