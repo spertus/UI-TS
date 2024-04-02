@@ -428,7 +428,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False):
+def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False):
     '''
     an intersection martingale (I-NNSM) for a vector \bs{eta}
     assumes sampling is with replacement: no population size is required
@@ -458,6 +458,8 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
             should martingales be computed under sampling with or without replacement?
         return_selections: boolean
             return matrix of stratum sample sizes (T_k) if True, otherwise just return combined martingale
+        last: Boolean
+            return only the last index of the martingale; helps speed things up when T_k is given
     Returns
     ----------
         the value of an intersection martingale that uses all the data (not running max)
@@ -466,6 +468,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
     assert bool(lam_func is None) != bool(mixing_dist is None), "Must specify (exactly one of) mixing distribution or predictable lambda function"
     assert bool(allocation_func is None) != bool(T_k is None), "Must specify (exactly one of) selector (allocation_func) or selections (T_k)"
     assert (lam_func is not None) or ((combine == "product") and (mixing_dist is not None)), "Currently, mixing distribution can only be used with product combining"
+    assert (last and T_k is not None) or not last, "last only works when T_k is given"
     ws_log = False if combine == "sum" else log
     ws_N = N if WOR else np.inf*np.ones(K)
 
@@ -475,12 +478,20 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         #construct the interleaving
         if T_k is None:
             T_k = selector(x, N, allocation_func, eta, lam_func)
-        marts = np.zeros((T_k.shape[0], K))
-        for i in np.arange(T_k.shape[0]):
-            marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
-            #make all marts infinite if one is, when product is taken this enforces rule:
-            #we reject intersection null if certainly False in one stratum
-            marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
+        if last:
+            if log:
+                marts = np.array([[np.sum(ws_marts[k][0:T_k[-1, k]]) for k in np.arange(K)]])
+            else:
+                marts = np.array([[np.prod(ws_marts[k][0:T_k[-1, k]]) for k in np.arange(K)]])
+            if np.any(np.isposinf(marts)):
+                marts = np.inf * np.ones((1,K))
+        else:
+            marts = np.zeros((T_k.shape[0], K))
+            for i in np.arange(T_k.shape[0]):
+                marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
+                #make all marts infinite if one is, when product is taken this enforces rule:
+                #we reject intersection null if certainly False in one stratum
+                marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     elif mixing_dist is not None:
         B = mixing_dist.shape[0]
         if T_k is None:
@@ -495,7 +506,7 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         if lam_func is not None:
             int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
         elif mixing_dist is not None:
-            #this take the product across strata and the mean across the mixing distribution
+            #this takes the product across strata and the mean across the mixing distribution
             int_mart = np.mean(np.prod(marts, 2), 0)
             int_mart = np.log(int_mart) if log else int_mart
     elif combine == "sum":
@@ -777,9 +788,11 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
             T_k[t,:] = running_T_k
             for i in np.arange(len(etas)):
                 obj[i,t] = intersection_mart(x = x, N = N, eta = etas[i], T_k = T_k[0:(t+1),:],
-                    lam_func = lam_func, combine = combine, theta_func = theta_func, log = log, WOR = WOR)[-1]
+                    lam_func = lam_func, combine = combine,
+                    theta_func = theta_func, log = log, WOR = WOR, last = True)
             eta_star = etas[np.argmin(obj[:,t])] if combine != "fisher" else etas[np.argmax(obj[:,t], 0)]
-
+        for i in np.arange(len(etas)):
+            sel[i,:,:] = T_k #this is just to count sample size and redefine T_k below
     else:
         for i in np.arange(len(etas)):
                 obj[i,:], sel[i,:,:] = intersection_mart(
@@ -1076,10 +1089,10 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
     #define constraint set for pypoman projection
     A = np.concatenate((
         np.expand_dims(w, axis = 0),
-        np.expand_dims(-w, axis = 0),
+        #np.expand_dims(-w, axis = 0), project to halfspace; gradient should always point towards boundary anyway
         -np.identity(K),
         np.identity(K)))
-    b = np.concatenate((eta_0 * np.ones(2), np.zeros(K), np.ones(K)))
+    b = np.concatenate((eta_0 * np.ones(1), np.zeros(K), np.ones(K)))
     proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
     #TODO: pick a good value for delta, which dampens the Newton step.
     #could also choose through learn by backtracking line search

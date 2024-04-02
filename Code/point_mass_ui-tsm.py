@@ -11,12 +11,14 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 
 
-alt_grid = np.linspace(0.51, 0.75, 30)
-delta_grid = [0, 0.1, 0.5]
+#alt_grid = np.linspace(0.51, 0.75, 30)
+alt_grid = [0.505, 0.51, 0.52, 0.53, 0.55, 0.6, 0.65, 0.7, 0.75]
+delta_grid = [0, 0.5]
 alpha = 0.05
 eta_0 = 0.5
 
-methods_list = ['uinnsm_fisher','uinnsm_product','lcb']
+#methods_list = ['uinnsm_fisher','uinnsm_product','lcb']
+methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
     "fixed":Bets.fixed,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
@@ -34,7 +36,7 @@ results = []
 
 for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list):
     means = [alt - 0.5*delta, alt + 0.5*delta]
-    calX = [np.array([0, means[0]]),np.array([0, means[1]])]
+    calX = [np.array([0, means[0], 1]),np.array([0, means[1], 1])]
     samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
     eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
 
@@ -63,10 +65,10 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     lam_func = bets_dict[bet],
                     allocation_func = allocations_dict[allocation],
                     combine = "product",
-                    log = False,
+                    log = True,
                     WOR = False)
-        pval = np.minimum(1, 1/ui_mart)
-        stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N))
+        pval = np.minimum(1, 1/np.exp(ui_mart))
+        stopping_time = np.where(any(np.exp(ui_mart) > 1/alpha), np.argmax(np.exp(ui_mart) > 1/alpha), np.sum(N))
         min_eta = min_etas[stopping_time]
         sample_size = global_ss[stopping_time]
     elif method == 'uinnsm_fisher':
@@ -77,9 +79,9 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     lam_func = bets_dict[bet],
                     allocation_func = allocations_dict[allocation],
                     combine = "fisher",
-                    log = False,
+                    log = True,
                     WOR = False)
-        stopping_time = np.where(any(pval < alpha), np.argmax(pval < alpha), np.sum(N))
+        stopping_time = np.where(any(np.exp(pval) < alpha), np.argmax(np.exp(pval) < alpha), np.sum(N))
         min_eta = min_etas[stopping_time]
         sample_size = global_ss[stopping_time]
     #instead of recording stopping times, we record the P-value at every time
