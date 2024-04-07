@@ -56,6 +56,7 @@ class Bets:
             sd_min: scalar, the minimum value allowed for the estimated standard deviation
             c: scalar, the maximum value allowed for bets
         '''
+        #bet the farm if you can't possibly lose (eta is 0)
         sd_min = kwargs.get('sd_min', 0.01)
         c = kwargs.get('c', 0.75)
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
@@ -71,7 +72,8 @@ class Bets:
         #parameterize the truncation of sdj w kwargs and the truncation of the bet?
         #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
         lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
-        lam_trunc = np.maximum(0, np.minimum(lam_untrunc, c/eta))
+        #this rule says to bet the farm when eta is 0 (can't possibly lose)
+        lam_trunc = np.maximum(0, np.where(eta > 0, np.minimum(lam_untrunc, c/eta), np.inf))
         return lam_trunc
 
     def trunc(x, eta, **kwargs):
@@ -103,7 +105,7 @@ class Bets:
 
 class Allocations:
     '''
-    fixed, predictable, and/or eta-adaptive stratum allocation rules
+    fixed, predictable, and/or eta-adaptive stratum allocation rules, given bets
     Parameters
     ----------
         x: length-K list of length-n_k np.arrays with elements in [0,1]
@@ -114,33 +116,33 @@ class Allocations:
             the (population) size of each stratum
         eta: length-K np.array in [0,1]^K
             the vector of null means across strata
-        lam_func: callable, a function from the Bets class
+        lam: a length-K np.arry each of len(x[k])
 
     Returns
     ----------
         allocation: a length sum(n_k) sequence of interleaved stratum selections in each round
     '''
     #is there a way to bifurcate allocations and betting into eta-oblivious/aware using class structure
-    def round_robin(x, running_T_k, n, N, eta, lam_func):
+    def round_robin(x, running_T_k, n, N, eta, lam):
         #eta-nonadaptive round robin strategy
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k)
         return next
 
-    def proportional_round_robin(x, running_T_k, n, N, eta, lam_func):
+    def proportional_round_robin(x, running_T_k, n, N, eta, lam):
         #eta-nonadaptive round robin strategy, proportional to total sample size
         exhausted = np.ones(len(n))
         exhausted[running_T_k == n] = np.inf
         next = np.argmin(exhausted * running_T_k / n)
         return next
 
-    def more_to_larger_means(x, running_T_k, n, N, eta, lam_func, **kwargs):
+    def more_to_larger_means(x, running_T_k, n, N, eta, lam, **kwargs):
         #eta-nonadaptive
         #samples more from strata with larger values of x on average
         #does round robin until every stratum has been sampled once
         if any(running_T_k == 0):
-            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         else:
             K = len(x)
             eps = kwargs.get("eps", 0.01)
@@ -154,13 +156,13 @@ class Allocations:
             next = np.argmax(scores)
         return next
 
-    def neyman(x, running_T_k, n, N, eta, lam_func, **kwargs):
+    def neyman(x, running_T_k, n, N, eta, lam, **kwargs):
         #eta-adaptive
         #uses a predictable Neyman allocation to set allocation probabilities
         #see Neyman (1934)
         if any(running_T_k <= 2):
             #use round robin until we have at least 2 samples from each stratum
-            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         else:
             K = len(x)
             eps = kwargs.get("eps", 0.01) #lower bound on sd
@@ -171,32 +173,32 @@ class Allocations:
             next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
-    def proportional_to_mart(x, running_T_k, n, N, eta, lam_func, **kwargs):
+    def proportional_to_mart(x, running_T_k, n, N, eta, lam, **kwargs):
         #eta-adaptive strategy, based on size of martingale for given intersection null
         #this function involves alot of overhead, may want to restructure
         if any(running_T_k <= 1):
-            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         K = len(x)
-        marts = np.array([mart(x[k], eta[k], lam_func, N[k], log = False)[running_T_k[k]] for k in range(K)])
+        marts = np.array([mart(x[k], eta[k], None, lam[k], N[k], log = False)[running_T_k[k]] for k in range(K)])
         scores = np.minimum(np.maximum(marts, 1), 1e3)
         scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
         probs = scores / np.sum(scores)
         next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
-    def predictable_kelly(x, running_T_k, n, N, eta, lam_func, **kwargs):
+    def predictable_kelly(x, running_T_k, n, N, eta, lam, **kwargs):
         #this estimates the expected log-growth of each martingale
         #and then draws with probability proportional to this growth
         #currently, can't use randomized betting rules (would need to pass in terms directly)
         if any(running_T_k <= 2):
-            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         else:
             K = len(x)
             eps = kwargs.get("eps", 0.01)
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
             #compute martingale as if sampling were with replacement (N = np.inf)
-            past_terms = [mart(x[k], eta[k], lam_func, np.inf, True, True)[0:running_T_k[k]] for k in range(K)]
+            past_terms = [mart(x[k], eta[k], lam_func = None, lam = lam[k], N = np.inf, log = True, output = "terms")[0:running_T_k[k]] for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -205,17 +207,20 @@ class Allocations:
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
             next = np.argmax(scores)
         return next
-    #essentially just a renaming of predictable_kelly, but is handled differently
-    def greedy_kelly(x, running_T_k, n, N, eta, lam_func, **kwargs):
+    #just a renaming of predictable_kelly, but is handled differently
+    def greedy_kelly(x, running_T_k, n, N, eta, lam, **kwargs):
+        #this estimates the expected log-growth of each martingale
+        #and then draws with probability proportional to this growth
+        #currently, can't use randomized betting rules (would need to pass in terms directly)
         if any(running_T_k <= 2):
-            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam_func)
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         else:
             K = len(x)
             eps = kwargs.get("eps", 0.01)
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
             #compute martingale as if sampling were with replacement (N = np.inf)
-            past_terms = [mart(x[k], eta[k], lam_func, np.inf, True, True)[0:running_T_k[k]] for k in range(K)]
+            past_terms = [mart(x[k], eta[k], lam_func = None, lam = lam[k], N = np.inf, log = True, output = "terms")[0:running_T_k[k]] for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -227,6 +232,8 @@ class Allocations:
 
 #record which allocation rules are nonadaptive, useful in some functions/assertions below
 nonadaptive_allocations = [Allocations.round_robin, Allocations.proportional_round_robin, Allocations.neyman, Allocations.more_to_larger_means, Allocations.greedy_kelly]
+#allocation functions supported for LCB method
+lcb_allocations = [Allocations.round_robin, Allocations.proportional_round_robin, Allocations.neyman, Allocations.more_to_larger_means]
 
 class Weights:
     '''
@@ -257,7 +264,7 @@ class Weights:
 
 
 
-def mart(x, eta, lam_func, N = np.inf, log = True, terms = False):
+def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "mart"):
     '''
     betting martingale
 
@@ -268,17 +275,23 @@ def mart(x, eta, lam_func, N = np.inf, log = True, terms = False):
         eta: scalar in [0,1]
             null mean
         lam_func: callable, a function from the Bets class
+        lam: length-n_k np.array
+            pre-set bets
         N: positive integer,
             the size of the population from which x is drawn (x could be the entire population)
         log: Boolean
-            indicates whether the martingale should be returned on the log scale or not
-        terms: Boolean
-            indicates whether to return the martingale or just the sequence of terms (without multiplying them)
+            indicates whether the martingale or terms should be returned on the log scale or not
+        output: str
+            indicates what to return
+            "mart": return the martingale sequence (found by multiplication or summing if log)
+            "terms": returns just the terms, without running product/sum
+            "bets": returns just the bets for the martingale
     Returns
     ----------
         mart: scalar; the value of the (log) betting martingale at time n_k
 
     '''
+    assert bool(lam is None) != bool(lam_func is None), "must specify exactly one of lam_func or lam"
     if N < np.inf:
         S = np.insert(np.cumsum(x), 0, 0)[0:-1] #0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
@@ -289,29 +302,36 @@ def mart(x, eta, lam_func, N = np.inf, log = True, terms = False):
         raise ValueError("Input an integer value for N, possibly np.inf")
     #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
-    if terms:
+    if lam_func is not None:
+        lam = lam_func(x, eta_t)
+    if output == "terms":
         if log:
-            terms = np.insert(np.log(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 0)
+            terms = np.insert(np.log(1 + lam * (x - eta_t)), 0, 0)
             terms[np.insert(eta_t < 0, 0, False)] = np.inf
             terms[np.insert(eta_t > 1, 0, False)] = -np.inf
         else:
-            terms = np.insert(np.log(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 0)
+            terms = np.insert(np.log(1 + lam * (x - eta_t)), 0, 0)
             terms[np.insert(eta_t < 0, 0, False)] = np.inf
             terms[np.insert(eta_t > 1, 0, False)] = 0
         return terms
-    else:
+    elif output == "mart":
         if log:
-            mart = np.insert(np.cumsum(np.log(1 + lam_func(x, eta_t) * (x - eta_t))), 0, 0)
+            mart = np.insert(np.cumsum(np.log(1 + lam * (x - eta_t))), 0, 0)
             mart[np.insert(eta_t < 0, 0, False)] = np.inf
             mart[np.insert(eta_t > 1, 0, False)] = -np.inf
         else:
-            mart = np.insert(np.cumprod(1 + lam_func(x, eta_t) * (x - eta_t)), 0, 1)
+            mart = np.insert(np.cumprod(1 + lam * (x - eta_t)), 0, 1)
             mart[np.insert(eta_t < 0, 0, False)] = np.inf
             mart[np.insert(eta_t > 1, 0, False)] = 0
         return mart
+    elif output == "bets":
+        bets = lam
+        return bets
+    else:
+        "Input a valid argument to return, either 'marts', 'terms', or 'bets'"
 
 
-def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = False):
+def selector(x, N, allocation_func, eta = None, lam = None, for_samples = False):
     '''
     takes data and predictable tuning parameters and returns a sequence of stratum sample sizes
     equivalent to [S_t for k in 1:K]
@@ -325,7 +345,8 @@ def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = F
             the population size of each stratum
         eta: length-K np.array with elements in [0,1]
             the intersection null for H_0: mu <= eta, can be None
-        lam_func: callable, a function from Bets class
+        lam: length-K list of np.arrays each of len(x[k])
+            the bets to use for each sample at each time
         allocation_func: callable, a function from Allocations class
         for_samples: boolean
             this is only True when used in negexp_ui_mart,
@@ -335,6 +356,8 @@ def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = F
     ----------
         an np.array of length np.sum(N) by
     '''
+    if lam is None:
+        assert allocation_func in lcb_allocations, "bets not supplied (lam is None) but required"
     w = N/np.sum(N)
     K = len(N)
     if for_samples:
@@ -347,7 +370,7 @@ def selector(x, N, allocation_func, eta = None, lam_func = None, for_samples = F
     t = 0
     while np.any(running_T_k < n):
         t += 1
-        next_k = allocation_func(x, running_T_k, n, N, eta, lam_func)
+        next_k = allocation_func(x, running_T_k, n, N, eta, lam)
         running_T_k[next_k] += 1
         T_k[t,:] = running_T_k
     return T_k
@@ -376,7 +399,7 @@ def lower_confidence_bound(x, lam_func, alpha, N = np.inf, breaks = 1000):
     confset = np.zeros((len(grid), len(x) + 1))
     for i in np.arange(len(grid)):
         m = grid[i]
-        confset[i,:] = mart(x, eta = m, lam_func = lam_func, N = N, log = True) < np.log(1/alpha)
+        confset[i,:] = mart(x, eta = m, lam_func = lam_func, lam = None, N = N, log = True) < np.log(1/alpha)
     lb = np.zeros(len(x)+1)
     for j in np.arange(len(x)+1):
         lb[j] = grid[np.argmax(confset[:,j])]
@@ -408,6 +431,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     ----------
         level (1-alpha) lower confidence bound on the global mean of a stratified population
     '''
+    assert allocation_func in lcb_allocations, "allocation_func is not supported for LCB method"
     w = N/np.sum(N) #stratum weights
     K = len(N)
     lcbs = []
@@ -420,7 +444,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
             alpha = alpha,
             N = N_k,
             breaks = breaks))
-    T_k = selector(x, N, allocation_func, eta = None, lam_func = lam_func)
+    T_k = selector(x, N, allocation_func, eta = None, lam = None)
     running_lcbs = np.zeros((T_k.shape[0], K))
     for i in np.arange(T_k.shape[0]):
         running_lcbs[i,:] = np.array([lcbs[k][T_k[i, k]] for k in np.arange(K)])
@@ -428,7 +452,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False):
+def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False):
     '''
     an intersection martingale (I-NNSM) for a vector \bs{eta}
     assumes sampling is with replacement: no population size is required
@@ -442,6 +466,9 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         eta: length-K np.array or list in [0,1]
             the vector of null means
         lam_func: callable, a function from class Bets
+            a betting strategy, a function that sets bets possibly given past data and eta
+        lam: length-K list of length-n_k np.arrays corresponding to bets
+            bets for each stratum, real numbers between 0 and 1/\eta_k
         mixing_dist: a B by K np.array in [0,1]
             lambdas to mix over, B is just any positive integer (the size of the mixing distribution)
         allocation_func: callable, a function from class Allocations
@@ -465,19 +492,25 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
         the value of an intersection martingale that uses all the data (not running max)
     '''
     K = len(eta)
-    assert bool(lam_func is None) != bool(mixing_dist is None), "Must specify (exactly one of) mixing distribution or predictable lambda function"
+    assert lam_func is None or mixing_dist is None, "Must specify (exactly one of) mixing distribution or predictable lambda function"
     assert bool(allocation_func is None) != bool(T_k is None), "Must specify (exactly one of) selector (allocation_func) or selections (T_k)"
-    assert (lam_func is not None) or ((combine == "product") and (mixing_dist is not None)), "Currently, mixing distribution can only be used with product combining"
+    assert (lam_func is not None) or (lam is not None) or ((combine == "product") and (mixing_dist is not None)), "Currently, mixing distribution can only be used with product combining"
     assert (last and T_k is not None) or not last, "last only works when T_k is given"
+    if mixing_dist is not None:
+        assert allocation_func in nonadaptive_allocations, "for now, mixing only works with nonadaptive allocation"
     ws_log = False if combine == "sum" else log
     ws_N = N if WOR else np.inf*np.ones(K)
 
-    if lam_func is not None:
-        #compute within-stratum martingales using a predictable lambda sequence
-        ws_marts = [mart(x[k], eta[k], lam_func, ws_N[k], ws_log) for k in np.arange(K)]
+    if mixing_dist is None:
+        #compute within stratum martingales
+        if lam is None:
+            #set bets if lam_func is given
+            lam = [mart(x[k], eta[k], lam_func, None, ws_N[k], ws_log, output = "bets") for k in np.arange(K)]
+
+        ws_marts = [mart(x[k], eta[k], None, lam[k], ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
         if T_k is None:
-            T_k = selector(x, N, allocation_func, eta, lam_func)
+            T_k = selector(x, N, allocation_func, eta, lam)
         if last:
             if log:
                 marts = np.array([[np.sum(ws_marts[k][0:T_k[-1, k]]) for k in np.arange(K)]])
@@ -492,20 +525,21 @@ def intersection_mart(x, N, eta, lam_func = None, mixing_dist = None, allocation
                 #make all marts infinite if one is, when product is taken this enforces rule:
                 #we reject intersection null if certainly False in one stratum
                 marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
-    elif mixing_dist is not None:
+    else:
         B = mixing_dist.shape[0]
         if T_k is None:
-            T_k = selector(x, N, allocation_func, eta, lam_func = Bets.fixed)
+            T_k = selector(x, N, allocation_func, eta, lam = None)
         marts = np.zeros((B, T_k.shape[0], K))
         for b in range(B):
-            ws_marts = [mart(x[k], eta[k], lambda x, eta: Bets.fixed(x, eta, c = mixing_dist[b,k]), ws_N[k], log = False) for k in np.arange(K)]
+            lam = [Bets.fixed(x[k], eta[k], c = mixing_dist[b,k]) for k in np.arange(K)]
+            ws_marts = [mart(x[k], eta[k], None, lam[k], ws_N[k], log = False) for k in np.arange(K)]
             for i in np.arange(T_k.shape[0]):
                 marts_bi = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
                 marts[b,i,:] = marts_bi if not any(np.isposinf(marts_bi)) else np.inf * np.ones(K)
     if combine == "product":
-        if lam_func is not None:
+        if mixing_dist is None:
             int_mart = np.sum(marts, 1) if log else np.prod(marts, 1)
-        elif mixing_dist is not None:
+        else:
             #this takes the product across strata and the mean across the mixing distribution
             int_mart = np.mean(np.prod(marts, 2), 0)
             int_mart = np.log(int_mart) if log else int_mart
@@ -571,7 +605,9 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         for eta_x in eta_grid:
             eta_y = (1/2 - w[0] * eta_x) / w[1]
             if eta_y > 1 or eta_x < 0: continue
-            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func, mixing_dist, allocation_func, combine, theta_func, log)[-1]
+            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func,
+             lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
+             combine = combine, theta_func = theta_func, log = log)[-1]
             eta_xs.append(eta_x)
             eta_ys.append(eta_y)
             objs.append(obj)
@@ -587,7 +623,9 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
             for eta_y in eta_grid:
                 eta_z = (1/2 - w[0]*eta_x-w[1]*eta_y)/w[2]
                 if eta_z > 1 or eta_z < 0: continue
-                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func, mixing_dist, allocation_func, combine, theta_func, log)[-1]
+                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func,
+                 lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
+                 combine = combine, theta_func = theta_func, log = log)[-1]
                 eta_xs.append(eta_x)
                 eta_ys.append(eta_y)
                 eta_zs.append(eta_z)
@@ -602,7 +640,8 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
 
 
-def construct_eta_grid(eta_0, calX, N):
+
+def construct_exhaustive_eta_grid(eta_0, calX, N):
     '''
     construct a grid of null means for a stratified population\
     representing the null parameter space under a particular global null eta_0.
@@ -635,13 +674,19 @@ def construct_eta_grid(eta_0, calX, N):
         for lst in itertools.combinations_with_replacement(calX[k], r = N[k]):
             if np.mean(lst) not in means[k]:
                 means[k].append(np.mean(lst))
+    etas_temp = []
     etas = []
     #should there be a factor of K in here
     eps_k = w*(l_k / np.array(N))
     eps = np.max(eps_k)
     for crt_prd in itertools.product(*means):
+        #this condition checks if the candidate intersection null is near the boundary
         if eta_0 - eps <= np.dot(w, crt_prd) <= eta_0:
             etas.append(crt_prd)
+    #for e_1, e_2 in itertools.combinations(etas_temp):
+        #this condition ensures the candidate is not everywhere less than another member of eta
+    #    if not any([all(np.array(candidate_eta) <= np.array(e)) for e in etas_temp]):
+    #        etas.append(candidate_eta)
     calC = len(etas)
     return etas, calC, ub_calC
 
@@ -658,7 +703,8 @@ def construct_eta_grid_plurcomp(N, A_c, assorter_method):
         assorter_method: str, either "sts" or "global"
             method for constructing the audit, effects values of means produced within strata
             "sts": as described in Sweeter than Suite Section 3.2
-            "global": canonical means summing to 1/2 (no adjustment for stratum-wise reported assorter means)
+            "global": canonical means summing to 1/2 (no adjustment for stratum-wise reported assorter means)/
+                      the population itself is rescaled to reflect a comparison audit (see simulate_comparison_audit)
     Returns
     ----------
         every eta that is possible in a comparison risk-limiting audit\
@@ -718,6 +764,99 @@ def construct_vertex_etas(eta_0, N):
     etas = vertices[np.matmul(vertices, w) == eta_0,]
     etas = list(map(tuple, etas))
     return etas
+
+
+def construct_eta_bands(eta_0, N, points = 100):
+    '''
+
+    Parameters
+    ----------
+        eta_0: scalar in [0,1]
+            the global null
+        N: length-2 list of ints
+            the size of the population within each stratum
+        points: positive int
+            the number of equally-spaced grid points in the tesselation of the null boundary
+    Returns
+    ----------
+        a list of tuples of length points,
+        each tuple represents a band over which the null mean will be tested,
+        it contains one eta that is used to construct bets and selections
+        and two etas representing the endpoints of the band, which are used to conservatively test the intersection nulls for that band
+    '''
+    K = len(N)
+    assert K == 2, "only works for two strata"
+    w = N / np.sum(N)
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(1, eta_0/w[0]), points)
+    eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
+    eta_grid = np.transpose(np.vstack((eta_1_grid, eta_2_grid)))
+    etas = []
+    for i in np.arange(eta_grid.shape[0]-1):
+        centroid = (eta_grid[i,:] + eta_grid[i+1,:]) / 2
+        etas.append([(eta_grid[i,:], eta_grid[i+1,:]), centroid])
+    return etas
+
+
+def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportional_round_robin, log = True, WOR = False, verbose = False):
+    '''
+    compute a product UI-TSM by minimizing product I-TSMs along a grid of etas
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        N: length-K list of ints
+            the size of each stratum
+        etas: list of 2-tuples, each with etas to test and etas to construct bets / allocations
+            intersection nulls over which the minimum will be taken
+        lam_func: callable, a function from class Bets
+            the function for setting the bets (lambda_{ki}) for each stratum / time
+        allocation_func: callable, a function from the Allocations class
+            function for allocation sample to strata for each eta
+        log: Boolean
+            return the log UI-NNSM if true, otherwise return on original scale
+        WOR: Boolean
+            should the intersection martingales be computed under sampling without replacement
+    Returns
+    ----------
+        the value of a union-intersection martingale using all data x
+    '''
+    K = len(x)
+    w = N / np.sum(N)
+    n = [x_k.shape[0] for x_k in x] #get the sample size
+    ws_N = N if WOR else np.inf*np.ones(K)
+
+    #record objective value and selections for each band
+    obj = np.zeros((len(etas), np.sum(n) + 1))
+    sel = np.zeros((len(etas), np.sum(n) + 1, K))
+    min_etas = []
+    #different method for greedy_kelly, since it needs to sequentially update the eta
+    #is there a way to make this cleaner and faster?
+    for i in np.arange(len(etas)):
+        centroid_eta = etas[i][1]
+        #bets and selections are determined for the eta at the center of the band
+        bets_i = [mart(x[k], centroid_eta[k], lam_func, None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+        T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
+        itsm_mat = np.zeros((np.sum(n)+1, 2))
+        #minima are evaluated at the endpoints of the band//
+        #one of which is the minimum over the whole band due to concavity
+        for j in np.arange(2):
+            itsm_mat[:,j] = intersection_mart(x = x, N = N, eta = etas[i][0][j], lam = bets_i, T_k = T_k_i,
+                combine = "product", log = log, WOR = WOR)
+        obj[i,:] = np.min(itsm_mat, 1)
+        sel[i,:,:] = T_k_i
+
+    opt_index = np.argmin(obj, 0)
+    eta_opt = np.zeros((np.sum(n) + 1, len(x)))
+    mart_opt = np.zeros(np.sum(n) + 1)
+    global_sample_size = np.sum(np.max(sel, 0), 1)
+    for i in np.arange(np.sum(n) + 1):
+        eta_opt[i,:] = etas[opt_index[i]][1] #record the center eta of the band that minimizes (not exact minimizer)
+        mart_opt[i] = obj[opt_index[i],i]
+    if verbose:
+        return mart_opt, eta_opt, global_sample_size, obj, sel
+    else:
+        return mart_opt, eta_opt, global_sample_size
 
 
 def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False, eta_0_mixture = 1/2):
@@ -781,16 +920,22 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
         running_T_k = np.zeros(K, dtype = int)
         t = 0
         eta_star = np.zeros(K) #intialize eta_star (the minimizer, to be tracked)
+        eta_star_index = 0 #initialize index of the minimizer
+        #set all bets
+        lam = []
+        for e in etas:
+            lam.append([lam_func(x[k], e[k]) for k in np.arange(K)])
         while np.any(running_T_k < n):
             t += 1
-            next_k = Allocations.greedy_kelly(x, running_T_k, n, N, eta_star, lam_func)
+            next_k = Allocations.greedy_kelly(x, running_T_k, n, N, eta_star, lam[eta_star_index])
             running_T_k[next_k] += 1
             T_k[t,:] = running_T_k
             for i in np.arange(len(etas)):
                 obj[i,t] = intersection_mart(x = x, N = N, eta = etas[i], T_k = T_k[0:(t+1),:],
-                    lam_func = lam_func, combine = combine,
+                    lam_func = None, lam = lam[i], combine = combine,
                     theta_func = theta_func, log = log, WOR = WOR, last = True)
-            eta_star = etas[np.argmin(obj[:,t])] if combine != "fisher" else etas[np.argmax(obj[:,t], 0)]
+            eta_star_index = np.argmin(obj[:,t]) if combine != "fisher" else np.argmax(obj[:,t], 0)
+            eta_star = etas[eta_star_index]
         for i in np.arange(len(etas)):
             sel[i,:,:] = T_k #this is just to count sample size and redefine T_k below
     else:
@@ -820,6 +965,8 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
         eta_opt[i,:] = etas[opt_index[i]]
         mart_opt[i] = obj[opt_index[i],i]
     return mart_opt, eta_opt, global_sample_size, T_k
+
+
 
 
 def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):

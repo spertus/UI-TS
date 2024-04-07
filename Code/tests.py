@@ -9,9 +9,9 @@ import pytest
 import coverage
 
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
-    intersection_mart, plot_marts_eta, union_intersection_mart, construct_eta_grid,\
+    intersection_mart, plot_marts_eta, union_intersection_mart, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit,\
-    random_truncated_gaussian, PGD, negexp_ui_mart
+    random_truncated_gaussian, PGD, negexp_ui_mart, construct_eta_bands
 
 
 def test_mart():
@@ -95,17 +95,18 @@ def test_selector():
     n = [1000, 1000, 1000]
     eta = [0.5, 0.5, 0.5]
     samples = [0.8 * np.ones(n[0]), 0.5 * np.ones(n[1]), 0.2 * np.ones(n[2])]
-    assert selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed).shape[0] == 3001
-    assert selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed).shape[1] == 3
-    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)[-1,:], [1000, 1000, 1000])
+    bets = [Bets.fixed(samples[k], eta[k]) for k in np.arange(3)]
+    assert selector(samples, N, Allocations.proportional_to_mart, eta, bets).shape[0] == 3001
+    assert selector(samples, N, Allocations.proportional_to_mart, eta, bets).shape[1] == 3
+    np.testing.assert_array_equal(selector(samples, N, Allocations.proportional_to_mart, eta, bets)[-1,:], [1000, 1000, 1000])
     #check whether the first stratum is preferentially sampled
-    selections = selector(samples, N, Allocations.proportional_to_mart, eta, Bets.fixed)
+    selections = selector(samples, N, Allocations.proportional_to_mart, eta, bets)
     assert selections[100,0] > selections[100,2]
     #same as above but for predictable_kelly
-    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[0] == 3001
-    assert selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed).shape[1] == 3
-    np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)[-1,:], [1000, 1000, 1000])
-    selections = selector(samples, N, Allocations.predictable_kelly, eta, Bets.fixed)
+    assert selector(samples, N, Allocations.predictable_kelly, eta, bets).shape[0] == 3001
+    assert selector(samples, N, Allocations.predictable_kelly, eta, bets).shape[1] == 3
+    np.testing.assert_array_equal(selector(samples, N, Allocations.predictable_kelly, eta, bets)[-1,:], [1000, 1000, 1000])
+    selections = selector(samples, N, Allocations.predictable_kelly, eta, bets)
     assert selections[100,0] > selections[100,2]
     #check whether predictable Kelly allocates more to strata where null is False
     N = [100, 100]
@@ -113,8 +114,9 @@ def test_selector():
     eta_1 = [1,0]
     eta_2 = [0,1]
     samples = [0.6 * np.ones(n[0]), 0.6 * np.ones(n[1])]
-    selections_1 = selector(samples, N, Allocations.predictable_kelly, eta_1, Bets.fixed)
-    selections_2 = selector(samples, N, Allocations.predictable_kelly, eta_2, Bets.fixed)
+    bets = [Bets.fixed(samples[k], eta[k]) for k in np.arange(2)]
+    selections_1 = selector(samples, N, Allocations.predictable_kelly, eta_1, bets)
+    selections_2 = selector(samples, N, Allocations.predictable_kelly, eta_2, bets)
     assert selections_1[10,1] > selections_2[10,1]
     assert selections_1[10,0] < selections_2[10,0]
 
@@ -141,7 +143,8 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.more_to_larger_means, combine = "product", log = False, WOR = True)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, combine = "fisher", log = False, WOR = True)[-1] == 1
     #allocation is done outside the intersection martingale
-    T_k = selector(sample, N, allocation_func = Allocations.round_robin, eta = [0.5,0.5,0.5], lam_func = Bets.fixed)
+    lam = [Bets.fixed(sample[k], 0.5) for k in np.arange(3)]
+    T_k = selector(sample, N, allocation_func = Allocations.round_robin, eta = [0.5,0.5,0.5], lam = lam)
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = True, last = True) == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.smooth_predictable, T_k = T_k, combine = "product", log = False, WOR = True, last = True) == 1
 
@@ -165,11 +168,18 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", WOR = False)[-1] > 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", log=False, WOR = True)[-1] > 1
 
+def test_construct_eta_bands():
+    N = [15, 15]
+    eta_bands = construct_eta_bands(eta_0 = 0.5, N = N, points = 101)
+    etas = [list(eta_bands[i][0][0]) for i in np.arange(len(eta_bands))]
+    assert etas.count([0.5, 0.5]) == 1
+    assert etas.count([0, 1]) == 1
+    assert etas.count([1, 1]) == 0
 
-def test_construct_eta_grid():
+def test_construct_exhaustive_eta_grid():
     N = [15, 15, 15]
     calX = [np.array([0, 0.5, 1]), np.array([0, 0.5, 1]), np.array([0, 0.5, 1])]
-    etas = construct_eta_grid(eta_0 = 0.5, N = N, calX = calX)[0]
+    etas = construct_exhaustive_eta_grid(eta_0 = 0.5, N = N, calX = calX)[0]
     assert etas.count((0.5, 0.5, 0.5)) == 1
     assert etas.count((0, 0.5, 1)) == 1
     assert etas.count((1, 1, 1)) == 0
@@ -219,11 +229,11 @@ def test_simulate_comparison_audit():
     #check global stopping times
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[0] < 40
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)[0]
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)[0]
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.round_robin, mixture = "uniform", WOR = True, reps = 10)[0]
     #check global sample sizes
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, WOR = True, reps = 10)[1]
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.proportional_to_mart, mixture = "uniform", WOR = True, reps = 10)[1]
+    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.round_robin, mixture = "uniform", WOR = True, reps = 10)[1]
     #check if sample size is larger than stopping time
     g_st, g_ss = simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True, reps = 1)
     assert g_st < g_ss
