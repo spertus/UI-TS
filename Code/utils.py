@@ -57,8 +57,9 @@ class Bets:
             c: scalar, the maximum value allowed for bets
         '''
         #bet the farm if you can't possibly lose (eta is 0)
-        sd_min = kwargs.get('sd_min', 0.01)
-        c = kwargs.get('c', 0.75)
+        sd_min = kwargs.get('sd_min', 0.01) #floor for sd (prevents divide by zero error)
+        c = kwargs.get('c', 0.75) #threshold for bets from W-S and R
+        eps = kwargs.get('eps', 1e-5) #floor for eta (prevents divide by zero error)
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
         mu_hat = S/j
@@ -73,7 +74,7 @@ class Bets:
         #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
         lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
         #this rule says to bet the farm when eta is 0 (can't possibly lose)
-        lam_trunc = np.maximum(0, np.where(eta > 0, np.minimum(lam_untrunc, c/eta), np.inf))
+        lam_trunc = np.maximum(0, np.where(eta > 0, np.minimum(lam_untrunc, c/(eta+eps)), np.inf))
         return lam_trunc
 
     def trunc(x, eta, **kwargs):
@@ -502,20 +503,15 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
     ws_N = N if WOR else np.inf*np.ones(K)
 
     if mixing_dist is None:
-        #compute within stratum martingales
         if lam is None:
-            #set bets if lam_func is given
             lam = [mart(x[k], eta[k], lam_func, None, ws_N[k], ws_log, output = "bets") for k in np.arange(K)]
-
+        #within-stratum martingales
         ws_marts = [mart(x[k], eta[k], None, lam[k], ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
         if T_k is None:
             T_k = selector(x, N, allocation_func, eta, lam)
         if last:
-            if log:
-                marts = np.array([[np.sum(ws_marts[k][0:T_k[-1, k]]) for k in np.arange(K)]])
-            else:
-                marts = np.array([[np.prod(ws_marts[k][0:T_k[-1, k]]) for k in np.arange(K)]])
+            marts = np.array([[ws_marts[k][T_k[-1, k]] for k in np.arange(K)]])
             if np.any(np.isposinf(marts)):
                 marts = np.inf * np.ones((1,K))
         else:
@@ -830,21 +826,49 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
     obj = np.zeros((len(etas), np.sum(n) + 1))
     sel = np.zeros((len(etas), np.sum(n) + 1, K))
     min_etas = []
-    #different method for greedy_kelly, since it needs to sequentially update the eta
-    #is there a way to make this cleaner and faster?
-    for i in np.arange(len(etas)):
-        centroid_eta = etas[i][1]
-        #bets and selections are determined for the eta at the center of the band
-        bets_i = [mart(x[k], centroid_eta[k], lam_func, None, ws_N[k], log, output = "bets") for k in np.arange(K)]
-        T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
-        itsm_mat = np.zeros((np.sum(n)+1, 2))
-        #minima are evaluated at the endpoints of the band//
-        #one of which is the minimum over the whole band due to concavity
-        for j in np.arange(2):
-            itsm_mat[:,j] = intersection_mart(x = x, N = N, eta = etas[i][0][j], lam = bets_i, T_k = T_k_i,
-                combine = "product", log = log, WOR = WOR)
-        obj[i,:] = np.min(itsm_mat, 1)
-        sel[i,:,:] = T_k_i
+    bets = []
+    if allocation_func == Allocations.greedy_kelly:
+        if not log:
+            obj[:,0] = 1
+        #selections from 0 in each stratum; time 1 is first sample
+        T_k = np.zeros((np.sum(n) + 1, K), dtype = int)
+        running_T_k = np.zeros(K, dtype = int)
+        t = 0
+        eta_star = np.zeros(K) #intialize eta_star (the minimizer, to be tracked)
+        eta_star_index = 0 #initialize index of the minimizer
+        for i in np.arange(len(etas)):
+            #bets come from the centroid
+            bets.append([lam_func(x[k], etas[i][1][k]) for k in np.arange(K)])
+        while np.any(running_T_k < n):
+            t += 1
+            next_k = Allocations.greedy_kelly(x, running_T_k, n, N, eta_star, bets[eta_star_index])
+            running_T_k[next_k] += 1
+            T_k[t,:] = running_T_k
+            for i in np.arange(len(etas)):
+                itsm_1 = intersection_mart(x = x, N = N, eta = etas[i][0][0], lam = bets[i], T_k = T_k[0:(t+1),:],
+                        combine = "product", log = log, WOR = WOR, last = True)
+                itsm_2 = intersection_mart(x = x, N = N, eta = etas[i][0][1], lam = bets[i], T_k = T_k[0:(t+1),:],
+                        combine = "product", log = log, WOR = WOR, last = True)
+                obj[i,t] = min(itsm_1, itsm_2)
+            eta_star_index = np.argmin(obj[:,t])
+            eta_star = etas[eta_star_index][1] #centroid
+        for i in np.arange(len(etas)):
+            sel[i,:,:] = T_k
+    else:
+        for i in np.arange(len(etas)):
+            centroid_eta = etas[i][1]
+            #bets and selections are determined for the eta at the center of the band
+            bets_i = [mart(x[k], centroid_eta[k], lam_func, None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets.append(bets_i)
+            T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
+            itsm_mat = np.zeros((np.sum(n)+1, 2))
+            #minima are evaluated at the endpoints of the band//
+            #one of which is the minimum over the whole band due to concavity
+            for j in np.arange(2):
+                itsm_mat[:,j] = intersection_mart(x = x, N = N, eta = etas[i][0][j], lam = bets_i, T_k = T_k_i,
+                    combine = "product", log = log, WOR = WOR)
+            obj[i,:] = np.min(itsm_mat, 1)
+            sel[i,:,:] = T_k_i
 
     opt_index = np.argmin(obj, 0)
     eta_opt = np.zeros((np.sum(n) + 1, len(x)))
@@ -854,7 +878,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         eta_opt[i,:] = etas[opt_index[i]][1] #record the center eta of the band that minimizes (not exact minimizer)
         mart_opt[i] = obj[opt_index[i],i]
     if verbose:
-        return mart_opt, eta_opt, global_sample_size, obj, sel
+        return mart_opt, eta_opt, global_sample_size, obj, sel, bets
     else:
         return mart_opt, eta_opt, global_sample_size
 

@@ -6,18 +6,19 @@ import random
 import numpy as np
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
-    intersection_mart, plot_marts_eta, construct_eta_grid, union_intersection_mart, selector,\
-    construct_eta_grid_plurcomp, simulate_comparison_audit, PGD, negexp_ui_mart
+    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_ui_mart,\
+    banded_uitsm
 
 
 
-#alt_grid = np.linspace(0.51, 0.75, 30)
-alt_grid = [0.505, 0.51, 0.52, 0.53, 0.55, 0.6, 0.65, 0.7, 0.75]
+alt_grid = np.linspace(0.51, 0.75, 20)
+#alt_grid = [0.505, 0.51, 0.52, 0.53, 0.55, 0.6, 0.65, 0.7, 0.75]
 delta_grid = [0, 0.5]
 alpha = 0.05
 eta_0 = 0.5
+n_points_grid = [3, 10, 100]
 
-#methods_list = ['uinnsm_fisher','uinnsm_product','lcb']
 methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
     "fixed":Bets.fixed,
@@ -28,18 +29,20 @@ allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
     "greedy_kelly":Allocations.greedy_kelly}
-allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
+allocations_list = ["round_robin", "predictable_kelly"]
 
+#points = 100
 K = 2
 N = [200, 200]
 results = []
 
-for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list):
+for alt, delta, method, bet, allocation, n_points in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, n_points_grid):
     means = [alt - 0.5*delta, alt + 0.5*delta]
-    calX = [np.array([0, means[0], 1]),np.array([0, means[1], 1])]
     samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
-    eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
 
+    #calX = [np.array([0, means[0], 1]),np.array([0, means[1], 1])]
+    #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
+    eta_bands = construct_eta_bands(eta_0 = eta_0, N = N, points = n_points)
 
     if method == 'lcb':
         min_eta = None
@@ -57,47 +60,22 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                 WOR = False)
             stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N))
             sample_size = stopping_time
-    elif method == 'uinnsm_product':
-        ui_mart, min_etas, global_ss, T_k = union_intersection_mart(
+    else:
+        ui_mart, min_etas, global_ss = banded_uitsm(
                     x = samples,
                     N = N,
-                    etas = eta_grid,
+                    etas = eta_bands,
                     lam_func = bets_dict[bet],
                     allocation_func = allocations_dict[allocation],
-                    combine = "product",
                     log = True,
                     WOR = False)
         pval = np.minimum(1, 1/np.exp(ui_mart))
         stopping_time = np.where(any(np.exp(ui_mart) > 1/alpha), np.argmax(np.exp(ui_mart) > 1/alpha), np.sum(N))
         min_eta = min_etas[stopping_time]
         sample_size = global_ss[stopping_time]
-    elif method == 'uinnsm_fisher':
-        pval, min_etas, global_ss, T_k = union_intersection_mart(
-                    x = samples,
-                    N = N,
-                    etas = eta_grid,
-                    lam_func = bets_dict[bet],
-                    allocation_func = allocations_dict[allocation],
-                    combine = "fisher",
-                    log = True,
-                    WOR = False)
-        stopping_time = np.where(any(np.exp(pval) < alpha), np.argmax(np.exp(pval) < alpha), np.sum(N))
-        min_eta = min_etas[stopping_time]
-        sample_size = global_ss[stopping_time]
-    #instead of recording stopping times, we record the P-value at every time
-    # for i in range(pval.shape[0]):
-    #     data_dict = {
-    #         "alt":alt,
-    #         "delta":delta,
-    #         "method":str(method),
-    #         "bet":str(bet),
-    #         "allocation":str(allocation),
-    #         "time": i + 1,
-    #         "pval": pval[i],
-    #         "min_eta_1": min_eta[i,0]
-    #         }
     data_dict = {
         "alt":alt,
+        "n_points":n_points,
         "delta":delta,
         "method":str(method),
         "bet":str(bet),

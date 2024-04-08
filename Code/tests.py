@@ -11,7 +11,7 @@ import coverage
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, union_intersection_mart, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit,\
-    random_truncated_gaussian, PGD, negexp_ui_mart, construct_eta_bands
+    random_truncated_gaussian, PGD, negexp_ui_mart, construct_eta_bands, banded_uitsm
 
 
 def test_mart():
@@ -142,18 +142,20 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.neyman, combine = "product", log = False, WOR = True)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.more_to_larger_means, combine = "product", log = False, WOR = True)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.proportional_to_mart, combine = "fisher", log = False, WOR = True)[-1] == 1
-    #allocation is done outside the intersection martingale
+    #when allocation is done outside the intersection martingale
     lam = [Bets.fixed(sample[k], 0.5) for k in np.arange(3)]
     T_k = selector(sample, N, allocation_func = Allocations.round_robin, eta = [0.5,0.5,0.5], lam = lam)
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = True, last = True) == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.smooth_predictable, T_k = T_k, combine = "product", log = False, WOR = True, last = True) == 1
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = False, last = False)[-1] == intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = False, last = True)
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = True, WOR = False, last = False)[-1] == intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = True, WOR = False, last = True)
+
+
 
     #mixing distribution
     md = np.array([[0.5,0.5,0.5], [0.25, 0.5, 0.75]])
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", WOR = False)[-1] == 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", log=False, WOR = True)[-1] == 1
-
-
 
     #alternative is true
     sample = [np.ones(N[0]) * 0.6, np.ones(N[1]) * 0.6, np.ones(N[2]) * 0.6]
@@ -167,6 +169,13 @@ def test_intersection_mart():
     md = np.array([[0.5,0.5,0.5], [0.25, 0.5, 0.75], [1,1,1]])
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", WOR = False)[-1] > 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], mixing_dist = md, allocation_func = Allocations.round_robin, combine = "product", log=False, WOR = True)[-1] > 1
+
+    #test extreme points
+    N = [20, 20]
+    sample = [np.ones(N[0]) * .3, np.ones(N[0]) * .8]
+    assert intersection_mart(sample, N, eta = [0, 1], lam_func = Bets.agrapa, allocation_func = Allocations.predictable_kelly, combine = "product", log = False, WOR = True)[-1] >= 1
+
+
 
 def test_construct_eta_bands():
     N = [15, 15]
@@ -206,16 +215,37 @@ def test_construct_vertex_etas():
     assert len(construct_vertex_etas(N = [10, 10, 10, 10, 10, 10], eta_0 = 1/2)) == 20
 
 
+def test_banded_uitsm():
+    N = [15, 15]
+    eta_bands_2 = construct_eta_bands(eta_0 = 0.5, N = N, points = 3)
+    eta_bands_100 = construct_eta_bands(eta_0 = 0.5, N = N, points = 101)
+    #null is true
+    sample = [np.ones(N[0])*0.5, np.ones(N[1])*0.5]
+    assert all(banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_2, Bets.fixed, allocation_func = Allocations.round_robin, WOR = True)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_100, Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_100, Bets.fixed, allocation_func = Allocations.greedy_kelly, WOR = True)[0] <= 0)
+    #null is false
+    sample = [np.ones(N[0])*0.5, np.ones(N[1])]
+    assert banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.predictable_kelly, WOR = True)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.greedy_kelly, WOR = True)[0][-1] >= 0
+
+
+
 def test_union_intersection_mart():
     N = [5, 5, 5]
     sample = [np.ones(N[0])*0.5, np.ones(N[1])*0.5, np.ones(N[2])*0.5]
     etas = [(0, 0.5, 1), (0.5, 0.5, 0.5)]
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[0] <= 0)
     assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "sum", theta_func = Weights.fixed)[0] <= 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher")[0] == 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.round_robin, combine = "product")[0] >= 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.greedy_kelly, combine = "product")[0] >= 0)
-    assert all(union_intersection_mart(sample, N, etas, Bets.agrapa, allocation_func = Allocations.greedy_kelly, combine = "product")[0] >= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.round_robin, combine = "product")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.smooth, allocation_func = Allocations.greedy_kelly, combine = "product")[0] <= 0)
+    assert all(union_intersection_mart(sample, N, etas, Bets.agrapa, allocation_func = Allocations.greedy_kelly, combine = "product")[0] <= 0)
     # check mixture distributions
     assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "vertex", combine = "product")[0] <= 0)
     assert all(union_intersection_mart(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "uniform", combine = "product")[0] <= 0)
