@@ -8,23 +8,23 @@ import numpy as np
 import os
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
-    intersection_mart, plot_marts_eta, construct_eta_grid, union_intersection_mart, selector,\
-    construct_eta_grid_plurcomp, simulate_comparison_audit, PGD, negexp_ui_mart
+    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_ui_mart, banded_uitsm
 
 
 
-reps = 1
-sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
+rep_grid = np.arange(10) #allows reps within parallelized simulations
+sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_rep)) #this sets a different seed for every rep
 
 
 
-alt_grid = [0.51, 0.55, 0.6, 0.7]
+alt_grid = np.linspace(0.51, 0.75, 20)
 delta_grid = [0, 0.5]
 alpha = 0.05
 eta_0 = 0.5
 
-methods_list = ['uinnsm_fisher','uinnsm_product','lcb']
+methods_list = ['uinnsm_product','lcb']
 bets_dict = {
     "fixed":Bets.fixed,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
@@ -37,15 +37,16 @@ allocations_dict = {
 allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
 
 K = 2
-N = [200, 200]
+N = [400, 400]
 results = []
 
-for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list):
+for alt, delta, method, bet, allocation, rep in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, rep_grid):
+    sim_rep = sim_id + "_" + str(rep)
     means = [alt - 0.5*delta, alt + 0.5*delta]
-    calX = [np.array([0, 1]), np.array([0, 1])]
     samples = [np.random.binomial(1, means[0], N[0]), np.random.binomial(1, means[1], N[1])]
-    eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
-
+    #calX = [np.array([0, 1]), np.array([0, 1])]
+    #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
+    eta_bands = construct_eta_bands(eta_0, N = N, points = 100)
 
     if method == 'lcb':
         min_eta = None
@@ -64,17 +65,16 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
             stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N)-1)
             sample_size = stopping_time
     elif method == 'uinnsm_product':
-        ui_mart, min_etas, global_ss, T_k = union_intersection_mart(
+        ui_mart, min_etas, global_ss = banded_uitsm(
                     x = samples,
                     N = N,
-                    etas = eta_grid,
+                    etas = eta_bands,
                     lam_func = bets_dict[bet],
                     allocation_func = allocations_dict[allocation],
-                    combine = "product",
-                    log = False,
+                    log = True,
                     WOR = False)
         pval = np.minimum(1, 1/ui_mart)
-        stopping_time = np.where(any(ui_mart > 1/alpha), np.argmax(ui_mart > 1/alpha), np.sum(N)-1)
+        stopping_time = np.where(any(ui_mart > np.log(1/alpha)), np.argmax(ui_mart > np.log(1/alpha)), np.sum(N)-1)
         min_eta = min_etas[stopping_time]
         sample_size = global_ss[stopping_time]
     elif method == 'uinnsm_fisher':
@@ -85,9 +85,9 @@ for alt, delta, method, bet, allocation in itertools.product(alt_grid, delta_gri
                     lam_func = bets_dict[bet],
                     allocation_func = allocations_dict[allocation],
                     combine = "fisher",
-                    log = False,
+                    log = True,
                     WOR = False)
-        stopping_time = np.where(any(pval < alpha), np.argmax(pval < alpha), np.sum(N)-1)
+        stopping_time = np.where(any(pval < np.log(alpha)), np.argmax(pval < np.log(alpha)), np.sum(N)-1)
         min_eta = min_etas[stopping_time]
         sample_size = global_ss[stopping_time]
     data_dict = {

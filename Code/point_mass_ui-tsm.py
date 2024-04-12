@@ -17,7 +17,7 @@ alt_grid = np.linspace(0.51, 0.75, 20)
 delta_grid = [0, 0.5]
 alpha = 0.05
 eta_0 = 0.5
-n_points_grid = [3, 10, 100]
+n_points_grid = [3, 10, 100, 500]
 
 methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
@@ -29,7 +29,7 @@ allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
     "greedy_kelly":Allocations.greedy_kelly}
-allocations_list = ["round_robin", "predictable_kelly"]
+allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
 
 #points = 100
 K = 2
