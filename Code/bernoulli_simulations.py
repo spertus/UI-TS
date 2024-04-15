@@ -15,7 +15,7 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 rep_grid = np.arange(10) #allows reps within parallelized simulations
 sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
-np.random.seed(int(sim_rep)) #this sets a different seed for every rep
+np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 
@@ -37,7 +37,7 @@ allocations_dict = {
 allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
 
 K = 2
-N = [400, 400]
+N = [200, 200]
 results = []
 
 for alt, delta, method, bet, allocation, rep in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, rep_grid):
