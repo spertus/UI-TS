@@ -46,17 +46,25 @@ class Bets:
         lam = c * np.ones(x.size)
         return lam
 
-    def apriori_bernoulli(x, eta, **kwargs):
+    def apriori_bernoulli(x, eta, trunc_eta = None, **kwargs):
         '''
         uses the optimal bets for the Bernoulli (following the SPRT), plugging in an estimate of the alternative mean
         lambda is eta-adaptive
         -------------
         kwargs:
-            mu_0: float in (eta, u) (default u*(1-eps))
+            mu_0: float in (eta, 1]
                 alternative hypothesized value for the population mean
+            trunc_eta: float in [0,1]
+                the eta at which truncation should be done.
+                useful if bet is to be used over a band of etas.
+                defaults to eta
+            c: float in [0,1],
+                truncation factor to keep bets below 1/max_eta
         '''
         mu_0 = kwargs.get("mu_0", (eta + 1)/2)
-        lam = np.maximum(0, (mu_0 / eta - 1) / (1 - eta))
+        c = kwargs.get("c", 1)
+        trunc_eta = eta if trunc_eta is None else trunc_eta
+        lam = np.minimum(np.maximum(0, (mu_0 / eta - 1) / (1 - eta)), c/eta)
         return lam
 
     def predictable_bernoulli(x, eta, **kwargs):
@@ -489,11 +497,13 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     w = N/np.sum(N) #stratum weights
     K = len(N)
     lcbs = []
+    if callable(lam_func):
+        lam_func = [lam_func] * K
     for k in np.arange(K):
         N_k = N[k] if WOR else np.inf
         lcbs.append(lower_confidence_bound(
             x = x[k],
-            lam_func = lam_func,
+            lam_func = lam_func[k],
             #alpha = 1 - (1 - alpha)**(1/K), <- if we were using sidak correction (not necessary w evalues)
             alpha = alpha,
             N = N_k,
@@ -519,7 +529,7 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
             population size for each stratum
         eta: length-K np.array or list in [0,1]
             the vector of null means
-        lam_func: callable, a function from class Bets
+        lam_func: callable, a function from class Bets OR a list of functions, one for each stratum
             a betting strategy, a function that sets bets possibly given past data and eta
         lam: length-K list of length-n_k np.arrays corresponding to bets
             bets for each stratum, real numbers between 0 and 1/\eta_k
@@ -554,10 +564,12 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
         assert allocation_func in nonadaptive_allocations, "for now, mixing only works with nonadaptive allocation"
     ws_log = False if combine == "sum" else log
     ws_N = N if WOR else np.inf*np.ones(K)
+    if callable(lam_func):
+        lam_func = [lam_func] * K
 
     if mixing_dist is None:
         if lam is None:
-            lam = [mart(x[k], eta[k], lam_func, None, ws_N[k], ws_log, output = "bets") for k in np.arange(K)]
+            lam = [mart(x[k], eta[k], lam_func[k], None, ws_N[k], ws_log, output = "bets") for k in np.arange(K)]
         #within-stratum martingales
         ws_marts = [mart(x[k], eta[k], None, lam[k], ws_N[k], ws_log) for k in np.arange(K)]
         #construct the interleaving
@@ -858,7 +870,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
             the size of each stratum
         etas: list of 2-tuples, each with etas to test and etas to construct bets / allocations
             intersection nulls over which the minimum will be taken
-        lam_func: callable, a function from class Bets
+        lam_func: callable, a function from class Bets OR a list of functions, one for each stratum
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
@@ -874,6 +886,8 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
     w = N / np.sum(N)
     n = [x_k.shape[0] for x_k in x] #get the sample size
     ws_N = N if WOR else np.inf*np.ones(K)
+    if callable(lam_func):
+        lam_func = [lam_func] * K
 
     #record objective value and selections for each band
     obj = np.zeros((len(etas), np.sum(n) + 1))
@@ -891,7 +905,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         eta_star_index = 0 #initialize index of the minimizer
         for i in np.arange(len(etas)):
             #bets come from the centroid
-            bets.append([lam_func(x[k], etas[i][1][k]) for k in np.arange(K)])
+            bets.append([lam_func[k](x[k], etas[i][1][k]) for k in np.arange(K)])
         while np.any(running_T_k < n):
             t += 1
             next_k = Allocations.greedy_kelly(x, running_T_k, n, N, eta_star, bets[eta_star_index])
@@ -911,7 +925,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         for i in np.arange(len(etas)):
             centroid_eta = etas[i][1]
             #bets and selections are determined for the eta at the center of the band
-            bets_i = [mart(x[k], centroid_eta[k], lam_func, None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
             T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
             itsm_mat = np.zeros((np.sum(n)+1, 2))
