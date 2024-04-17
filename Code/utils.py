@@ -46,6 +46,59 @@ class Bets:
         lam = c * np.ones(x.size)
         return lam
 
+    def apriori_bernoulli(x, eta, **kwargs):
+        '''
+        uses the optimal bets for the Bernoulli (following the SPRT), plugging in an estimate of the alternative mean
+        lambda is eta-adaptive
+        -------------
+        kwargs:
+            mu_0: float in (eta, u) (default u*(1-eps))
+                alternative hypothesized value for the population mean
+        '''
+        mu_0 = kwargs.get("mu_0", (eta + 1)/2)
+        lam = np.maximum(0, (mu_0 / eta - 1) / (1 - eta))
+        return lam
+
+    def predictable_bernoulli(x, eta, **kwargs):
+        '''
+        uses the optimal bets for the Bernoulli (following the SPRT), plugging in shrunk/truncated empirical mean estimate
+        see https://projecteuclid.org/journals/annals-of-applied-statistics/volume-17/issue-1/ALPHA-Audit-that-learns-from-previously-hand-audited-ballots/10.1214/22-AOAS1646.short
+
+        some of the code and documentation comes from shrink_trunc in Philip Stark's SHANGRLA code: https://github.com/pbstark/SHANGRLA/blob/main/shangrla/shangrla/NonnegMean.py
+
+
+        lambda is eta-adaptive
+        -------------
+        kwargs:
+            mu_0: float in (eta, u) (default u*(1-eps))
+                initial alternative hypothesized value for the population mean
+            c: float in [0,1]
+                bet is truncated to c/eta
+            eps_0: positive float
+                scale factor in the sequence eps allowing the estimated mean to approach eta from above
+            d: positive float
+                relative weight of eta compared to an observation, in updating the alternative for each term
+            sd_min: positive float
+                lower threshold for the standard deviation of the sample, to avoid divide-by-zero errors and
+                to limit the weight of u
+
+        '''
+        # set the parameters
+        mu_0 = kwargs.get('mu_0', (eta + 1)/2) #defaults to midpoint between null and upper bound
+        eps_0 = kwargs.get('eps', 0.5)
+        eta_tol = kwargs.get('eps', 1e-5) #floor for eta (prevents divide by zero error)
+        d = kwargs.get('d', 20)
+        c = kwargs.get('c', 0.95)
+        minsd = kwargs.get('sd_min', 0.01)
+        #
+        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
+        j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
+        trunc_below = np.maximum((d * mu_0 + S)/(d+j-1), eta + eps_0/np.sqrt(d+j-1))
+        lam = np.minimum((trunc_below / eta - 1)/(1 - eta), c/(eta+eta_tol))
+        return lam
+
+
+
     def agrapa(x, eta, **kwargs):
         '''
         AGRAPA (approximate-GRAPA) from Section B.3 of Waudby-Smith and Ramdas, 2022
@@ -294,8 +347,8 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
     '''
     assert bool(lam is None) != bool(lam_func is None), "must specify exactly one of lam_func or lam"
     if N < np.inf:
-        S = np.insert(np.cumsum(x), 0, 0)[0:-1] #0, x_1, x_1+x_2, ...,
-        j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
+        S = np.insert(np.cumsum(x), 0, 0)[0:-1]
+        j = np.arange(1,len(x)+1)
         eta_t = (N*eta-S)/(N-j+1)
     elif N == np.inf:
         eta_t = eta * np.ones(len(x))
@@ -311,7 +364,7 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
             terms[np.insert(eta_t < 0, 0, False)] = np.inf
             terms[np.insert(eta_t > 1, 0, False)] = -np.inf
         else:
-            terms = np.insert(np.log(1 + lam * (x - eta_t)), 0, 0)
+            terms = np.insert(1 + lam * (x - eta_t), 0, 0)
             terms[np.insert(eta_t < 0, 0, False)] = np.inf
             terms[np.insert(eta_t > 1, 0, False)] = 0
         return terms
