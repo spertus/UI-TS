@@ -1,5 +1,4 @@
 #simulations of Bernoullis within strata
-
 import scipy as sp
 import pandas as pd
 import itertools
@@ -20,16 +19,17 @@ np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 alt_grid = np.linspace(0.51, 0.75, 20)
-delta_grid = [0, 0.5]
+delta_grid = [0.5]
 alpha = 0.05
 eta_0 = 0.5
 
 methods_list = ['uinnsm_product','lcb']
 bets_dict = {
-    "fixed":Bets.fixed,
-    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
+    "fixed":lambda x, eta: Bets.fixed(x, eta, c = 0.75),
+    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.75),
+    "bernoulli":lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.75),
     "smooth_predictable":Bets.smooth_predictable}
-bets_list = ["fixed", "agrapa", "smooth_predictable"]
+bets_list = ["fixed", "agrapa", "bernoulli", "smooth_predictable", "apriori_bernoulli"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
@@ -42,7 +42,12 @@ results = []
 
 for alt, delta, method, bet, allocation, rep in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, rep_grid):
     sim_rep = sim_id + "_" + str(rep)
+    #sim_rep = 1
     means = [alt - 0.5*delta, alt + 0.5*delta]
+    #ap bernoulli is based on the true means
+    bets_dict["apriori_bernoulli"] = [
+        lambda x, eta: Bets.apriori_bernoulli(x, eta, mu_0 = means[0]),
+        lambda x, eta: Bets.apriori_bernoulli(x, eta, mu_0 = means[1])]
     samples = [np.random.binomial(1, means[0], N[0]), np.random.binomial(1, means[1], N[1])]
     #calX = [np.array([0, 1]), np.array([0, 1])]
     #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)

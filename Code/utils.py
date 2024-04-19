@@ -46,7 +46,7 @@ class Bets:
         lam = c * np.ones(x.size)
         return lam
 
-    def apriori_bernoulli(x, eta, trunc_eta = None, **kwargs):
+    def apriori_bernoulli(x, eta, **kwargs):
         '''
         uses the optimal bets for the Bernoulli (following the SPRT), plugging in an estimate of the alternative mean
         lambda is eta-adaptive
@@ -63,8 +63,8 @@ class Bets:
         '''
         mu_0 = kwargs.get("mu_0", (eta + 1)/2)
         c = kwargs.get("c", 1)
-        trunc_eta = eta if trunc_eta is None else trunc_eta
-        lam = np.minimum(np.maximum(0, (mu_0 / eta - 1) / (1 - eta)), c/eta)
+        lam = np.minimum(np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta)), c/eta)
+        lam = np.ones(len(x)) * lam
         return lam
 
     def predictable_bernoulli(x, eta, **kwargs):
@@ -904,8 +904,10 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         eta_star = np.zeros(K) #intialize eta_star (the minimizer, to be tracked)
         eta_star_index = 0 #initialize index of the minimizer
         for i in np.arange(len(etas)):
-            #bets come from the centroid
-            bets.append([lam_func[k](x[k], etas[i][1][k]) for k in np.arange(K)])
+            #bets come from the max_eta
+            max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
+            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets.append(bets_i)
         while np.any(running_T_k < n):
             t += 1
             next_k = Allocations.greedy_kelly(x, running_T_k, n, N, eta_star, bets[eta_star_index])
@@ -924,9 +926,11 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
     else:
         for i in np.arange(len(etas)):
             centroid_eta = etas[i][1]
-            #bets and selections are determined for the eta at the center of the band
-            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
+            #bets are determined for max_eta, which makes the bets conservative for both strata and both vertices of the band
+            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
+            #selections are determined by the centroid
             T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
             itsm_mat = np.zeros((np.sum(n)+1, 2))
             #minima are evaluated at the endpoints of the band//
