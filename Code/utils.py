@@ -362,7 +362,7 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
         eta_t = eta * np.ones(len(x))
     else:
         raise ValueError("Input an integer value for N, possibly np.inf")
-    #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WOR
+    #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WO
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if lam_func is not None:
         lam = lam_func(x, eta_t)
