@@ -51,7 +51,7 @@ for alt, delta, method, bet, allocation, rep in itertools.product(alt_grid, delt
     samples = [np.random.binomial(1, means[0], N[0]), np.random.binomial(1, means[1], N[1])]
     #calX = [np.array([0, 1]), np.array([0, 1])]
     #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
-    eta_bands = construct_eta_bands(eta_0, N = N, points = 100)
+    eta_bands = construct_eta_bands(eta_0, N = N, n_bands = 100)
 
     if method == 'lcb':
         min_eta = None

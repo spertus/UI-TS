@@ -179,7 +179,7 @@ def test_intersection_mart():
 
 def test_construct_eta_bands():
     N = [15, 15]
-    eta_bands = construct_eta_bands(eta_0 = 0.5, N = N, points = 101)
+    eta_bands = construct_eta_bands(eta_0 = 0.5, N = N, n_bands = 100)
     etas = [list(eta_bands[i][0][0]) for i in np.arange(len(eta_bands))]
     assert etas.count([0.5, 0.5]) == 1
     assert etas.count([0, 1]) == 1
@@ -217,19 +217,19 @@ def test_construct_vertex_etas():
 
 def test_banded_uitsm():
     N = [15, 15]
-    eta_bands_2 = construct_eta_bands(eta_0 = 0.5, N = N, points = 3)
-    eta_bands_100 = construct_eta_bands(eta_0 = 0.5, N = N, points = 101)
+    eta_bands_3 = construct_eta_bands(eta_0 = 0.5, N = N, n_bands = 3)
+    eta_bands_100 = construct_eta_bands(eta_0 = 0.5, N = N, n_bands = 100)
     #null is true
     sample = [np.ones(N[0])*0.5, np.ones(N[1])*0.5]
-    assert all(banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin)[0] <= 0)
-    assert all(banded_uitsm(sample, N, eta_bands_2, Bets.fixed, allocation_func = Allocations.round_robin, WOR = True)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_3, Bets.agrapa, allocation_func = Allocations.round_robin)[0] <= 0)
+    assert all(banded_uitsm(sample, N, eta_bands_3, Bets.fixed, allocation_func = Allocations.round_robin, WOR = True)[0] <= 0)
     assert all(banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0] <= 0)
     assert all(banded_uitsm(sample, N, eta_bands_100, Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True)[0] <= 0)
     assert all(banded_uitsm(sample, N, eta_bands_100, Bets.fixed, allocation_func = Allocations.greedy_kelly, WOR = True)[0] <= 0)
     #null is false
     sample = [np.ones(N[0])*0.5, np.ones(N[1])]
-    assert banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin)[0][-1] >= 0
-    assert banded_uitsm(sample, N, eta_bands_2, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_3, Bets.agrapa, allocation_func = Allocations.round_robin)[0][-1] >= 0
+    assert banded_uitsm(sample, N, eta_bands_3, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0][-1] >= 0
     assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True)[0][-1] >= 0
     assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.predictable_kelly, WOR = True)[0][-1] >= 0
     assert banded_uitsm(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.greedy_kelly, WOR = True)[0][-1] >= 0

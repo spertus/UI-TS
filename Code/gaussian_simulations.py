@@ -47,7 +47,7 @@ for K, global_mean, delta, sd, method, allocation, bet, rep in itertools.product
     N = [int(400/K) for _ in range(K)]
     w = N/np.sum(N)
     #etas = construct_vertex_etas(N = N, eta_0 = eta_0)
-    etas = construct_eta_bands(eta_0 = eta_0, N = N, points = 100)
+    etas = construct_eta_bands(eta_0 = eta_0, N = N, n_bands = 100)
 
     x = [random_truncated_gaussian(mean = global_mean + deltas[k], sd = sd, size = N[k]) for k in range(K)]
 

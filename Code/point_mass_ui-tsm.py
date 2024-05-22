@@ -17,7 +17,7 @@ alt_grid = np.linspace(0.51, 0.75, 20)
 delta_grid = [0, 0.5]
 alpha = 0.05
 eta_0 = 0.5
-n_points_grid = [3, 10, 100, 500]
+n_bands_grid = [1, 3, 10, 100, 500]
 
 methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
@@ -36,13 +36,13 @@ K = 2
 N = [200, 200]
 results = []
 
-for alt, delta, method, bet, allocation, n_points in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, n_points_grid):
+for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, delta_grid, methods_list, bets_list, allocations_list, n_bands_grid):
     means = [alt - 0.5*delta, alt + 0.5*delta]
     samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
 
     #calX = [np.array([0, means[0], 1]),np.array([0, means[1], 1])]
     #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
-    eta_bands = construct_eta_bands(eta_0 = eta_0, N = N, points = n_points)
+    eta_bands = construct_eta_bands(eta_0 = eta_0, N = N, n_bands = n_bands)
 
     if method == 'lcb':
         min_eta = None
@@ -75,7 +75,7 @@ for alt, delta, method, bet, allocation, n_points in itertools.product(alt_grid,
         sample_size = global_ss[stopping_time]
     data_dict = {
         "alt":alt,
-        "n_points":n_points,
+        "n_bands":n_bands,
         "delta":delta,
         "method":str(method),
         "bet":str(bet),

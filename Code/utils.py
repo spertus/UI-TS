@@ -63,7 +63,14 @@ class Bets:
         '''
         mu_0 = kwargs.get("mu_0", (eta + 1)/2)
         c = kwargs.get("c", 1)
-        lam = np.minimum(np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta)), c/eta)
+        if eta == 0:
+            lam = np.inf
+        elif eta == 1:
+            lam = 0
+        elif mu_0 == 1:
+            lam = c/eta
+        else:
+            lam = np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta))
         lam = np.ones(len(x)) * lam
         return lam
 
@@ -362,10 +369,10 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
         eta_t = eta * np.ones(len(x))
     else:
         raise ValueError("Input an integer value for N, possibly np.inf")
-    #note: per Waudby-Smith and Ramdas, the bets do not update when sampling WO
+    #note: per Waudby-Smith and Ramdas, the null mean for the bets does not update for sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if lam_func is not None:
-        lam = lam_func(x, eta_t)
+        lam = lam_func(x, eta)
     if output == "terms":
         if log:
             terms = np.insert(np.log(1 + lam * (x - eta_t)), 0, 0)
@@ -518,7 +525,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
 
 def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False):
     '''
-    an intersection martingale (I-NNSM) for a vector \bs{eta}
+    an intersection martingale (I-TSM) for a vector \bs{eta}
     assumes sampling is with replacement: no population size is required
 
     Parameters
@@ -544,7 +551,7 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: boolean
-            return the log I-NNSM if true, otherwise return on original scale
+            return the log I-TSM if true, otherwise return on original scale
         WOR: boolean
             should martingales be computed under sampling with or without replacement?
         return_selections: boolean
@@ -578,6 +585,8 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
         if last:
             marts = np.array([[ws_marts[k][T_k[-1, k]] for k in np.arange(K)]])
             if np.any(np.isposinf(marts)):
+                #it's not exactly clear how to handle certainties when sampling without replacement
+                #i.e. what if the null is certainly false in one stratum but certainly true in another...
                 marts = np.inf * np.ones((1,K))
         else:
             marts = np.zeros((T_k.shape[0], K))
@@ -827,7 +836,7 @@ def construct_vertex_etas(eta_0, N):
     return etas
 
 
-def construct_eta_bands(eta_0, N, points = 100):
+def construct_eta_bands(eta_0, N, n_bands = 100):
     '''
 
     Parameters
@@ -836,8 +845,8 @@ def construct_eta_bands(eta_0, N, points = 100):
             the global null
         N: length-2 list of ints
             the size of the population within each stratum
-        points: positive int
-            the number of equally-spaced grid points in the tesselation of the null boundary
+        n_bands: positive int
+            the number of equal-width bands in the tesselation of the null boundary
     Returns
     ----------
         a list of tuples of length points,
@@ -848,7 +857,7 @@ def construct_eta_bands(eta_0, N, points = 100):
     K = len(N)
     assert K == 2, "only works for two strata"
     w = N / np.sum(N)
-    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(1, eta_0/w[0]), points)
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(1, eta_0/w[0]), n_bands + 1)
     eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
     eta_grid = np.transpose(np.vstack((eta_1_grid, eta_2_grid)))
     etas = []
