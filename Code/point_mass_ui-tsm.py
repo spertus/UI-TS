@@ -4,6 +4,7 @@ import pandas as pd
 import itertools
 import random
 import numpy as np
+import time
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
@@ -50,6 +51,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
             stopping_time = None
             sample_size = None
         else:
+            start_time = time.time()
             lower_bound = global_lower_bound(
                 x = samples,
                 N = N,
@@ -58,9 +60,11 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
                 alpha = alpha,
                 breaks = 1000,
                 WOR = False)
+            run_time = start_time - time.time()
             stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N))
             sample_size = stopping_time
     else:
+        start_time = time.time()
         ui_mart, min_etas, global_ss = banded_uitsm(
                     x = samples,
                     N = N,
@@ -69,6 +73,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
                     allocation_func = allocations_dict[allocation],
                     log = True,
                     WOR = False)
+        run_time = start_time - time.time()
         pval = np.minimum(1, 1/np.exp(ui_mart))
         stopping_time = np.where(any(np.exp(ui_mart) > 1/alpha), np.argmax(np.exp(ui_mart) > 1/alpha), np.sum(N))
         min_eta = min_etas[stopping_time]
@@ -82,6 +87,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
         "allocation":str(allocation),
         "stopping_time":stopping_time,
         "sample_size":sample_size,
+        "run_time":run_time,
         "worst_case_eta":min_eta}
     results.append(data_dict)
 results = pd.DataFrame(results)

@@ -62,7 +62,7 @@ class Bets:
                 truncation factor to keep bets below 1/max_eta
         '''
         mu_0 = kwargs.get("mu_0", (eta + 1)/2)
-        c = kwargs.get("c", 1)
+        c = kwargs.get("c", .99)
         if eta == 0:
             lam = np.inf
         elif eta == 1:
@@ -70,7 +70,7 @@ class Bets:
         elif mu_0 == 1:
             lam = c/eta
         else:
-            lam = np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta))
+            lam = np.minimum(np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta)), c/eta)
         lam = np.ones(len(x)) * lam
         return lam
 
@@ -511,7 +511,6 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func[k],
-            #alpha = 1 - (1 - alpha)**(1/K), <- if we were using sidak correction (not necessary w evalues)
             alpha = alpha,
             N = N_k,
             breaks = breaks))
@@ -523,7 +522,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
     return global_lcb
 
 
-def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False):
+def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False, running_max = True):
     '''
     an intersection martingale (I-TSM) for a vector \bs{eta}
     assumes sampling is with replacement: no population size is required
@@ -558,6 +557,8 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
             return matrix of stratum sample sizes (T_k) if True, otherwise just return combined martingale
         last: Boolean
             return only the last index of the martingale; helps speed things up when T_k is given
+        running_max: boolean
+            take the running maximum of the I-TSM
     Returns
     ----------
         the value of an intersection martingale that uses all the data (not running max)
@@ -594,6 +595,8 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
                 marts_i = np.array([ws_marts[k][T_k[i, k]] for k in np.arange(K)])
                 #make all marts infinite if one is, when product is taken this enforces rule:
                 #we reject intersection null if certainly False in one stratum
+                #TODO: rethink this logic? What if the null is certainly true in a stratum?
+                #there is some serious subtlety to be considered when sampling WOR
                 marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     else:
         B = mixing_dist.shape[0]
@@ -613,10 +616,14 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
             #this takes the product across strata and the mean across the mixing distribution
             int_mart = np.mean(np.prod(marts, 2), 0)
             int_mart = np.log(int_mart) if log else int_mart
+        if running_max:
+            int_mart = np.maximum.accumulate(int_mart)
     elif combine == "sum":
         assert theta_func is not None, "Need to specify a theta function from Weights if using sum"
         thetas = theta_func(eta)
         int_mart = np.log(np.sum(thetas * marts, 1)) if log else np.sum(thetas * marts, 1)
+        if running_max:
+            int_mart = np.maximum.accumulate(int_mart)
     elif combine == "fisher":
         pvals = np.exp(-np.maximum(0, marts)) if log else 1 / np.maximum(1, marts)
         fisher_stat = -2 * np.sum(np.log(pvals), 1)
@@ -675,7 +682,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         for eta_x in eta_grid:
             eta_y = (1/2 - w[0] * eta_x) / w[1]
             if eta_y > 1 or eta_x < 0: continue
-            obj = intersection_mart(x, N, np.array([eta_x,eta_y]), lam_func,
+            obj = intersection_mart(x = x, N = N, eta = np.array([eta_x,eta_y]), lam_func = lam_func,
              lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
              combine = combine, theta_func = theta_func, log = log)[-1]
             eta_xs.append(eta_x)
@@ -693,7 +700,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
             for eta_y in eta_grid:
                 eta_z = (1/2 - w[0]*eta_x-w[1]*eta_y)/w[2]
                 if eta_z > 1 or eta_z < 0: continue
-                obj = intersection_mart(x, N, np.array([eta_x,eta_y,eta_z]), lam_func,
+                obj = intersection_mart(x = x, N = N, eta = np.array([eta_x,eta_y,eta_z]), lam_func = lam_func,
                  lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
                  combine = combine, theta_func = theta_func, log = log)[-1]
                 eta_xs.append(eta_x)
@@ -915,7 +922,8 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         for i in np.arange(len(etas)):
             #bets come from the max_eta
             max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
-            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            centroid_eta = etas[i][1]
+            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
         while np.any(running_T_k < n):
             t += 1
@@ -937,7 +945,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
             centroid_eta = etas[i][1]
             max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
             #bets are determined for max_eta, which makes the bets conservative for both strata and both vertices of the band
-            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
             #selections are determined by the centroid
             T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
@@ -1307,10 +1315,104 @@ class PGD:
 
 
 
+def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
+    '''
+    compute the UI-NNSM when bets are negative exponential:
+        lambda = exp(barX - eta)
+    currently only works for sampling with replacement
 
-#add a nonadaptive allocation rule that chooses the next sample
-#based on the Kelly-optimal selection for the current minimimum I-TSM
-#bets can still be convexifying / negative exponential
+    Parameters
+    ----------
+    x: length-K list of np.arrays
+        samples from each stratum in random order
+    N: np.array of length K
+        the number of elements in each stratum in the population
+    allocation_func: callable, a function from class Allocations
+        the desired allocation strategy.
+    eta_0: double in [0,1]
+        the global null mean
+    max_iterations: int
+        the maximum number of iterations for projected gradient descent to try before stopping with error
+    Returns
+    --------
+    the value of the union-intersection supermartingale
+    '''
+    assert allocation_func in nonadaptive_allocations, "Cannot use eta-adaptive allocation"
+    w = N / np.sum(N) #stratum weights
+    K = len(N) #number of strata
+    n = [x[k].shape[0] for k in range(K)]
+    #define constraint set for pypoman projection
+    A = np.concatenate((
+        np.expand_dims(w, axis = 0),
+        #np.expand_dims(-w, axis = 0), project to halfspace; gradient should always point towards boundary anyway
+        -np.identity(K),
+        np.identity(K)))
+    b = np.concatenate((eta_0 * np.ones(1), np.zeros(K), np.ones(K)))
+    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
+    #TODO: pick a good value for delta, which dampens the Newton step.
+    #could also choose through learn by backtracking line search
+
+    #this is a nested list of arrays
+    #it stores the samples available in each stratum at time i = 0,1,2,...,n
+    samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
+    #initialize with no samples
+    uinnsms = [1] #uinnsm starts at 1 at time 0
+    samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
+    T_k = np.zeros((np.sum(n), K), dtype = int)
+    eta_stars = np.zeros((np.sum(n), K))
+
+    for i in np.arange(1, np.sum(n)):
+        #select next stratum
+        S_i = allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
+        T_k[i,:] = T_k[i-1,:]
+        T_k[i,S_i] += 1
+        for k in np.arange(K):
+            samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
+        #initial estimate of minimum by projecting current sample mean onto null space
+        if any(T_k[i,:] == 0):
+            sample_means = np.array([eta_0 for _ in range(K)])
+        else:
+            sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
+        eta_init = proj(sample_means)
+
+        glm = lambda x: PGD.global_log_mart(samples = samples_t, eta = x)
+        grad_glm = lambda x: PGD.grad(samples = samples_t, eta = x)
+        hess_glm = lambda x: np.diag(PGD.hessian(samples = samples_t, eta = x))
+        opt_result = scipy.optimize.minimize(
+            fun = glm,
+            x0 = eta_init,
+            jac = grad_glm,
+            hess = hess_glm,
+            method = "Newton-CG")
+        eta_tilde = opt_result
+        eta_star = proj(eta_tilde)
+        eta_stars[i,:] = eta_star
+
+
+
+        step_size = 1
+        counter = 0
+        #find optimum
+        while step_size > 1e-4:
+            counter += 1
+            if counter == max_iterations:
+                raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
+            grad_l = PGD.grad(samples_t[i], eta_l)
+            hess_l = PGD.hessian(samples_t[i], eta_l)
+            #take dampened Newton step and then project onto null
+            next_eta = proj(eta_l - (delta/hess_l) * grad_l)
+            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
+            eta_l = next_eta
+        eta_stars[i] = eta_l
+        #store current value of UI-TS
+        log_ts = PGD.global_log_mart(samples_t[i], eta_stars[i])
+        if log:
+            uinnsms.append(log_ts)
+        else:
+            uinnsms.append(np.exp(log_ts))
+    return np.array(uinnsms), eta_stars, T_k
+
+
 def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
     '''
     compute the UI-NNSM when bets are negative exponential:
