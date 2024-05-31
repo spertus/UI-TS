@@ -1,8 +1,8 @@
 import numpy as np
 import scipy as sp
+import cvxopt
 import matplotlib.pyplot as plt
 import math
-import pypoman
 import itertools
 from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
@@ -63,6 +63,7 @@ class Bets:
         '''
         mu_0 = kwargs.get("mu_0", (eta + 1)/2)
         c = kwargs.get("c", .99)
+        min_lam = kwargs.get("min_lam", 0)
         if eta == 0:
             lam = np.inf
         elif eta == 1:
@@ -70,7 +71,7 @@ class Bets:
         elif mu_0 == 1:
             lam = c/eta
         else:
-            lam = np.minimum(np.maximum(0, ((mu_0 / eta) - 1) / (1 - eta)), c/eta)
+            lam = np.minimum(np.maximum(min_lam, ((mu_0 / eta) - 1) / (1 - eta)), c/eta)
         lam = np.ones(len(x)) * lam
         return lam
 
@@ -876,7 +877,7 @@ def construct_eta_bands(eta_0, N, n_bands = 100):
 
 def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportional_round_robin, log = True, WOR = False, verbose = False):
     '''
-    compute a product UI-TSM by minimizing product I-TSMs along a grid of etas
+    compute a product UI-TSM by minimizing product I-TSMs along a grid of etas (the "band" method)
 
     Parameters
     ----------
@@ -923,7 +924,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
             #bets come from the max_eta
             max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
             centroid_eta = etas[i][1]
-            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
         while np.any(running_T_k < n):
             t += 1
@@ -945,7 +946,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
             centroid_eta = etas[i][1]
             max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
             #bets are determined for max_eta, which makes the bets conservative for both strata and both vertices of the band
-            bets_i = [mart(x[k], centroid_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
             #selections are determined by the centroid
             T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
@@ -1315,103 +1316,6 @@ class PGD:
 
 
 
-def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
-    '''
-    compute the UI-NNSM when bets are negative exponential:
-        lambda = exp(barX - eta)
-    currently only works for sampling with replacement
-
-    Parameters
-    ----------
-    x: length-K list of np.arrays
-        samples from each stratum in random order
-    N: np.array of length K
-        the number of elements in each stratum in the population
-    allocation_func: callable, a function from class Allocations
-        the desired allocation strategy.
-    eta_0: double in [0,1]
-        the global null mean
-    max_iterations: int
-        the maximum number of iterations for projected gradient descent to try before stopping with error
-    Returns
-    --------
-    the value of the union-intersection supermartingale
-    '''
-    assert allocation_func in nonadaptive_allocations, "Cannot use eta-adaptive allocation"
-    w = N / np.sum(N) #stratum weights
-    K = len(N) #number of strata
-    n = [x[k].shape[0] for k in range(K)]
-    #define constraint set for pypoman projection
-    A = np.concatenate((
-        np.expand_dims(w, axis = 0),
-        #np.expand_dims(-w, axis = 0), project to halfspace; gradient should always point towards boundary anyway
-        -np.identity(K),
-        np.identity(K)))
-    b = np.concatenate((eta_0 * np.ones(1), np.zeros(K), np.ones(K)))
-    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
-    #TODO: pick a good value for delta, which dampens the Newton step.
-    #could also choose through learn by backtracking line search
-
-    #this is a nested list of arrays
-    #it stores the samples available in each stratum at time i = 0,1,2,...,n
-    samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
-    #initialize with no samples
-    uinnsms = [1] #uinnsm starts at 1 at time 0
-    samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
-    T_k = np.zeros((np.sum(n), K), dtype = int)
-    eta_stars = np.zeros((np.sum(n), K))
-
-    for i in np.arange(1, np.sum(n)):
-        #select next stratum
-        S_i = allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
-        T_k[i,:] = T_k[i-1,:]
-        T_k[i,S_i] += 1
-        for k in np.arange(K):
-            samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
-        #initial estimate of minimum by projecting current sample mean onto null space
-        if any(T_k[i,:] == 0):
-            sample_means = np.array([eta_0 for _ in range(K)])
-        else:
-            sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
-        eta_init = proj(sample_means)
-
-        glm = lambda x: PGD.global_log_mart(samples = samples_t, eta = x)
-        grad_glm = lambda x: PGD.grad(samples = samples_t, eta = x)
-        hess_glm = lambda x: np.diag(PGD.hessian(samples = samples_t, eta = x))
-        opt_result = scipy.optimize.minimize(
-            fun = glm,
-            x0 = eta_init,
-            jac = grad_glm,
-            hess = hess_glm,
-            method = "Newton-CG")
-        eta_tilde = opt_result
-        eta_star = proj(eta_tilde)
-        eta_stars[i,:] = eta_star
-
-
-
-        step_size = 1
-        counter = 0
-        #find optimum
-        while step_size > 1e-4:
-            counter += 1
-            if counter == max_iterations:
-                raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
-            grad_l = PGD.grad(samples_t[i], eta_l)
-            hess_l = PGD.hessian(samples_t[i], eta_l)
-            #take dampened Newton step and then project onto null
-            next_eta = proj(eta_l - (delta/hess_l) * grad_l)
-            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
-            eta_l = next_eta
-        eta_stars[i] = eta_l
-        #store current value of UI-TS
-        log_ts = PGD.global_log_mart(samples_t[i], eta_stars[i])
-        if log:
-            uinnsms.append(log_ts)
-        else:
-            uinnsms.append(np.exp(log_ts))
-    return np.array(uinnsms), eta_stars, T_k
-
 
 def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
     '''
@@ -1439,17 +1343,6 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
     w = N / np.sum(N) #stratum weights
     K = len(N) #number of strata
     n = [x[k].shape[0] for k in range(K)]
-    #define constraint set for pypoman projection
-    A = np.concatenate((
-        np.expand_dims(w, axis = 0),
-        #np.expand_dims(-w, axis = 0), project to halfspace; gradient should always point towards boundary anyway
-        -np.identity(K),
-        np.identity(K)))
-    b = np.concatenate((eta_0 * np.ones(1), np.zeros(K), np.ones(K)))
-    proj = lambda eta: pypoman.projection.project_point_to_polytope(point = eta, ineq = (A, b))
-    #TODO: pick a good value for delta, which dampens the Newton step.
-    #could also choose through learn by backtracking line search
-    delta = 1
 
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
@@ -1459,6 +1352,20 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
     samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
     T_k = np.zeros((np.sum(n), K), dtype = int)
     eta_stars = np.zeros((np.sum(n), K))
+    #constraint set for cvxopt
+    G = np.concatenate((
+        np.expand_dims(w, axis = 0),
+        np.expand_dims(-w, axis = 0),
+        -np.identity(K),
+        np.identity(K))
+    )
+    h = np.concatenate((
+        eta_0 * np.ones(1),
+        -eta_0 * np.ones(1),
+        np.zeros(K),
+        np.ones(K))
+    )
+
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum
@@ -1472,21 +1379,21 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
             sample_means = np.array([eta_0 for _ in range(K)])
         else:
             sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
-        eta_l = proj(sample_means)
-        step_size = 1
-        counter = 0
-        #find optimum
-        while step_size > 1e-4:
-            counter += 1
-            if counter == max_iterations:
-                raise Exception("Gradient descent took too many steps to converge. Raise max_iterations, or check conditioning of the optimization problem.")
-            grad_l = PGD.grad(samples_t[i], eta_l)
-            hess_l = PGD.hessian(samples_t[i], eta_l)
-            #take dampened Newton step and then project onto null
-            next_eta = proj(eta_l - (delta/hess_l) * grad_l)
-            step_size = PGD.global_log_mart(samples_t[i], eta_l) - PGD.global_log_mart(samples_t[i], next_eta)
-            eta_l = next_eta
-        eta_stars[i] = eta_l
+
+        def F(x=None, z=None):
+            '''
+            function for passing into cvxopt, combines the above
+            '''
+            x0 = cvxopt.matrix([[eta_stars[i-1]]])
+            if x is None and z is None:
+                return 0, x0
+            if z is None:
+                return PGD.global_log_mart(x), PGD.grad(x).T
+            return PGD.global_log_mart(x), PGD.grad(x).T, z*PGD.hessian(x)
+
+        #need a check for convergence
+        soln = cvxopt.solvers.cp(F, cvxopt.matrix(G), cvxopt.matrix(h))
+        eta_stars[i] = soln['x']
         #store current value of UI-TS
         log_ts = PGD.global_log_mart(samples_t[i], eta_stars[i])
         if log:

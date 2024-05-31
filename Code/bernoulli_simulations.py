@@ -19,7 +19,7 @@ np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 alt_grid = np.linspace(0.51, 0.75, 20)
-delta_grid = [0.5]
+delta_grid = [0]
 alpha = 0.05
 eta_0 = 0.5
 
@@ -35,7 +35,7 @@ allocations_dict = {
     "predictable_kelly":Allocations.predictable_kelly,
     "greedy_kelly":Allocations.greedy_kelly}
 #allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
-allocations_list = ["round_robin"]
+allocations_list = ["round_robin", "greedy_kelly"]
 
 K = 2
 N = [500, 500]
