@@ -8,7 +8,7 @@ import os
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
-    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_ui_mart, banded_uitsm
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_uits, banded_uitsm
 
 
 
@@ -38,7 +38,9 @@ allocations_dict = {
 allocations_list = ["round_robin", "greedy_kelly"]
 
 K = 2
-N = [500, 500]
+N_0 = [200, 200] #size of initial sample
+N_next = [200, 200] #size of blocks at which to expand sample
+N_max = [3000, 3000] #maximum size
 results = []
 eta_bands = construct_eta_bands(eta_0, N = N, n_bands = 100)
 

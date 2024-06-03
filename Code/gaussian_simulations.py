@@ -9,7 +9,7 @@ from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
     construct_eta_grid_plurcomp, simulate_comparison_audit, construct_vertex_etas,\
-    random_truncated_gaussian, PGD, negexp_ui_mart, construct_eta_bands, banded_uitsm
+    random_truncated_gaussian, PGD, negexp_uits, construct_eta_bands, banded_uitsm
 import time
 import os
 start_time = time.time()

@@ -4,6 +4,7 @@ import cvxopt
 import matplotlib.pyplot as plt
 import math
 import itertools
+import pypoman
 from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
@@ -162,7 +163,7 @@ class Bets:
         '''
         eta-adaptive; smooth, negative exponential in eta (doesn't use data)
         '''
-        lam = np.exp(-eta)
+        lam = np.ones(len(x)) * np.exp(-eta)
         return lam
 
     def smooth_predictable(x, eta, **kwargs):
@@ -277,7 +278,7 @@ class Allocations:
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
             next = np.argmax(scores)
         return next
-    #just a renaming of predictable_kelly, but is handled differently
+    #essentially just a renaming of predictable_kelly, but is handled differently
     def greedy_kelly(x, running_T_k, n, N, eta, lam, **kwargs):
         #this estimates the expected log-growth of each martingale
         #and then draws with probability proportional to this growth
@@ -290,7 +291,7 @@ class Allocations:
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
             #compute martingale as if sampling were with replacement (N = np.inf)
-            past_terms = [mart(x[k], eta[k], lam_func = None, lam = lam[k], N = np.inf, log = True, output = "terms")[0:running_T_k[k]] for k in range(K)]
+            past_terms = [mart(x[k][0:running_T_k[k]], eta[k], lam_func = None, lam = lam[k][0:running_T_k[k]], N = np.inf, log = True, output = "terms") for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -1253,71 +1254,87 @@ class PGD:
     currently everything is computed on assumption of sampling with replacement
     '''
 
-    def log_mart(samples, eta):
+    def log_mart(eta, samples):
         '''
         return the log value of within-stratum martingale evaluated at eta_k
         bets are exponential in negative eta, offset by lagged sample mean
         '''
         #lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
         #for the bet on the first sample, just guesses a mean of 1/2; after that, uses the sample mean
-        lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
-        if samples.size == 0:
+        x = samples
+        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+        if x.size == 0:
             return 0
         else:
-            return np.sum(np.log(1 + np.exp(lag_mean - eta) * (samples - eta)))
+            return np.sum(np.log(1 + np.exp(lag_mean - eta) * (x - eta)))
 
-    def global_log_mart(samples, eta):
+    def global_log_mart(eta, samples):
         '''
         return the log value of the product-combined I-NNSM evaluated at eta
         '''
-        return np.sum([PGD.log_mart(samples[k], eta[k]) for k in np.arange(len(eta))])
+        eta = np.array(eta)
+        return cvxopt.matrix(
+            np.sum([PGD.log_mart(eta[k], samples[k]) for k in np.arange(len(eta))])
+        )
 
-    def partial(samples, eta):
+
+    def partial(eta, samples):
         '''
         return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
         '''
-        lag_mean = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
-        if samples.size == 0:
+        x = samples
+        eta = np.array(eta)
+        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+        if x.size == 0:
             return 0
         else:
-            return -np.sum(np.exp(lag_mean - eta) * (samples - eta + 1) / (1 + np.exp(lag_mean - eta) * (samples - eta)))
+            return -np.sum(np.exp(lag_mean - eta) * (x - eta + 1) / (1 + np.exp(lag_mean - eta) * (x - eta)))
 
-    def grad(samples, eta):
+    def grad(eta, samples):
         '''
         return the gradient (WRT eta) of the log I-NNSM evaluated at eta
         '''
-        return np.array([PGD.partial(samples[k], eta[k]) for k in np.arange(len(eta))])
+        eta = np.array(eta)
+        return cvxopt.matrix(
+            np.array([PGD.partial(eta[k], samples[k]) for k in np.arange(len(eta))])
+        )
 
-    def second_partial(samples, eta):
+    def second_partial(eta, samples):
         '''
-        computes the second partial derivative (WRT) of the log I-NNSM evaluated at eta_k
+        computes the second partial derivative (WRT eta^2) of the log I-NNSM evaluated at eta_k
         Mixed partials are zero.
         '''
+        x = samples
+        eta = np.array(eta)
         #lag mean
-        lm = np.insert(np.cumsum(samples),0,1/2)[0:-1] / np.arange(1,len(samples)+1)
-        x = samples #rename to shorten
+        lm = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
         if x.size == 0:
             return 0.5
         else:
             g = 1 + np.exp(lm-eta) * (x-eta)
-            g_prime = np.exp(lm-eta) * (1-x+eta)
+            g_prime = np.exp(lm-eta) * (-1-(x-eta))
             f = np.exp(lm-eta) * (1+x-eta)
             f_prime = -np.exp(lm-eta) * (2+x-eta)
             numerator = g * f_prime - g_prime * f
             denominator = g**2
             return -np.sum(numerator/denominator)
 
-    def hessian(samples, eta):
+    def hessian(eta, samples):
         '''
-        return the diagonal of the Hessian matrix of the log I-TSM evaluated at eta
+        return the Hessian matrix of the log I-TSM evaluated at eta
         the off-diagonals (mixed-partials) are all zero
         '''
-        return np.array([PGD.second_partial(samples[k], eta[k]) for k in np.arange(len(eta))])
+        eta = np.array(eta)
+        n = len(eta)
+        hess = np.zeros((n, n))
+        for k in range(len(eta)):
+            hess[k][k] = PGD.second_partial(eta[k], samples[k])
+        return cvxopt.matrix(hess)
 
 
 
 
-def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iterations = 1000):
+def negexp_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
     compute the UI-NNSM when bets are negative exponential:
         lambda = exp(barX - eta)
@@ -1333,8 +1350,8 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
         the desired allocation strategy.
     eta_0: double in [0,1]
         the global null mean
-    max_iterations: int
-        the maximum number of iterations for projected gradient descent to try before stopping with error
+    log: Boolean
+        return UI-TS on log-scale
     Returns
     --------
     the value of the union-intersection supermartingale
@@ -1347,11 +1364,11 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
     samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
-    #initialize with no samples
-    uinnsms = [1] #uinnsm starts at 1 at time 0
+    uinnsms = [0 if log else 1] #uinnsm starts at 1 at time 0
     samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
     T_k = np.zeros((np.sum(n), K), dtype = int)
     eta_stars = np.zeros((np.sum(n), K))
+    bets_t = None
     #constraint set for cvxopt
     G = np.concatenate((
         np.expand_dims(w, axis = 0),
@@ -1369,33 +1386,34 @@ def negexp_ui_mart(x, N, allocation_func, eta_0 = 1/2, log = True, max_iteration
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum
-        S_i = allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1], lam_func = Bets.smooth_predictable)
+        S_i = allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1,:], lam = bets_t)
         T_k[i,:] = T_k[i-1,:]
         T_k[i,S_i] += 1
+        #bets for the stratum selection
+        bets_t = [mart(x[k][0:T_k[i,k]], eta_stars[i-1,k], lam_func = Bets.smooth_predictable, output = "bets") for k in range(K)]
         for k in np.arange(K):
             samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
-        #initial estimate of minimum by projecting current sample mean onto null space
+        #don't compute the minimum if there are unsampled strata
         if any(T_k[i,:] == 0):
-            sample_means = np.array([eta_0 for _ in range(K)])
+            log_ts = 0
         else:
-            sample_means = np.array([np.mean(samples_t[i][k]) for k in range(K)])
-
-        def F(x=None, z=None):
-            '''
-            function for passing into cvxopt, combines the above
-            '''
-            x0 = cvxopt.matrix([[eta_stars[i-1]]])
-            if x is None and z is None:
-                return 0, x0
-            if z is None:
-                return PGD.global_log_mart(x), PGD.grad(x).T
-            return PGD.global_log_mart(x), PGD.grad(x).T, z*PGD.hessian(x)
-
-        #need a check for convergence
-        soln = cvxopt.solvers.cp(F, cvxopt.matrix(G), cvxopt.matrix(h))
-        eta_stars[i] = soln['x']
-        #store current value of UI-TS
-        log_ts = PGD.global_log_mart(samples_t[i], eta_stars[i])
+            SAMPLES = samples_t[i] #PGD functions scope to this data
+            #define function for cvxopt
+            def F(x=None, z=None):
+                x0 = cvxopt.matrix(eta_stars[i-1,:])
+                if x is None and z is None:
+                    return 0, x0
+                if z is None:
+                    return PGD.global_log_mart(x, SAMPLES), PGD.grad(x, SAMPLES).T
+                return PGD.global_log_mart(x, SAMPLES), PGD.grad(x, SAMPLES).T, z*PGD.hessian(x, SAMPLES)
+            #need a check for convergence
+            soln = cvxopt.solvers.cp(F, cvxopt.matrix(G), cvxopt.matrix(h))
+            if soln['status'] == 'optimal':
+                eta_stars[i,:] = np.array(soln['x']).T
+            else:
+                raise RuntimeError("Optimization did not converge")
+            #store current value of UI-TS
+            log_ts = float(PGD.global_log_mart(eta_stars[i], SAMPLES)[0])
         if log:
             uinnsms.append(log_ts)
         else:
