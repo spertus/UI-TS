@@ -7,56 +7,91 @@ import numpy as np
 import pypoman
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
-    intersection_mart, plot_marts_eta, construct_eta_grid, union_intersection_mart, selector,\
+    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
     construct_eta_grid_plurcomp, simulate_comparison_audit, construct_vertex_etas,\
-    random_truncated_gaussian, PGD, negexp_ui_mart
+    random_truncated_gaussian, PGD, negexp_uits, construct_eta_bands, banded_uitsm
 import time
 import os
 start_time = time.time()
 
 alpha = 0.05
 eta_0 = 1/2
-reps = 1 #sort of deprecated. Repetions now occur in parallel, through SLURM
-sim_rep = os.getenv('SLURM_ARRAY_TASK_ID')
-np.random.seed(int(sim_rep)) #this sets a different seed for every rep
+rep_grid = np.arange(10) #allows reps within parallelized simulations
+sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
+#sim_id = "45"
+np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
-
-K_grid = [2,4,5]
+method_grid = ['lcb','uitsm','unstrat']
+K_grid = [2]
 global_mean_grid = np.linspace(0.5, 0.7, 10)
-delta_grid = [0, 0.1, 0.2] #maximum spread of the stratum means
-sd_grid = [0.01, 0.05]
+delta_grid = [0, 0.2] #maximum spread of the stratum means
+sd_grid = [0.01, 0.05, 0.10]
+
+bets_dict = {
+    "fixed":Bets.fixed,
+    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
+    "smooth_predictable":Bets.smooth_predictable}
+bets_list = ["fixed", "agrapa", "smooth_predictable"]
+allocations_dict = {
+    "round_robin":Allocations.round_robin,
+    "predictable_kelly":Allocations.predictable_kelly,
+    "greedy_kelly":Allocations.greedy_kelly}
+allocations_list = ["round_robin", "predictable_kelly", "greedy_kelly"]
+
 
 results = []
-for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, delta_grid, sd_grid):
+for K, global_mean, delta, sd, method, allocation, bet, rep in itertools.product(K_grid, global_mean_grid, delta_grid, sd_grid, method_grid, allocations_list, bets_list, rep_grid):
+    sim_rep = sim_id + "_" + str(rep)
     shifts = np.linspace(-0.5,0.5,K)
     deltas = shifts * delta
-    N = [int(1000/K) for _ in range(K)]
+    N = [int(400/K) for _ in range(K)]
     w = N/np.sum(N)
-    etas = construct_vertex_etas(N = N, eta_0 = eta_0)
-
+    #etas = construct_vertex_etas(N = N, eta_0 = eta_0)
+    etas = construct_eta_bands(eta_0 = eta_0, N = N, n_bands = 100)
 
     x = [random_truncated_gaussian(mean = global_mean + deltas[k], sd = sd, size = N[k]) for k in range(K)]
-    #unstratified sample by mixing
-    x_unstrat = np.zeros(np.sum(N))
-    for i in range(np.sum(N)):
-        rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
-        x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
 
-    unstrat_fixed = mart(x_unstrat, eta = 0.5, lam_func = Bets.fixed, log = True)
-    unstrat_agrapa = mart(x_unstrat, eta = 0.5, lam_func = Bets.agrapa, log = True)
-    lcb_fixed = global_lower_bound(x, N, Bets.fixed, Allocations.proportional_round_robin, alpha = 0.05, WOR = False, breaks = 1000)
-    lcb_agrapa = global_lower_bound(x, N, Bets.agrapa, Allocations.proportional_round_robin, alpha = 0.05, WOR = False, breaks = 1000)
-    uinnsm_fixed = union_intersection_mart(x, N, etas, Bets.fixed, Allocations.proportional_round_robin, WOR = False, combine = "product", log = True)[0]
-    uinnsm_smooth = negexp_ui_mart(x, N, Allocations.proportional_round_robin, log = True)[0]
-    uinnsm_smooth_minimax = negexp_ui_mart(x, N, Allocations.predictable_kelly, log = True)[0]
+    if method == 'lcb':
+        min_eta = None
+        if bet == 'uniform_mixture' or allocation in ['proportional_to_mart','predictable_kelly','greedy_kelly']:
+            stopping_time = None
+            sample_size = None
+        else:
+            lower_bound = global_lower_bound(
+                x = x,
+                N = N,
+                lam_func = bets_dict[bet],
+                allocation_func = allocations_dict[allocation],
+                alpha = alpha,
+                breaks = 1000,
+                WOR = False)
+            stopping_time = np.where(any(lower_bound > eta_0), np.argmax(lower_bound > eta_0), np.sum(N))
+            sample_size = stopping_time
+    elif method == 'unstrat':
+        if allocation == "round_robin":
+            x_unstrat = np.zeros(np.sum(N))
+            for i in range(np.sum(N)):
+                rand_k =  np.random.choice(np.arange(K), size = 1, p = w)
+                x_unstrat[i] = random_truncated_gaussian(mean = global_mean + deltas[rand_k], sd = sd, size = 1)
 
-    stop_unstrat_fixed = np.where(any(unstrat_fixed > -np.log(alpha)), np.argmax(unstrat_fixed > -np.log(alpha)), np.sum(N))
-    stop_unstrat_agrapa = np.where(any(unstrat_agrapa > -np.log(alpha)), np.argmax(unstrat_agrapa > -np.log(alpha)), np.sum(N))
-    stop_lcb_agrapa = np.where(any(lcb_agrapa > eta_0), np.argmax(lcb_agrapa > eta_0), np.sum(N))
-    stop_lcb_fixed = np.where(any(lcb_fixed > eta_0), np.argmax(lcb_fixed > eta_0), np.sum(N))
-    stop_uinnsm_fixed = np.where(any(uinnsm_fixed > -np.log(alpha)), np.argmax(uinnsm_fixed > -np.log(alpha)), np.sum(N))
-    stop_uinnsm_smooth = np.where(any(uinnsm_smooth > -np.log(alpha)), np.argmax(uinnsm_smooth > -np.log(alpha)), np.sum(N))
-    stop_uinnsm_smooth_minimax = np.where(any(uinnsm_smooth_minimax > -np.log(alpha)), np.argmax(uinnsm_smooth_minimax > -np.log(alpha)), np.sum(N))
+            unstrat_mart = mart(x_unstrat, eta = eta_0, lam_func = bets_dict[bet], log = True)
+            stopping_time = np.where(any(np.exp(unstrat_mart) > 1/alpha), np.argmax(np.exp(unstrat_mart) > 1/alpha), np.sum(N))
+            sample_size = stopping_time
+        else:
+            stopping_time = None
+            sample_size = None
+    else:
+        ui_mart, min_etas, global_ss = banded_uitsm(
+                    x = x,
+                    N = N,
+                    etas = etas,
+                    lam_func = bets_dict[bet],
+                    allocation_func = allocations_dict[allocation],
+                    log = True,
+                    WOR = False)
+        stopping_time = np.where(any(np.exp(ui_mart) > 1/alpha), np.argmax(np.exp(ui_mart) > 1/alpha), np.sum(N))
+        min_eta = min_etas[stopping_time]
+        sample_size = global_ss[stopping_time]
 
     results_dict = {
         "K":K,
@@ -64,13 +99,11 @@ for K, global_mean, delta, sd in itertools.product(K_grid, global_mean_grid, del
         "delta":delta,
         "sd":sd,
         "rep":sim_rep,
-        "stop_unstrat_fixed":stop_unstrat_fixed,
-        "stop_unstrat_agrapa":stop_unstrat_agrapa,
-        "stop_lcb_fixed":stop_lcb_fixed,
-        "stop_lcb_agrapa":stop_lcb_agrapa,
-        "stop_uinnsm_fixed":stop_uinnsm_fixed,
-        "stop_uinnsm_smooth":stop_uinnsm_smooth,
-        "stop_uinnsm_smooth_minimax":stop_uinnsm_smooth_minimax
+        "method":str(method),
+        "bet":str(bet),
+        "allocation":str(allocation),
+        "stopping_time":stopping_time,
+        "sample_size":sample_size
     }
     results.append(results_dict)
 results = pd.DataFrame(results)
