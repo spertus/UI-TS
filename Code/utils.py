@@ -8,6 +8,8 @@ import pypoman
 from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
+from welford import Welford
+
 
 
 class Bets:
@@ -33,6 +35,30 @@ class Bets:
     #    self.eta = eta
     #    self.kwargs = kwargs
 
+    def lag_welford(x, **kwargs):
+        '''
+        computes the lagged mean and standard deviation using Welford's algorithm (not a bet)
+        inserts the default values 1/2 for the mean and 1/4 for the SD
+        ------------
+        kwargs:
+            mu_0: float in [0,1], the first value of the lagged running mean
+            sd_0: float in [0,1/2], the first 2 values of the lagged running SD
+        '''
+        mu_0 = kwargs.get("mu_0", 1/2)
+        sd_0 = kwargs.get("sd_0", 1/4)
+        w = Welford()
+        mu_hat = []
+        sd_hat = []
+        for x_i in x:
+            w.add(x_i)
+            mu_hat.append(float(w.mean))
+            sd_hat.append(np.sqrt(w.var_s))
+        if len(sd_hat) > 0:
+            sd_hat[0] = sd_0
+        lag_mu_hat = np.insert(np.array(mu_hat), 0, mu_0)[0:-1]
+        lag_sd_hat = np.insert(np.array(sd_hat), 0, sd_0)[0:-1]
+        return lag_mu_hat, lag_sd_hat
+
     #work in progress: rewrite classes to define and inherit arguments from init
     #use kwargs for additional arguments specific to each method
     def fixed(x, eta, **kwargs):
@@ -57,15 +83,13 @@ class Bets:
         '''
         c = kwargs.get('c', 0.9)
         alpha = kwargs.get('alpha', 0.05)
+        sd_min = kwargs.get('sd_min', 0.01)
         #compute running mean and SD
-        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2... (last draw never informs a bet)
-        t = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
-        muhat_t = (1/2 + S) / t
-        muhat_t_lag = np.append(1/2, muhat_t[0:-1])
-        sigma2_t = (1/4 + np.cumsum(x - muhat_t)**2) / t
-        sigma2_t_lag = np.append(1/4, sigma2_t[0:-1])
+        lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+        lag_sd_hat = np.maximum(sd_min, lag_sd_hat)
+        t = np.arange(1, len(x) + 1)
 
-        lam_untrunc = np.sqrt((2 * np.log(2/alpha)) / (sigma2_t_lag * t * np.log(t + 1)))
+        lam_untrunc = np.sqrt((2 * np.log(2/alpha)) / (lag_sd_hat * t * np.log(t + 1)))
         lam = np.minimum(lam_untrunc, c)
         return lam
 
@@ -129,7 +153,7 @@ class Bets:
         d = kwargs.get('d', 20)
         c = kwargs.get('c', 0.95)
         minsd = kwargs.get('sd_min', 0.01)
-        #
+
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
         trunc_below = np.maximum((d * mu_0 + S)/(d+j-1), eta + eps_0/np.sqrt(d+j-1))
@@ -152,19 +176,11 @@ class Bets:
         sd_min = kwargs.get('sd_min', 0.01) #floor for sd (prevents divide by zero error)
         c = kwargs.get('c', 0.75) #threshold for bets from W-S and R
         eps = kwargs.get('eps', 1e-5) #floor for eta (prevents divide by zero error)
-        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
-        j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
-        mu_hat = S/j
-        mj = [x[0]]   # Welford's algorithm for running mean and running SD
-        sdj = [0]
-        for i, xj in enumerate(x[1:]):
-            mj.append(mj[-1]+(xj-mj[-1])/(i+1))
-            sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
-        sdj = np.sqrt(sdj/j)
-        sdj = np.insert(np.maximum(sdj,sd_min),0,1)[0:-1]
-        #parameterize the truncation of sdj w kwargs and the truncation of the bet?
-        #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
-        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
+
+
+        lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+        lag_sd_hat = np.maximum(lag_sd_hat, sd_min)
+        lam_untrunc = (lag_mu_hat - eta) / (lag_sd_hat**2 + (lag_mu_hat - eta)**2)
         #this rule says to bet the farm when eta is 0 (can't possibly lose)
         lam_trunc = np.maximum(0, np.where(eta > 0, np.minimum(lam_untrunc, c/(eta+eps)), np.inf))
         return lam_trunc
@@ -195,19 +211,25 @@ class Bets:
         eta-adaptive; smooth, bets more the higher the empirical mean is above the null mean
         The bet makes the UI-TS convex
         ----
-        TODO: make the size of the bets variance adaptive?
-         - bet more when variance is small by changing both a and b
-         - ensure bet is valid by checking value of a and b (conditions a <= 1 and b >= 1 will suffice)
-         - we could set the bet to equal eps at mu and a studentized value at mu - 2 \sigma...
         kwargs:
-            eps: epsilon, the size of the bet at the empirical mean
+            eps: float in (0,1]: epsilon, the size of the bet at the empirical mean
+            c: float in (0.5, 1] if eps is not given, it is set as (c - lag_sd_hat)\
+                note that the largest SD for a [0,1]-bounded RV is 0.5
         '''
-        eps = kwargs.get("eps", 0.75)
-        assert eps <= 1, "eps is too large, must be less than 1 to ensure a valid bet"
-        assert eps > 0, "eps is too small, must be greater than 0"
-        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
-        b = (1 - np.log(eps)) / lag_mean
-        lam = np.exp(1 - b * eta)
+        if len(x) == 0: #negexp_uits sometimes calls this function with no samples
+            lam = None #in that case, no bets are returned
+        else:
+            c = kwargs.get("c", 0.75)
+            eps = kwargs.get("eps", None)
+            if eps is not None:
+                assert 0 < eps <= 1, "eps is OOB, must be in (0,1]"
+                lag_mu_hat = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+            else:
+                assert 0.5 < c <= 1, "c is OOB, must be in (0.5,1]"
+                lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+                eps = c - lag_sd_hat
+            b = (1 - np.log(eps)) / lag_mu_hat
+            lam = np.exp(1 - b * eta)
         return lam
 
 
