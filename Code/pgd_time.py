@@ -3,31 +3,30 @@ import itertools
 import random
 import numpy as np
 import time
-from iteround import saferound
+#from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
-    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
+    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
     construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_uits,\
-    banded_uitsm
+    banded_uits
 
 
 
-#N_k_grid = [10, 50, 100, 200, 500, 1000] #number of samples from each stratum
-#K_grid = [2,3,5,10,50] #number of strata
-N_k_grid = [10]
-K_grid = [2]
+N_k_grid = [10, 50, 100, 500, 1000] #number of samples from each stratum
+K_grid = [2,3,5,10,50] #number of strata
 alpha = 0.05
 eta_0 = 0.5
 mu = 0.6
 
 methods_list = ['uinnsm_product', 'lcb']
-bet = Bets.smooth_predictable
+bet = Bets.negative_exponential
 allocation = Allocations.round_robin
 results = []
 
 for N_k, K in itertools.product(N_k_grid, K_grid):
+    print("N_k = " + str(N_k) + "; K = " + str(K))
     N = [N_k] * K
     means = [mu] * K
-    samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
+    samples = [np.ones(N[k]) * means[k] for k in range(K)]
 
     start_time = time.time()
     lower_bound = global_lower_bound(
@@ -43,6 +42,8 @@ for N_k, K in itertools.product(N_k_grid, K_grid):
     sample_size = stopping_time
     data_dict = {
         "alt":mu,
+        "N_k":N_k,
+        "K":K,
         "method":"lcb",
         "bet":"smooth_predictable",
         "allocation":"round_robin",
@@ -61,6 +62,8 @@ for N_k, K in itertools.product(N_k_grid, K_grid):
     stopping_time = np.where(any(np.exp(ui_mart) > 1/alpha), np.argmax(np.exp(ui_mart) > 1/alpha), np.sum(N))
     data_dict = {
         "alt":mu,
+        "N_k":N_k,
+        "K":K,
         "method":"uits",
         "bet":"smooth_predictable",
         "allocation":"round_robin",

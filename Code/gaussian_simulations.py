@@ -30,13 +30,13 @@ sd_grid = [0.01, 0.10]
 bets_dict = {
     "fixed_predictable":Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
-    "smooth_predictable":Bets.negative_exponential}
+    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = 0.9)}
 bets_list = ["fixed_predictable", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
     "greedy_kelly":Allocations.greedy_kelly}
-allocations_list = ["round_robin", "greedy_kelly"]
+allocations_list = ["round_robin"]
 
 
 
@@ -77,7 +77,7 @@ for global_mean, sd, delta, rep in itertools.product(global_mean_grid, sd_grid, 
                         sample_size = stopping_time = np.argmax(lower_bound > eta_0)
                         done = True
                     elif any(N >= N_max):
-                        sample_size = stopping_time = np.sum(N)-1
+                        sample_size = stopping_time = np.sum(N) - 1
                         done = True
                     else:
                         for k in range(K):

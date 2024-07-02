@@ -24,7 +24,7 @@ methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
     "fixed_predictable":Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
-    "smooth_predictable":Bets.negative_exponential}
+    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = 1)}
 bets_list = ["fixed_predictable", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,

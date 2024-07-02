@@ -28,7 +28,7 @@ bets_dict = {
     "fixed_plugin": Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.75),
     "bernoulli":lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.75),
-    "smooth_predictable":Bets.negative_exponential}
+    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = 0.6)}
 bets_list = ["fixed_plugin", "agrapa", "bernoulli", "smooth_predictable", "apriori_bernoulli"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
@@ -40,7 +40,7 @@ allocations_list = ["round_robin"]
 K = 2
 w = [1/2, 1/2]
 N = np.array([100, 100]) #size of initial sample
-N_next = np.array([200, 200]) #size of blocks at which to expand sample
+N_next = np.array([200, 200]) #size of blocks at which sample will expand
 N_max = np.array([2100, 2100]) #maximum size
 results = []
 eta_bands = construct_eta_bands(eta_0, N = w, n_bands = 100)
