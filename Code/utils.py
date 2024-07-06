@@ -8,6 +8,8 @@ import pypoman
 from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
+from welford import Welford
+
 
 
 class Bets:
@@ -24,7 +26,7 @@ class Bets:
         kwargs: additional arguments specific to each strategy
         Returns
         ----------
-        lam: a length-1 or length-n_k corresponding to lambda_{ki} in the I-NNSM:
+        lam: a length-n_k np.array corresponding to lambda_{ki} in the I-TSM:
             prod_{i=1}^{T_k(t)} [1 + lambda_{ki (X_{ki} - eta_k)]
 
     '''
@@ -32,6 +34,30 @@ class Bets:
     #    self.x = x
     #    self.eta = eta
     #    self.kwargs = kwargs
+
+    def lag_welford(x, **kwargs):
+        '''
+        computes the lagged mean and standard deviation using Welford's algorithm (not a bet)
+        inserts the default values 1/2 for the mean and 1/4 for the SD
+        ------------
+        kwargs:
+            mu_0: float in [0,1], the first value of the lagged running mean
+            sd_0: float in [0,1/2], the first 2 values of the lagged running SD
+        '''
+        mu_0 = kwargs.get("mu_0", 1/2)
+        sd_0 = kwargs.get("sd_0", 1/4)
+        w = Welford()
+        mu_hat = []
+        sd_hat = []
+        for x_i in x:
+            w.add(x_i)
+            mu_hat.append(float(w.mean))
+            sd_hat.append(np.sqrt(w.var_s))
+        if len(sd_hat) > 0:
+            sd_hat[0] = sd_0
+        lag_mu_hat = np.insert(np.array(mu_hat), 0, mu_0)[0:-1]
+        lag_sd_hat = np.insert(np.array(sd_hat), 0, sd_0)[0:-1]
+        return lag_mu_hat, lag_sd_hat
 
     #work in progress: rewrite classes to define and inherit arguments from init
     #use kwargs for additional arguments specific to each method
@@ -45,6 +71,26 @@ class Bets:
         '''
         c = kwargs.get('c', 0.75)
         lam = c * np.ones(x.size)
+        return lam
+
+    def predictable_plugin(x, eta, **kwargs):
+        '''
+        predictable plug in estimator of Waudby-Smith and Ramdas 2024
+        eta-nonadaptive
+        -----
+        kwargs:
+            c: the truncation parameter
+        '''
+        c = kwargs.get('c', 0.9)
+        alpha = kwargs.get('alpha', 0.05)
+        sd_min = kwargs.get('sd_min', 0.01)
+        #compute running mean and SD
+        lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+        lag_sd_hat = np.maximum(sd_min, lag_sd_hat)
+        t = np.arange(1, len(x) + 1)
+
+        lam_untrunc = np.sqrt((2 * np.log(2/alpha)) / (lag_sd_hat * t * np.log(t + 1)))
+        lam = np.minimum(lam_untrunc, c)
         return lam
 
     def apriori_bernoulli(x, eta, **kwargs):
@@ -107,7 +153,7 @@ class Bets:
         d = kwargs.get('d', 20)
         c = kwargs.get('c', 0.95)
         minsd = kwargs.get('sd_min', 0.01)
-        #
+
         S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
         trunc_below = np.maximum((d * mu_0 + S)/(d+j-1), eta + eps_0/np.sqrt(d+j-1))
@@ -130,19 +176,11 @@ class Bets:
         sd_min = kwargs.get('sd_min', 0.01) #floor for sd (prevents divide by zero error)
         c = kwargs.get('c', 0.75) #threshold for bets from W-S and R
         eps = kwargs.get('eps', 1e-5) #floor for eta (prevents divide by zero error)
-        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
-        j = np.arange(1,len(x)+1)  # 1, 2, 3, ..., len(x)
-        mu_hat = S/j
-        mj = [x[0]]   # Welford's algorithm for running mean and running SD
-        sdj = [0]
-        for i, xj in enumerate(x[1:]):
-            mj.append(mj[-1]+(xj-mj[-1])/(i+1))
-            sdj.append(sdj[-1]+(xj-mj[-2])*(xj-mj[-1]))
-        sdj = np.sqrt(sdj/j)
-        sdj = np.insert(np.maximum(sdj,sd_min),0,1)[0:-1]
-        #parameterize the truncation of sdj w kwargs and the truncation of the bet?
-        #we should allow larger bets, also see truncation below. Maybe set c to be above 0.75
-        lam_untrunc = (mu_hat - eta) / (sdj**2 + (mu_hat - eta)**2)
+
+
+        lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+        lag_sd_hat = np.maximum(lag_sd_hat, sd_min)
+        lam_untrunc = (lag_mu_hat - eta) / (lag_sd_hat**2 + (lag_mu_hat - eta)**2)
         #this rule says to bet the farm when eta is 0 (can't possibly lose)
         lam_trunc = np.maximum(0, np.where(eta > 0, np.minimum(lam_untrunc, c/(eta+eps)), np.inf))
         return lam_trunc
@@ -159,20 +197,42 @@ class Bets:
         lam_trunc = np.where(eta <= mu_hat, .75 / (eta + eps), 0)
         return lam_trunc
 
-    def smooth(x, eta, **kwargs):
+    def inverse_eta(x, eta, **kwargs):
         '''
-        eta-adaptive; smooth, negative exponential in eta (doesn't use data)
+        eta_adaptive; c/eta for c in [0,1]
         '''
-        lam = np.ones(len(x)) * np.exp(-eta)
+        c = kwargs.get('c', 0.9)
+        lam = np.ones(len(x)) * c/eta
         return lam
 
-    def smooth_predictable(x, eta, **kwargs):
+
+    def negative_exponential(x, eta, **kwargs):
         '''
         eta-adaptive; smooth, bets more the higher the empirical mean is above the null mean
+        The bet makes the UI-TS convex
+        ----
+        kwargs:
+            eps: float in (0,1]: epsilon, the size of the bet at the empirical mean
+            c: float in (0.5, 1] if eps is not given, it is set as (c - lag_sd_hat)\
+                note that the largest SD for a [0,1]-bounded RV is 0.5
         '''
-        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
-        lam = np.exp(lag_mean - eta)
+        if len(x) == 0: #negexp_uits sometimes calls this function with no samples
+            lam = None #in that case, no bets are returned
+        else:
+            c = kwargs.get("c", 0.75)
+            eps = kwargs.get("eps", None)
+            if eps is not None:
+                assert 0 < eps <= 1, "eps is OOB, must be in (0,1]"
+                lag_mu_hat = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+            else:
+                assert 0.5 < c <= 1, "c is OOB, must be in (0.5,1]"
+                lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+                eps = c - lag_sd_hat
+            b = (1 - np.log(eps)) / lag_mu_hat
+            lam = np.exp(1 - b * eta)
         return lam
+
+
 
 class Allocations:
     '''
@@ -323,7 +383,7 @@ class Weights:
     Returns
     ----------
         theta: a length-K list of convex weights
-            the weights for combining the martingales as a sum I-NNSM E-value at time t
+            the weights for combining the martingales as a sum I-TSM E-value at time t
 
     '''
     def fixed(eta):
@@ -659,12 +719,12 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
-            return the log I-NNSM if true, otherwise return on original scale
+            return the log I-TSM if true, otherwise return on original scale
         res: float > 0,
-            the resolution of equally-spaced grid to compute and plot the I-NNSM over
+            the resolution of equally-spaced grid to compute and plot the I-TSM over
     Returns
     ----------
-        generates and shows a plot of the last value of an I-NNSM over different values of the null mean
+        generates and shows a plot of the last value of an I-TSM over different values of the null mean
     '''
     K = len(x)
     if mixture == "vertex":
@@ -695,6 +755,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         plt.plot(eta_xs, objs, linewidth = 1)
         plt.show()
         print("minimum eta = " + str(min_eta))
+        print("minimum = " + str(objs[min_ix]))
     elif K == 3:
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
@@ -715,8 +776,9 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         ax.view_init(20, 120)
         plt.show()
         print("minimum eta = " + str(min_eta))
+        print("minimum = " + str(objs[min_ix]))
     else:
-        raise NotImplementedError("Can only plot I-NNSM over eta for 2 or 3 strata.")
+        raise NotImplementedError("Can only plot I-TSM over eta for 2 or 3 strata.")
 
 
 
@@ -724,8 +786,8 @@ def construct_exhaustive_eta_grid(eta_0, calX, N):
     '''
     construct a grid of null means for a stratified population\
     representing the null parameter space under a particular global null eta_0.
-    Used to compute a UI-NNSM using a brute force strategy\
-    that evaluates an I-NNSM at every feasible element of a (discrete) null parameter space.
+    Used to compute a UI-TS using a brute force strategy\
+    that evaluates an I-TSM at every feasible element of a (discrete) null parameter space.
 
     Parameters
     ----------
@@ -737,7 +799,7 @@ def construct_exhaustive_eta_grid(eta_0, calX, N):
             the size of the population within each stratum
     Returns
     ----------
-        a grid of within stratum null means, to be passed into union_intersection_mart
+        a grid of within stratum null means, to be passed into brute_force_uits
     '''
     K = len(N)
     w = N / np.sum(N)
@@ -827,7 +889,7 @@ def construct_vertex_etas(eta_0, N):
             the size of the population within each stratum
     Returns
     ----------
-        a list of intersection nulls, to be passed into union_intersection_mart
+        a list of intersection nulls, to be passed into brute_force_uits
     '''
     assert len(N) < 16, "Too many strata to compute vertices."
     w = N / np.sum(N)
@@ -876,9 +938,9 @@ def construct_eta_bands(eta_0, N, n_bands = 100):
     return etas
 
 
-def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportional_round_robin, log = True, WOR = False, verbose = False):
+def banded_uits(x, N, etas, lam_func, allocation_func = Allocations.proportional_round_robin, log = True, WOR = False, verbose = False):
     '''
-    compute a product UI-TSM by minimizing product I-TSMs along a grid of etas (the "band" method)
+    compute a product UI-TS by minimizing product I-TSMs along a grid of etas (the "band" method)
 
     Parameters
     ----------
@@ -893,7 +955,7 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
         log: Boolean
-            return the log UI-NNSM if true, otherwise return on original scale
+            return the log UI-TS if true, otherwise return on original scale
         WOR: Boolean
             should the intersection martingales be computed under sampling without replacement
     Returns
@@ -973,9 +1035,9 @@ def banded_uitsm(x, N, etas, lam_func, allocation_func = Allocations.proportiona
         return mart_opt, eta_opt, global_sample_size
 
 
-def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False, eta_0_mixture = 1/2):
+def brute_force_uits(x, N, etas, lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, combine = "product", theta_func = None, log = True, WOR = False, eta_0_mixture = 1/2):
     '''
-    compute a UI-NNSM by minimizing I-NNSMs by brute force search over feasible eta, passed as etas
+    compute a UI-TS by minimizing I-TSMs by brute force search over feasible eta, passed as etas
 
     Parameters
     ----------
@@ -990,7 +1052,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
         mixture: string or None, either "vertex" or "uniform"
-            if present, defines one of two mixing strategies for each I-NNSM and builds mixing_dist
+            if present, defines one of two mixing strategies for each I-TSM and builds mixing_dist
                 "vertex": mixes over a discrete uniform distribution on lambda = 1 - etas
                 "uniform": mixes over a uniform distribution on [0,1]^K, gridded into 10 equally-spaced points
         combine: string, either "product" or "sum"
@@ -998,7 +1060,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
         theta_func: callable, a function from class Weights
             only relevant if combine == "sum", the weights to use when combining with weighted sum
         log: Boolean
-            return the log UI-NNSM if true, otherwise return on original scale
+            return the log UI-TS if true, otherwise return on original scale
         WOR: Boolean
             should the intersection martingales be computed under sampling without replacement
         eta_0_mixture: float in [0,1]
@@ -1083,7 +1145,7 @@ def union_intersection_mart(x, N, etas, lam_func = None, allocation_func = Alloc
 
 
 
-def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-nnsm", combine = "product", alpha = 0.05, WOR = False, reps = 30):
+def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-ts", combine = "product", alpha = 0.05, WOR = False, reps = 30):
     '''
     simulate (repateadly, if desired) a comparison audit of a plurality contest
     given reported assorter means and overstatement rates in each stratum
@@ -1108,16 +1170,16 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_fu
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
         mixture: string or None, either "vertex" or "uniform"
-            Only works if method == "ui-nnsm"
-            if present, defines one of two mixing strategies for each I-NNSM and builds mixing_dist
+            Only works if method == "ui-ts"
+            if present, defines one of two mixing strategies for each I-TSM and builds mixing_dist
                 "vertex": mixes over a discrete uniform distribution on lambda = 1 - etas
                 "uniform": mixes over a uniform distribution on [0,1]^K, gridded into 10 equally-spaced points
-        method: string, either "ui-nnsm" or "lcbs"
+        method: string, either "ui-ts" or "lcbs"
             the method for testing the global null
             either union-intersection testing or combining lower confidence bounds as in Wright's method
         combine: string, either "product", "sum", or "fisher"
             how to combine within-stratum martingales to test the intersection null
-            only relevant when method == "ui-nnsm"
+            only relevant when method == "ui-ts"
         alpha: float in (0,1)
             the significance level of the test
         WOR: boolean
@@ -1130,7 +1192,7 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_fu
         these are the same whenever the allocation rule is nonadaptive
     '''
     assert assort_method in ["sts","global"], "invalid value for assorters"
-    assert method == "ui-nnsm" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
+    assert method == "ui-ts" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
     K = len(N)
     w = N/np.sum(N)
     A_c_global = np.dot(w, A_c)
@@ -1151,8 +1213,8 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_fu
     sample_sizes = np.zeros(reps) #container for global sample sizes
     for r in np.arange(reps):
         X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
-        if method == "ui-nnsm":
-            uinnsm, eta_min, global_ss, T_k = union_intersection_mart(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
+        if method == "ui-ts":
+            uinnsm, eta_min, global_ss, T_k = brute_force_uits(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
             if combine == "fisher":
                 stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
             else:
@@ -1250,7 +1312,7 @@ def stratified_t_test(x, eta_0, N):
 
 class PGD:
     '''
-    class of helper functions to compute UI-NNSM for negative exponential bets by projected gradient descent
+    class of helper functions to compute UI-TS for negative exponential bets by projected gradient descent
     currently everything is computed on assumption of sampling with replacement
     '''
 
@@ -1270,7 +1332,7 @@ class PGD:
 
     def global_log_mart(eta, samples):
         '''
-        return the log value of the product-combined I-NNSM evaluated at eta
+        return the log value of the product-combined I-TSM evaluated at eta
         '''
         eta = np.array(eta)
         return cvxopt.matrix(
@@ -1280,7 +1342,7 @@ class PGD:
 
     def partial(eta, samples):
         '''
-        return the partial derivative (WRT eta) of the log I-NNSM evaluated at eta_k
+        return the partial derivative (WRT eta) of the log I-TSM evaluated at eta_k
         '''
         x = samples
         eta = np.array(eta)
@@ -1292,7 +1354,7 @@ class PGD:
 
     def grad(eta, samples):
         '''
-        return the gradient (WRT eta) of the log I-NNSM evaluated at eta
+        return the gradient (WRT eta) of the log I-TSM evaluated at eta
         '''
         eta = np.array(eta)
         return cvxopt.matrix(
@@ -1301,7 +1363,7 @@ class PGD:
 
     def second_partial(eta, samples):
         '''
-        computes the second partial derivative (WRT eta^2) of the log I-NNSM evaluated at eta_k
+        computes the second partial derivative (WRT eta^2) of the log I-TSM evaluated at eta_k
         Mixed partials are zero.
         '''
         x = samples
@@ -1336,7 +1398,7 @@ class PGD:
 
 def negexp_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
-    compute the UI-NNSM when bets are negative exponential:
+    compute the UI-TS when bets are negative exponential:
         lambda = exp(barX - eta)
     currently only works for sampling with replacement
 
@@ -1390,7 +1452,7 @@ def negexp_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         T_k[i,:] = T_k[i-1,:]
         T_k[i,S_i] += 1
         #bets for the stratum selection
-        bets_t = [mart(x[k][0:T_k[i,k]], eta_stars[i-1,k], lam_func = Bets.smooth_predictable, output = "bets") for k in range(K)]
+        bets_t = [mart(x[k][0:T_k[i,k]], eta_stars[i-1,k], lam_func = Bets.negative_exponential, output = "bets") for k in range(K)]
         for k in np.arange(K):
             samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
         #don't compute the minimum if there are unsampled strata
