@@ -219,17 +219,23 @@ class Bets:
         if len(x) == 0: #negexp_uits sometimes calls this function with no samples
             lam = None #in that case, no bets are returned
         else:
+            a = kwargs.get("a", None) # explicit value for log-intercept
+            b = kwargs.get("b", None) # explicit value for log-coefficient on eta
             c = kwargs.get("c", 0.75)
             eps = kwargs.get("eps", None)
             if eps is not None:
                 assert 0 < eps <= 1, "eps is OOB, must be in (0,1]"
                 lag_mu_hat = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+                b = (1 - np.log(eps)) / lag_mu_hat
+                lam = np.exp(1 - b * eta)
+            elif (a is not None) and (b is not None):
+                lam = np.exp(a - b * eta)
             else:
                 assert 0.5 < c <= 1, "c is OOB, must be in (0.5,1]"
                 lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
                 eps = c - lag_sd_hat
-            b = (1 - np.log(eps)) / lag_mu_hat
-            lam = np.exp(1 - b * eta)
+                b = (1 - np.log(eps)) / lag_mu_hat
+                lam = np.exp(1 - b * eta)
         return lam
 
 
@@ -736,7 +742,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
     elif mixture is None:
         mixing_dist = None
     else:
-        stop("Specify a valid mixture method; either uniform or vertex")
+        stop("Specify a valid mixture method; either uniform, vertex, or None")
     eta_grid = np.arange(range[0] + res, range[1]-res, step=res)
     eta_xs, eta_ys, eta_zs, objs = [], [], [], []
     w = N / np.sum(N)
