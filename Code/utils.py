@@ -201,7 +201,13 @@ class Bets:
         '''
         eta_adaptive; c/eta for c in [0,1]
         '''
-        c = kwargs.get('c', 0.9)
+        c = kwargs.get('c', None)
+        l = kwargs.get('l', 0.1)
+        u = kwargs.get('u', 0.9)
+        if c is None:
+            lag_mean, lag_sd = Bets.lag_welford(x)
+            c_untrunc = lag_mean - lag_sd
+            c = np.minimum(np.maximum(l, c_untrunc), u)
         lam = np.ones(len(x)) * c/eta
         return lam
 
@@ -664,7 +670,7 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
                 #make all marts infinite if one is, when product is taken this enforces rule:
                 #we reject intersection null if certainly False in one stratum
                 #TODO: rethink this logic? What if the null is certainly true in a stratum?
-                #there is some serious subtlety to be considered when sampling WOR
+                #there is some more subtlety to be considered when sampling WOR
                 marts[i,:] = marts_i if not any(np.isposinf(marts_i)) else np.inf * np.ones(K)
     else:
         B = mixing_dist.shape[0]
@@ -706,7 +712,7 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
         return result
 
 
-def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2, range = [0,1]):
+def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allocations.proportional_round_robin, combine = "product", theta_func = None, log = True, res = 1e-2, range = [0,1], running_max = False):
     '''
     generate a 2-D or 3-D plot of an intersection martingale over possible values of bs{eta}
     the global null is always eta <= 1/2; future update: general global nulls
@@ -728,6 +734,8 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
             return the log I-TSM if true, otherwise return on original scale
         res: float > 0,
             the resolution of equally-spaced grid to compute and plot the I-TSM over
+        running_max: boolean
+            take the running max of each intersection mart? defaults to False
     Returns
     ----------
         generates and shows a plot of the last value of an I-TSM over different values of the null mean
@@ -752,7 +760,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
             if eta_y > 1 or eta_x < 0: continue
             obj = intersection_mart(x = x, N = N, eta = np.array([eta_x,eta_y]), lam_func = lam_func,
              lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
-             combine = combine, theta_func = theta_func, log = log)[-1]
+             combine = combine, theta_func = theta_func, log = log, running_max = running_max)[-1]
             eta_xs.append(eta_x)
             eta_ys.append(eta_y)
             objs.append(obj)
@@ -771,7 +779,7 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
                 if eta_z > 1 or eta_z < 0: continue
                 obj = intersection_mart(x = x, N = N, eta = np.array([eta_x,eta_y,eta_z]), lam_func = lam_func,
                  lam = None, mixing_dist = mixing_dist, allocation_func = allocation_func,
-                 combine = combine, theta_func = theta_func, log = log)[-1]
+                 combine = combine, theta_func = theta_func, log = log, running_max = running_max)[-1]
                 eta_xs.append(eta_x)
                 eta_ys.append(eta_y)
                 eta_zs.append(eta_z)
@@ -1318,7 +1326,7 @@ def stratified_t_test(x, eta_0, N):
 
 class PGD:
     '''
-    class of helper functions to compute UI-TS for negative exponential bets by projected gradient descent
+    class of helper functions to compute UI-TS for inverse bets by projected gradient descent
     currently everything is computed on assumption of sampling with replacement
     '''
 
@@ -1330,11 +1338,10 @@ class PGD:
         #lag_mean = np.mean(past_samples) if past_samples.size > 0 else 1/2
         #for the bet on the first sample, just guesses a mean of 1/2; after that, uses the sample mean
         x = samples
-        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
         if x.size == 0:
             return 0
         else:
-            return np.sum(np.log(1 + np.exp(lag_mean - eta) * (x - eta)))
+            return np.sum(np.log(1 + Bets.inverse_eta(x, eta) * (x - eta)))
 
     def global_log_mart(eta, samples):
         '''
@@ -1352,11 +1359,13 @@ class PGD:
         '''
         x = samples
         eta = np.array(eta)
-        lag_mean = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+        lag_mean, lag_sd = Bets.lag_welford(x)
+        c_untrunc = lag_mean - lag_sd
+        c = np.minimum(np.maximum(0.1, c_untrunc), 0.9)
         if x.size == 0:
             return 0
         else:
-            return -np.sum(np.exp(lag_mean - eta) * (x - eta + 1) / (1 + np.exp(lag_mean - eta) * (x - eta)))
+            return -np.sum((c * x * eta**(-2)) / (1 - c + c * x / eta))
 
     def grad(eta, samples):
         '''
@@ -1374,15 +1383,16 @@ class PGD:
         '''
         x = samples
         eta = np.array(eta)
-        #lag mean
-        lm = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+        lag_mean, lag_sd = Bets.lag_welford(x)
+        c_untrunc = lag_mean - lag_sd
+        c = np.minimum(np.maximum(0.1, c_untrunc), 0.9)
         if x.size == 0:
             return 0.5
         else:
-            g = 1 + np.exp(lm-eta) * (x-eta)
-            g_prime = np.exp(lm-eta) * (-1-(x-eta))
-            f = np.exp(lm-eta) * (1+x-eta)
-            f_prime = -np.exp(lm-eta) * (2+x-eta)
+            g = 1 - c + c * x / eta
+            g_prime = -c * x * eta**(-2)
+            f = c * x * eta**(-2)
+            f_prime = -2 * c * x * eta**(-3)
             numerator = g * f_prime - g_prime * f
             denominator = g**2
             return -np.sum(numerator/denominator)
@@ -1402,10 +1412,10 @@ class PGD:
 
 
 
-def negexp_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
+def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     '''
-    compute the UI-TS when bets are negative exponential:
-        lambda = exp(barX - eta)
+    compute the UI-TS when bets are inverse:
+        lambda = c / eta
     currently only works for sampling with replacement
 
     Parameters
@@ -1458,14 +1468,14 @@ def negexp_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         T_k[i,:] = T_k[i-1,:]
         T_k[i,S_i] += 1
         #bets for the stratum selection
-        bets_t = [mart(x[k][0:T_k[i,k]], eta_stars[i-1,k], lam_func = Bets.negative_exponential, output = "bets") for k in range(K)]
+        bets_t = [mart(x[k][0:T_k[i,k]], eta_stars[i-1,k], lam_func = Bets.inverse_eta, output = "bets") for k in range(K)]
         for k in np.arange(K):
             samples_t[i][k] = x[k][np.arange(T_k[i,k])] #update available samples
         #don't compute the minimum if there are unsampled strata
         if any(T_k[i,:] == 0):
             log_ts = 0
         else:
-            SAMPLES = samples_t[i] #PGD functions scope to this data
+            SAMPLES = samples_t[i]
             #define function for cvxopt
             def F(x=None, z=None):
                 x0 = cvxopt.matrix(eta_stars[i-1,:])
