@@ -18,7 +18,7 @@ eta_0 = 0.5
 mu = 0.6
 
 methods_list = ['uinnsm_product', 'lcb']
-bet = Bets.negative_exponential
+bet = Bets.inverse_eta
 allocation = Allocations.round_robin
 results = []
 
@@ -45,7 +45,7 @@ for N_k, K in itertools.product(N_k_grid, K_grid):
         "N_k":N_k,
         "K":K,
         "method":"lcb",
-        "bet":"smooth_predictable",
+        "bet":"inverse",
         "allocation":"round_robin",
         "stopping_time":stopping_time,
         "sample_size":stopping_time,

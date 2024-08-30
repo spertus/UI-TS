@@ -1330,6 +1330,7 @@ class PGD:
     currently everything is computed on assumption of sampling with replacement
     '''
 
+
     def log_mart(eta, samples):
         '''
         return the log value of within-stratum martingale evaluated at eta_k
@@ -1362,10 +1363,10 @@ class PGD:
         lag_mean, lag_sd = Bets.lag_welford(x)
         c_untrunc = lag_mean - lag_sd
         c = np.minimum(np.maximum(0.1, c_untrunc), 0.9)
-        if x.size == 0:
+        if x.size == 0: #if a stratum hasn't been sampled, the UI-TS is 1 for all eta
             return 0
         else:
-            return -np.sum((c * x * eta**(-2)) / (1 - c + c * x / eta))
+            return -np.sum((c * x * (eta**(-2))) / (1 - c + c * x * (eta**(-1))))
 
     def grad(eta, samples):
         '''
@@ -1387,7 +1388,7 @@ class PGD:
         c_untrunc = lag_mean - lag_sd
         c = np.minimum(np.maximum(0.1, c_untrunc), 0.9)
         if x.size == 0:
-            return 0.5
+            return 0
         else:
             g = 1 - c + c * x / eta
             g_prime = -c * x * eta**(-2)
@@ -1403,9 +1404,9 @@ class PGD:
         the off-diagonals (mixed-partials) are all zero
         '''
         eta = np.array(eta)
-        n = len(eta)
-        hess = np.zeros((n, n))
-        for k in range(len(eta)):
+        K = len(eta)
+        hess = np.zeros((K, K))
+        for k in range(K):
             hess[k][k] = PGD.second_partial(eta[k], samples[k])
         return cvxopt.matrix(hess)
 
@@ -1441,11 +1442,11 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
 
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
-    samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n))]
-    uinnsms = [0 if log else 1] #uinnsm starts at 1 at time 0
+    samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n)+1)]
+    uitsms = [0 if log else 1] #uinnsm starts at 1 at time 0
     samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
-    T_k = np.zeros((np.sum(n), K), dtype = int)
-    eta_stars = np.zeros((np.sum(n), K))
+    T_k = np.zeros((np.sum(n)+1, K), dtype = int)
+    eta_stars = np.zeros((np.sum(n)+1, K)) #stores minimizing etas
     bets_t = None
     #constraint set for cvxopt
     G = np.concatenate((
@@ -1460,6 +1461,10 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         np.zeros(K),
         np.ones(K))
     )
+    eta_stars = np.zeros((np.sum(n)+1, K))
+    eta_star_start = pypoman.projection.project_point_to_polytope(point = np.ones(K), ineq = (G, h))
+    eta_stars[0,:] = eta_star_start
+
 
 
     for i in np.arange(1, np.sum(n)):
@@ -1474,6 +1479,7 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         #don't compute the minimum if there are unsampled strata
         if any(T_k[i,:] == 0):
             log_ts = 0
+            eta_stars[i,:] = eta_star_start
         else:
             SAMPLES = samples_t[i]
             #define function for cvxopt
@@ -1484,7 +1490,6 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
                 if z is None:
                     return PGD.global_log_mart(x, SAMPLES), PGD.grad(x, SAMPLES).T
                 return PGD.global_log_mart(x, SAMPLES), PGD.grad(x, SAMPLES).T, z*PGD.hessian(x, SAMPLES)
-            #need a check for convergence
             soln = cvxopt.solvers.cp(F, cvxopt.matrix(G), cvxopt.matrix(h))
             if soln['status'] == 'optimal':
                 eta_stars[i,:] = np.array(soln['x']).T
@@ -1493,7 +1498,7 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
             #store current value of UI-TS
             log_ts = float(PGD.global_log_mart(eta_stars[i], SAMPLES)[0])
         if log:
-            uinnsms.append(log_ts)
+            uitsms.append(log_ts)
         else:
-            uinnsms.append(np.exp(log_ts))
-    return np.array(uinnsms), eta_stars, T_k
+            uitsms.append(np.exp(log_ts))
+    return np.array(uitsms), eta_stars, T_k
