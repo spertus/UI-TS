@@ -7,6 +7,7 @@ The primary tools are union-of-intersections test sequences (UI-TSs) and sequent
 The `Code` directory contains the following python scripts:
 
 - `utils.py` contains all functions implementing the proposed methods
+- `test.py` contians unit test for all functions
 - `significance_simulations.py` runs the t-test simulation that generated Figure 1
 - `pointmass_simulations.py` runs the pointmass simulations presented in Section 7.1
 - `bernoulli_simulations.py` runs the Bernoulli simulations presented in Section 7.2
