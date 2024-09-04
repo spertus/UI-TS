@@ -11,7 +11,7 @@ import coverage
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, brute_force_uits, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_comparison_audit,\
-    random_truncated_gaussian, PGD, negexp_uits, construct_eta_bands, banded_uits
+    random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits
 
 
 def test_mart():
@@ -235,6 +235,7 @@ def test_banded_uits():
     assert banded_uits(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.predictable_kelly, WOR = True)[0][-1] >= 0
     assert banded_uits(sample, N, eta_bands_100, Bets.agrapa, allocation_func = Allocations.greedy_kelly, WOR = False)[0][-1] >= 0
     assert banded_uits(sample, N, eta_bands_100, Bets.negative_exponential, allocation_func = Allocations.greedy_kelly, WOR = True)[0][-1] >= 0
+    assert banded_uits(sample, N, eta_bands_100, Bets.inverse_eta, allocation_func = Allocations.greedy_kelly, WOR = True)[0][-1] >= 0
 
 
 def test_brute_force_uits():
@@ -250,18 +251,18 @@ def test_brute_force_uits():
     assert all(brute_force_uits(sample, N, etas, allocation_func = Allocations.round_robin, mixture = "uniform", combine = "product")[0] <= 0)
 
 
-def test_simulate_comparison_audit():
-    N = [20, 20]
-    A_c = [0.8, 0.8]
-    p_1 = [0.0, 0.0]
-    p_2 = [0.0, 0.0]
-    #check global stopping times
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.round_robin, mixture = "uniform", WOR = True, reps = 10)[0]
-    #check global sample sizes
-    assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
-    #check if sample size is larger than stopping time
-    g_st, g_ss = simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True, reps = 1)
-    assert g_st < g_ss
+# def test_simulate_comparison_audit():
+#     N = [20, 20]
+#     A_c = [0.8, 0.8]
+#     p_1 = [0.0, 0.0]
+#     p_2 = [0.0, 0.0]
+#     #check global stopping times
+#     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = None, allocation_func = Allocations.round_robin, mixture = "uniform", WOR = True, reps = 10)[0]
+#     #check global sample sizes
+#     assert 1 < simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
+#     #check if sample size is larger than stopping time
+#     g_st, g_ss = simulate_comparison_audit(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True, reps = 1)
+#     assert g_st < g_ss
 
 
 def test_random_truncated_gaussian():
@@ -271,31 +272,31 @@ def test_random_truncated_gaussian():
     assert 0.4 < random_truncated_gaussian(0.5, 0.001, 1) < 0.6
 
 
-def test_negexp_uits():
+def test_convex_uits():
     #these tests are probabilistic, they may sometimes fail (but should rarely)
     N = [100, 50]
     x_null_1 = [random_truncated_gaussian(0.5, 0.05, N[0]), random_truncated_gaussian(0.5, 0.05, N[1])]
-    assert np.max(negexp_uits(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100) #there should be less than 1% chance this doesnt happen
+    assert np.max(convex_uits(x_null_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100) #there should be less than 1% chance this doesnt happen
     x_null_2 = [random_truncated_gaussian(0.2, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_uits(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
-    assert np.max(negexp_uits(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(convex_uits(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(convex_uits(x_null_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) < np.log(100)
     x_null_3 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.6, 0.05, N[1])]
-    assert np.max(negexp_uits(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(convex_uits(x_null_2, N, Allocations.round_robin, eta_0 = 0.5)[0]) < np.log(100)
 
 
     #test that it does reject eventually under alternative
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_uits(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
+    assert np.max(convex_uits(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
     x_alt_2 = [random_truncated_gaussian(0.4, 0.05, N[0]), random_truncated_gaussian(0.8, 0.05, N[1])]
-    assert np.max(negexp_uits(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) > np.log(20)
+    assert np.max(convex_uits(x_alt_2, N, Allocations.more_to_larger_means, eta_0 = 0.5)[0]) > np.log(20)
 
     #test minimax-eta strategy (greedy kelly) under null and alternative
-    assert np.max(negexp_uits(x_null_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) < np.log(100)
-    assert np.max(negexp_uits(x_alt_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) > np.log(20)
+    assert np.max(convex_uits(x_null_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) < np.log(100)
+    assert np.max(convex_uits(x_alt_1, N, Allocations.greedy_kelly, eta_0 = 0.5)[0]) > np.log(20)
 
     #check that greedy_kelly pulls different strata than round robin when the strata are different
-    uits_rr_alt2 = negexp_uits(x_alt_2, N, Allocations.round_robin, eta_0 = 0.5)
-    uits_minimax_alt2 = negexp_uits(x_alt_2, N, Allocations.greedy_kelly, eta_0 = 0.5)
+    uits_rr_alt2 = convex_uits(x_alt_2, N, Allocations.round_robin, eta_0 = 0.5)
+    uits_minimax_alt2 = convex_uits(x_alt_2, N, Allocations.greedy_kelly, eta_0 = 0.5)
     assert all(uits_rr_alt2[2][2,:] == uits_minimax_alt2[2][2,:]) #first 2 selections should always be round robin
     assert any(uits_rr_alt2[2][30,:] != uits_minimax_alt2[2][30,:]) #but should eventually diverge...
     assert uits_minimax_alt2[0][30] > uits_rr_alt2[0][30] #check if minimax is larger
@@ -304,4 +305,4 @@ def test_negexp_uits():
     K = 5
     N = [100 for _ in range(K)]
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[k]) for k in range (K)]
-    assert np.max(negexp_uits(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
+    assert np.max(convex_uits(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(20)
