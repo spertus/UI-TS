@@ -1462,7 +1462,7 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         np.ones(K))
     )
     eta_stars = np.zeros((np.sum(n)+1, K))
-    eta_star_start = pypoman.projection.project_point_to_polytope(point = np.ones(K), ineq = (G, h))
+    eta_star_start = pypoman.projection.project_point_to_polytope(point = np.ones(K), ineq = (G, h), qpsolver = 'cvxopt')
     eta_stars[0,:] = eta_star_start
 
 

@@ -8,7 +8,7 @@ import os
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
-    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_uits,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, convex_uits,\
     banded_uits, brute_force_uits
 
 
@@ -19,7 +19,7 @@ np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 alt_grid = np.linspace(0.51, 0.7, 20)
-delta_grid = [0]
+delta_grid = [0.5]
 alpha = 0.05
 eta_0 = 0.5
 
@@ -28,8 +28,9 @@ bets_dict = {
     "fixed_plugin": Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.75),
     "bernoulli":lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.75),
-    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = 1)}
-bets_list = ["fixed_plugin", "agrapa", "bernoulli", "smooth_predictable", "apriori_bernoulli"]
+    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = .95),
+    "inverse": lambda x, eta: Bets.inverse_eta(x, eta, eps = 0.9)}
+bets_list = ["fixed_plugin", "agrapa", "bernoulli", "smooth_predictable", "apriori_bernoulli", "inverse"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
