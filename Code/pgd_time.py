@@ -6,12 +6,12 @@ import time
 #from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
-    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_uits,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, convex_uits,\
     banded_uits
 
 
 
-N_k_grid = [10, 50, 100, 500, 1000] #number of samples from each stratum
+N_k_grid = [10, 50, 100] #number of samples from each stratum
 K_grid = [2,3,5,10,50] #number of strata
 alpha = 0.05
 eta_0 = 0.5
@@ -53,7 +53,7 @@ for N_k, K in itertools.product(N_k_grid, K_grid):
     results.append(data_dict)
 
     start_time = time.time()
-    ui_mart, min_etas, T_k = negexp_uits(
+    ui_mart, min_etas, T_k = convex_uits(
                 x = samples,
                 N = N,
                 allocation_func = allocation,
@@ -65,11 +65,11 @@ for N_k, K in itertools.product(N_k_grid, K_grid):
         "N_k":N_k,
         "K":K,
         "method":"uits",
-        "bet":"smooth_predictable",
+        "bet":"inverse",
         "allocation":"round_robin",
         "stopping_time":stopping_time,
         "sample_size":stopping_time,
         "run_time":run_time_uits}
     results.append(data_dict)
 results = pd.DataFrame(results)
-results.to_csv("pgd_run_times.csv", index = False)
+results.to_csv("pgd_run_times_short.csv", index = False)
