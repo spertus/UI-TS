@@ -1,6 +1,6 @@
 # Union-of-intersections test sequences (UI-TSs)
 
-Code for Spertus, Sridhar, and Stark (2024) "Sequential stratified inference for the mean."
+Code for [Spertus, Sridhar, and Stark (2024)](https://arxiv.org/abs/2409.06680).
 Contains tools to run hypothesis tests about means of bounded, stratified populations with sequential, finite-sample, nonparametric (SFSNP) level control. 
 The primary tools are union-of-intersections test sequences (UI-TSs) and sequentially valid lower confidence bounds (LCBs).
 
