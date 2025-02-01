@@ -42,8 +42,6 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
     means = [alt - 0.5*delta, alt + 0.5*delta]
     samples = [np.ones(N[0]) * means[0], np.ones(N[1]) * means[1]]
 
-    #calX = [np.array([0, means[0], 1]),np.array([0, means[1], 1])]
-    #eta_grid, calC, ub_calC = construct_eta_grid(eta_0, calX, N)
     eta_bands = construct_eta_bands(eta_0 = eta_0, N = N, n_bands = n_bands)
 
     if method == 'lcb':
