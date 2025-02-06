@@ -6,7 +6,7 @@ import time
 #from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
-    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, convex_uits,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_plurcomp, PGD, convex_uits,\
     banded_uits
 
 

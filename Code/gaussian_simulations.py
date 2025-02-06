@@ -8,7 +8,7 @@ import pypoman
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
-    construct_eta_grid_plurcomp, simulate_comparison_audit, construct_vertex_etas,\
+    construct_eta_grid_plurcomp, simulate_plurcomp, construct_vertex_etas,\
     random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits, brute_force_uits
 import time
 import os
@@ -29,9 +29,8 @@ sd_grid = [0.01, 0.10]
 
 bets_dict = {
     "fixed_predictable":Bets.predictable_plugin,
-    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
-    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = 1),
-    "inverse": lambda x, eta: Bets.inverse_eta(x, eta, eps = 0.9)}
+    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.9),
+    "inverse": lambda x, eta: Bets.inverse_eta(x, eta, u = 0.9)}
 bets_list = ["fixed_predictable", "agrapa", "smooth_predictable", "inverse"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
