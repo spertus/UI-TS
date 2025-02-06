@@ -795,7 +795,6 @@ def plot_marts_eta(x, N, lam_func = None, mixture = None, allocation_func = Allo
         raise NotImplementedError("Can only plot I-TSM over eta for 2 or 3 strata.")
 
 
-
 def construct_exhaustive_eta_grid(eta_0, calX, N):
     '''
     construct a grid of null means for a stratified population\
@@ -845,6 +844,7 @@ def construct_exhaustive_eta_grid(eta_0, calX, N):
     calC = len(etas)
     return etas, calC, ub_calC
 
+
 def construct_eta_grid_plurcomp(N, A_c, assorter_method):
     '''
     construct all the intersection nulls possible in a comparison audit of a plurality contest
@@ -887,6 +887,9 @@ def construct_eta_grid_plurcomp(N, A_c, assorter_method):
                 etas.append(crt_prd)
     calC = len(etas)
     return etas, calC
+
+
+
 
 def construct_vertex_etas(eta_0, N):
     '''
@@ -1156,13 +1159,11 @@ def brute_force_uits(x, N, etas, lam_func = None, allocation_func = Allocations.
         mart_opt[i] = obj[opt_index[i],i]
     return mart_opt, eta_opt, global_sample_size, T_k
 
+####### comparison audit functions #######
 
-
-
-def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_func = None, allocation_func = Allocations.proportional_round_robin, mixture = None, method = "ui-ts", combine = "product", alpha = 0.05, WOR = False, reps = 30):
+def construct_eta_grid_plurcomp(N, A_c, assorter_method):
     '''
-    simulate (repateadly, if desired) a comparison audit of a plurality contest
-    given reported assorter means and overstatement rates in each stratum
+    construct all the intersection nulls possible in a comparison audit of a plurality contest
 
     Parameters
     ----------
@@ -1170,30 +1171,106 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_fu
             the size of each stratum
         A_c: a length-K np.array of floats
             the reported assorter mean bar{A}_c in each stratum
+        assorter_method: str, either "sts" or "global"
+            method for constructing the audit, effects values of means produced within strata
+            "sts": as described in Sweeter than Suite Section 3.2
+            "global": canonical means summing to 1/2 (no adjustment for stratum-wise reported assorter means)/
+                      the population itself is rescaled to reflect a comparison audit (see simulate_comparison_audit)
+    Returns
+    ----------
+        every eta that is possible in a comparison risk-limiting audit\
+        given the input diluted margins and stratum sizes
+    '''
+    assert assorter_method in ["sts", "global"]
+    w = N/np.sum(N)
+    #assert np.dot(w, A_c) > 0.5, "global reported margin <= 1/2"
+    K = len(N)
+    means = []
+    for k in np.arange(K):
+        means.append(np.arange(0, 1 + 0.5/N[k], step  = 0.5/N[k]))
+    etas = []
+    #if we can't hit w^T mu = 1/2, what is the largest gap possible?
+    #should there be a factor of K
+    eps_k = w*(0.5/np.array(N))
+    eps = np.max(eps_k)
+    for crt_prd in itertools.product(*means):
+        if 1/2 - eps <= np.dot(w, crt_prd) <= 1/2:
+            if assorter_method == "sts":
+                #null means as defined in Sweeter than SUITE https://arxiv.org/pdf/2207.03379.pdf
+                #but divided by two, to map population from [0,2] to [0,1]
+                etas.append(tuple((np.array(crt_prd) + 1 - A_c) / 2))
+            else:
+                etas.append(crt_prd)
+    calC = len(etas)
+    return etas, calC
+
+def construct_eta_bands_plurcomp(A_c, N, n_bands = 100):
+    '''
+    construct a set of bands to run a card-level comparison audit of a plurality contest
+    using the parameterization from Sweeter than SUITE (STS): https://arxiv.org/pdf/2207.03379
+
+
+    Parameters
+    ----------
+        A_c: length-2 list of floats in [0,1]
+            the reported assorter mean in each stratum
+        N: length-2 list of ints
+            the size of the population within each stratum
+        n_bands: positive int
+            the number of equal-width bands in the tesselation of the null boundary
+    Returns
+    ----------
+        a list of tuples of length points,
+        each tuple represents a band over which the null mean will be tested,
+        it contains one eta that is used to construct bets and selections
+        and two etas representing the endpoints of the band, which are used to conservatively test the intersection nulls for that band
+    '''
+    assert (np.max(A_c) <= 1) and (np.min(A_c) >= 0), "reported assorter margin is not in [0,1]"
+    assert np.min(N) >= 1, "N (population size) must be no less than 1 in all strata"
+    K = len(N)
+    u = 2 # the upper bound on the overstatment assorters, per STS
+    eta_0 = 1/2 # the global null in terms of the original assorters
+    assert K == 2, "only works for two strata"
+    w = N / np.sum(N)
+    assert np.dot(w, A_c) > 1/2, "reported assorter mean (A_c) implies the winner lost"
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(u, eta_0/w[0]), n_bands + 1)
+    eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
+    # transformed overstatement assorters
+    # the transofmration is per STS, except divided by 2
+    # the division by 2 allows a plurality CCA population to be defined on [0,1] instead of [0,2]
+    beta_1_grid = (eta_1_grid + 1 - A_c[0])/2 # transformed null means in stratum 1
+    beta_2_grid = (eta_2_grid + 1 - A_c[1])/2 # transformed null means in stratum 2
+    beta_grid = np.transpose(np.vstack((beta_1_grid, beta_2_grid)))
+    betas = []
+    for i in np.arange(beta_grid.shape[0]-1):
+        centroid = (beta_grid[i,:] + beta_grid[i+1,:]) / 2
+        betas.append([(beta_grid[i,:], beta_grid[i+1,:]), centroid])
+    return betas
+
+
+
+def simulate_plurcomp(N, A_c, p_1 = np.array([0.0, 0.0]), p_2 = np.array([0.0, 0.0]), lam_func = None, allocation_func = Allocations.proportional_round_robin, method = "ui-ts", n_bands = 100, alpha = 0.05, WOR = False, reps = 30):
+    '''
+    simulate (repateadly, if desired) a card-level comparison audit (CCA) of a plurality contest
+    given reported assorter means and overstatement rates in each stratum
+    uses the parametrization of stratified CCAs developed in https://arxiv.org/pdf/2207.03379
+    Parameters
+    ----------
+        N: a length-K list of ints
+            the size of each stratum
+        A_c: a length-K np.array of floats
+            the reported assorter mean bar{A}_c in each stratum
         p_1: a length-K np.array of floats
-            the true rate of 1 vote overstatements in each stratum
+            the true rate of 1 vote overstatements in each stratum, defaults to none
         p_2: a length-K np.array of floats
-            the true rate of 2 vote overstatements in each stratum
-        assort_method: str, either "sts" or "global"
-            how to construct the comparison audit
-            if sts, uses the parameterization in Section 3.2 of Sweeter than SUITE (Spertus and Stark, 2022)
-            if global, uses the global method of construcing overstatement assorters for an unstratified population\\
-                e.g., as presented in COBRA (Spertus, 2023)
+            the true rate of 2 vote overstatements in each stratum, defaults to none
         lam_func: callable, a function from class Bets
             the function for setting the bets (lambda_{ki}) for each stratum / time
         allocation_func: callable, a function from the Allocations class
             function for allocation sample to strata for each eta
-        mixture: string or None, either "vertex" or "uniform"
-            Only works if method == "ui-ts"
-            if present, defines one of two mixing strategies for each I-TSM and builds mixing_dist
-                "vertex": mixes over a discrete uniform distribution on lambda = 1 - etas
-                "uniform": mixes over a uniform distribution on [0,1]^K, gridded into 10 equally-spaced points
         method: string, either "ui-ts" or "lcbs"
             the method for testing the global null
             either union-intersection testing or combining lower confidence bounds as in Wright's method
-        combine: string, either "product", "sum", or "fisher"
-            how to combine within-stratum martingales to test the intersection null
-            only relevant when method == "ui-ts"
         alpha: float in (0,1)
             the significance level of the test
         WOR: boolean
@@ -1205,125 +1282,38 @@ def simulate_comparison_audit(N, A_c, p_1, p_2, assort_method = "global", lam_fu
         two scalars, the expected stopping time of the audit and the global sample size of the audit;
         these are the same whenever the allocation rule is nonadaptive
     '''
-    assert assort_method in ["sts","global"], "invalid value for assorters"
-    assert method == "ui-ts" or (method == "lcbs" and (mixture is None)), "lcb does not work with mixture"
+    assert method in ["lcb", "ui-ts"], "method argument is invalid"
     K = len(N)
     w = N/np.sum(N)
     A_c_global = np.dot(w, A_c)
-    etas = construct_eta_grid_plurcomp(N, A_c, assort_method)[0] #etas depends on the method of assorting
+    betas = construct_eta_bands_plurcomp(A_c, N, n_bands)
 
     x = []
-    #construct assorter populations within each stratum
-    v = 2 * A_c_global - 1
-    a = 1/(2-v)
+    v = 2 * A_c_global - 1 # global diluted margin
+    a = 1/(2-v) # where the pointmass would be for a global (unstratified) CCA
+
+    #construct assorter population within each stratum
     for k in np.arange(K):
-        num_errors = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
-        if assort_method == "sts":
-            x.append(1/2 * np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * 1/2, np.ones(num_errors[2])]))
-        else:
-            x.append(np.concatenate([np.zeros(num_errors[0]), np.ones(num_errors[1]) * a/2, np.ones(num_errors[2])]) * a)
+        num_points = [int(n_err) for n_err in saferound([N[k]*p_2[k], N[k]*p_1[k], N[k]*(1-p_2[k]-p_1[k])], places = 0)]
+        x.append(1/2 * np.concatenate([np.zeros(num_points[0]), np.ones(num_points[1]) * 1/2, np.ones(num_points[2])]))
 
     stopping_times = np.zeros(reps) #container for global stopping times
     sample_sizes = np.zeros(reps) #container for global sample sizes
     for r in np.arange(reps):
-        X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)]
+        X = [np.random.choice(x[k],  len(x[k]), replace = (not WOR)) for k in np.arange(K)] #shuffle (WOR) or sample (WR) a length-N_k sequence from each stratum k
         if method == "ui-ts":
-            uinnsm, eta_min, global_ss, T_k = brute_force_uits(X, N, etas, lam_func, allocation_func, mixture, combine, WOR, log = True)
-            if combine == "fisher":
-                stopping_times[r] = np.where(any(uinnsm < np.log(alpha)), np.argmax(uinnsm < np.log(alpha)), np.sum(N))
-            else:
-                stopping_times[r] = np.where(any(uinnsm > -np.log(alpha)), np.argmax(uinnsm > -np.log(alpha)), np.sum(N))
+            uits, eta_min, global_ss = banded_uits(X, N, betas, lam_func, allocation_func, log = True, WOR = WOR)
+            stopping_times[r] = np.where(any(uits > -np.log(alpha)), np.argmax(uits > -np.log(alpha)), np.sum(N))
             sample_sizes[r] = global_ss[int(stopping_times[r])]
-        elif method == "lcbs":
-            eta_0 = (1/2 + 1 - A_c_global)/2 if (assort_method == "sts") else 1/2
-            lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, breaks = 1000)
+        elif method == "lcb":
+            eta_0 = (1/2 + 1 - A_c_global)/2
+            lcb = global_lower_bound(X, N, lam_func, allocation_func, alpha, WOR = WOR, breaks = 1000)
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
             sample_sizes[r] = stopping_times[r]
     return np.mean(stopping_times), np.mean(sample_sizes)
 
 
-
-def random_truncated_gaussian(mean, sd, size):
-    '''
-    simulate from a gaussian truncated to [0,1]
-
-    Parameters
-    ----------
-        mean: double in [0,1]
-        sd: positive double
-        size: the number of samples to draw
-    Returns
-    ----------
-        length-size np.array of truncated gaussian draws
-    '''
-    assert 0 <= mean <= 1, "mean is not in [0,1]"
-    samples = np.zeros(size)
-    for i in range(size):
-        while True:
-            draw = np.random.normal(mean, sd, 1)
-            if 0 <= draw <= 1:
-                samples[i] = draw
-                break
-    return samples
-
-
-def t_test(x, eta_0, N = np.inf, WOR = False):
-    '''
-    run a one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
-
-    Parameters
-    ----------
-        x: length-n np.array
-            n samples drawn with or without replacement
-        eta_0: double
-            a hypothesized null mean
-        N: int or np.inf
-            the size of the population, may be infinite
-        WOR: boolean
-            was x drawn with or without replacement
-    Returns
-    ----------
-        a P-value for the hypothesis that the mean of the population from which x is drawn is less than eta_0
-    '''
-    n = x.size[0]
-    #currently fpc is not employed so this is conservative for sampling WOR
-    fpc = np.sqrt((N - n) / (N-1)) if WOR else 1
-    SE = fpc * np.std(x) / np.sqrt(n)
-    test_stat = (np.mean(x) - eta_0) / SE
-    p_val = 1 - t.cdf(test_stat, n-1)
-    return p_val
-
-def stratified_t_test(x, eta_0, N):
-    '''
-    run a stratified, one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
-
-    Parameters
-    ----------
-        x: length-K list of np.arrays
-            n_k samples drawn with replacement from each stratum 1 to K
-        eta_0: double
-            the hypothesized global null mean
-        N: length-K list of ints
-            the size of each stratum, used to calculate stratum weights
-    Returns
-    ----------
-        a P-value for the hypothesis that the global mean of the population from which x is drawn is less than eta_0
-    '''
-    n = np.array([x_k.size for x_k in x])
-    w = N/np.sum(N)
-    g = N * (N - n) / n #used to calculate effective degrees of freedom from Cochran (1977) p. 69
-    sample_means = np.array([np.mean(x_k) for x_k in x])
-    sample_vars = np.array([np.var(x_k) for x_k in x])
-    mean_est = np.sum(w * sample_means)
-    #SE_est = np.sqrt((1/np.sum(N)**2) * np.sum(g * sample_vars))
-    SE_est = np.sqrt(np.sum((N / np.sum(N))**2 * sample_vars / n))
-    #dof = (np.sum(g * sample_vars)**2) / np.sum((g**2 * sample_vars**2) / (n - 1))
-    dof = np.min(n - 1) #simpler but conservative (always no larger than above)
-    test_stat = (mean_est - eta_0) / SE_est
-    p_val = 1 - t.cdf(test_stat, dof)
-    return p_val
-
-
+############ functions to compute the convex (inverse) UI-TS ############
 class PGD:
     '''
     class of helper functions to compute UI-TS for inverse bets by projected gradient descent
@@ -1443,7 +1433,7 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     #this is a nested list of arrays
     #it stores the samples available in each stratum at time i = 0,1,2,...,n
     samples_t = [[[] for _ in range(K)] for _ in range(np.sum(n)+1)]
-    uitsms = [0 if log else 1] #uinnsm starts at 1 at time 0
+    uits = [0 if log else 1] #uits starts at 1 at time 0
     samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
     T_k = np.zeros((np.sum(n)+1, K), dtype = int)
     eta_stars = np.zeros((np.sum(n)+1, K)) #stores minimizing etas
@@ -1498,7 +1488,89 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
             #store current value of UI-TS
             log_ts = float(PGD.global_log_mart(eta_stars[i], SAMPLES)[0])
         if log:
-            uitsms.append(log_ts)
+            uits.append(log_ts)
         else:
-            uitsms.append(np.exp(log_ts))
-    return np.array(uitsms), eta_stars, T_k
+            uits.append(np.exp(log_ts))
+    return np.array(uits), eta_stars, T_k
+
+
+######## additional helper functions #########
+def random_truncated_gaussian(mean, sd, size):
+    '''
+    simulate from a gaussian truncated to [0,1]
+
+    Parameters
+    ----------
+        mean: double in [0,1]
+        sd: positive double
+        size: the number of samples to draw
+    Returns
+    ----------
+        length-size np.array of truncated gaussian draws
+    '''
+    assert 0 <= mean <= 1, "mean is not in [0,1]"
+    samples = np.zeros(size)
+    for i in range(size):
+        while True:
+            draw = np.random.normal(mean, sd, 1)
+            if 0 <= draw <= 1:
+                samples[i] = draw
+                break
+    return samples
+
+
+def t_test(x, eta_0, N = np.inf, WOR = False):
+    '''
+    run a one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
+
+    Parameters
+    ----------
+        x: length-n np.array
+            n samples drawn with or without replacement
+        eta_0: double
+            a hypothesized null mean
+        N: int or np.inf
+            the size of the population, may be infinite
+        WOR: boolean
+            was x drawn with or without replacement
+    Returns
+    ----------
+        a P-value for the hypothesis that the mean of the population from which x is drawn is less than eta_0
+    '''
+    n = x.size[0]
+    #currently fpc is not employed so this is conservative for sampling WOR
+    fpc = np.sqrt((N - n) / (N-1)) if WOR else 1
+    SE = fpc * np.std(x) / np.sqrt(n)
+    test_stat = (np.mean(x) - eta_0) / SE
+    p_val = 1 - t.cdf(test_stat, n-1)
+    return p_val
+
+def stratified_t_test(x, eta_0, N):
+    '''
+    run a stratified, one-sample, one-sided t-test of the hypothesis that E(x) <= eta_0
+
+    Parameters
+    ----------
+        x: length-K list of np.arrays
+            n_k samples drawn with replacement from each stratum 1 to K
+        eta_0: double
+            the hypothesized global null mean
+        N: length-K list of ints
+            the size of each stratum, used to calculate stratum weights
+    Returns
+    ----------
+        a P-value for the hypothesis that the global mean of the population from which x is drawn is less than eta_0
+    '''
+    n = np.array([x_k.size for x_k in x])
+    w = N/np.sum(N)
+    g = N * (N - n) / n #used to calculate effective degrees of freedom from Cochran (1977) p. 69
+    sample_means = np.array([np.mean(x_k) for x_k in x])
+    sample_vars = np.array([np.var(x_k) for x_k in x])
+    mean_est = np.sum(w * sample_means)
+    #SE_est = np.sqrt((1/np.sum(N)**2) * np.sum(g * sample_vars))
+    SE_est = np.sqrt(np.sum((N / np.sum(N))**2 * sample_vars / n))
+    #dof = (np.sum(g * sample_vars)**2) / np.sum((g**2 * sample_vars**2) / (n - 1))
+    dof = np.min(n - 1) #simpler but conservative (always no larger than above)
+    test_stat = (mean_est - eta_0) / SE_est
+    p_val = 1 - t.cdf(test_stat, dof)
+    return p_val

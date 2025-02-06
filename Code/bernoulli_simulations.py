@@ -8,7 +8,7 @@ import os
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
-    construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, convex_uits,\
+    construct_eta_grid_plurcomp, construct_eta_bands, simulate_plurcomp, PGD, convex_uits,\
     banded_uits, brute_force_uits
 
 
@@ -28,8 +28,7 @@ bets_dict = {
     "fixed_plugin": Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.75),
     "bernoulli":lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.75),
-    "smooth_predictable":lambda x, eta: Bets.negative_exponential(x, eta, c = .95),
-    "inverse": lambda x, eta: Bets.inverse_eta(x, eta, eps = 0.9)}
+    "inverse": lambda x, eta: Bets.inverse_eta(x, eta, u = 0.75)}
 bets_list = ["fixed_plugin", "agrapa", "bernoulli", "smooth_predictable", "apriori_bernoulli", "inverse"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
@@ -41,8 +40,8 @@ allocations_list = ["round_robin"]
 K = 2
 w = [1/2, 1/2]
 N = np.array([100, 100]) #size of initial sample
-N_next = np.array([200, 200]) #size of blocks at which sample will expand
-N_max = np.array([2100, 2100]) #maximum size
+N_next = np.array([100, 100]) #size of blocks at which sample will expand
+N_max = np.array([2000, 2000]) #maximum size
 results = []
 eta_bands = construct_eta_bands(eta_0, N = w, n_bands = 100)
 
