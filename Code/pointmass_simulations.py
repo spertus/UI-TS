@@ -25,7 +25,7 @@ bets_dict = {
     "fixed_predictable":Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.9),
     "inverse": lambda x, eta: Bets.inverse_eta(x, eta, c = 0.9)}
-bets_list = ["fixed_predictable", "agrapa", "smooth_predictable", "inverse"]
+bets_list = ["fixed_predictable", "agrapa", "inverse"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
@@ -41,7 +41,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
     A_c = [alt - 0.5*delta, alt + 0.5*delta]
     if method == 'lcb':
         min_eta = None
-        if allocation in ['predictable_kelly','greedy_kelly']:
+        if (allocation in ['predictable_kelly','greedy_kelly']) or (n_bands != 1):
             stopping_time = None
             sample_size = None
         else:
@@ -52,6 +52,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
                 lam_func = bets_dict[bet],
                 allocation_func = allocations_dict[allocation],
                 method = "lcb",
+                n_bands = n_bands,
                 alpha = alpha,
                 WOR = False,
                 reps = 1)
@@ -64,6 +65,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
             lam_func = bets_dict[bet],
             allocation_func = allocations_dict[allocation],
             method = "ui-ts",
+            n_bands = n_bands,
             alpha = alpha,
             WOR = False,
             reps = 1)
