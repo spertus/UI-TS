@@ -7,9 +7,9 @@ import numpy as np
 import time
 from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
-    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, union_intersection_mart, selector,\
+    intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
     construct_eta_grid_plurcomp, construct_eta_bands, simulate_comparison_audit, PGD, negexp_uits,\
-    banded_uitsm
+    banded_uits, brute_force_uits
 
 
 
@@ -22,10 +22,10 @@ n_bands_grid = [1, 3, 10, 100, 500]
 
 methods_list = ['uinnsm_product', 'lcb']
 bets_dict = {
-    "fixed":Bets.fixed,
+    "fixed_predictable":Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.95),
     "smooth_predictable":Bets.smooth_predictable}
-bets_list = ["fixed", "agrapa", "smooth_predictable"]
+bets_list = ["fixed_predictable", "agrapa", "smooth_predictable"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
@@ -65,7 +65,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
             sample_size = stopping_time
     else:
         start_time = time.time()
-        ui_mart, min_etas, global_ss = banded_uitsm(
+        ui_mart, min_etas, global_ss = banded_uits(
                     x = samples,
                     N = N,
                     etas = eta_bands,
