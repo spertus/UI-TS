@@ -75,11 +75,11 @@ kelly_optimal_stopping_times <- point_mass_stopping_times %>%
   mutate(eta_star = get_eta_star(mu_1, mu_2)) %>%
   mutate(kost = ceiling(log(alpha) / (log(eta_star) - log(mu_1))))
 
+plot_point_mass_data <- point_mass_stopping_times %>% 
+  filter(((method == "UI-TS") & (n_bands == 100)) | ((method == "LCB") & (n_bands == 1)))
 
-
-ggplot(point_mass_stopping_times %>% filter(n_bands == 100), aes(x = alt, y = sample_size, color = bet, linetype = method)) +
+ggplot(point_mass_stopping_times %>% filter((n_bands == 100)|(method == "LCB" & )), aes(x = alt, y = sample_size, color = bet, linetype = method)) +
   geom_line(size = 1.5) +
-  #geom_line(data = kelly_optimal_stopping_times, aes(y = kost), linetype = 'dashed', color = 'black') +
   facet_grid(allocation ~ delta_long) +
   theme_bw() +
   theme(
@@ -90,14 +90,14 @@ ggplot(point_mass_stopping_times %>% filter(n_bands == 100), aes(x = alt, y = sa
     panel.spacing.x = unit(6, "mm")) +
   scale_linetype_manual(values = c("solid","dashed","dotted")) +
   ylab("Sample Size") +
-  xlab("Global Mean") +
+  xlab("Global Reported Assorter Mean") +
   labs(colour = "Selection rule", linetype = "Method") +
   scale_y_log10() +
   scale_x_continuous(breaks = seq(0.5,0.75,by=0.05))
 
 #how things are effected by the number of points 
 G_stopping_time_table <- point_mass_stopping_times %>% 
-  filter(method == "UI-TS Product", bet == "AGRAPA") %>%
+  filter(method == "UI-TS", bet == "AGRAPA") %>%
   group_by(n_bands) %>%
   summarize(mean_stop = mean(stopping_time), mean_run_time = mean(run_time))
 xtable(G_stopping_time_table)
@@ -193,7 +193,7 @@ ggplot(mean_data, aes(x = alt, y = value, color = bet, linetype = method)) +
 
 
 ###### gaussian stopping times #######
-full_data <- read_csv("all_gaussian_simulations.csv")
+full_data <- read_csv("../Results/all_gaussian_simulations.csv")
 mean_data <- full_data %>%
   select(-...1) %>%
   group_by(across(-c(rep, stopping_time, sample_size))) %>%
@@ -225,7 +225,11 @@ expected_stop_plot <- ggplot(mean_data, aes(x = global_mean, y = expected_sample
   ylab("Expected Sample Size") +
   labs(colour = "Betting rule", linetype = "Method") + 
   theme_bw() +
-  theme(text = element_text(size = 18), axis.text = element_text(size = 14)) +
+  theme(
+    text = element_text(size = 18), 
+    axis.text = element_text(size = 14),
+    legend.key.width = unit(2, "cm"),
+    panel.spacing = unit(0.5, "cm")) +
   scale_y_log10() 
 
 expected_stop_plot
@@ -458,6 +462,22 @@ mart <- function(eta){(1 + lambda(eta) * (X_1 - eta)) * (1 + lambda(1-eta) * (X_
 lmart <- function(eta){log(1 + lambda(eta) * (X_1 - eta)) + log(1 + lambda(1-eta) * (X_2 - (1-eta)))}
 plot(mart(eta) ~ eta, type = 'l')
 
+
+######## expected log growth of discrete distributions as a function of lambda ###########
+norm <- function(x){x/sum(x)}
+eta <- 1/2
+lambda <- seq(0, 1/eta, length.out = 1000)
+a <- c(0, 1, 0.1, 0.6, 0.8)
+p <- norm(rep(1, length(a)))
+p <- c(.4, .4, 0, .1, .1)
+elg <- function(lambda){
+  out <- rep(NA, length(lambda))
+  for(i in 1:length(lambda)){
+    out[i] <- sum(p * log(1 + lambda[i] * (a - eta)))
+  }
+  out
+}
+plot(elg(lambda) ~ lambda, type = 'l')
 
 
 

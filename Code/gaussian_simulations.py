@@ -31,7 +31,7 @@ bets_dict = {
     "fixed_predictable":Bets.predictable_plugin,
     "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.9),
     "inverse": lambda x, eta: Bets.inverse_eta(x, eta, u = 0.9)}
-bets_list = ["fixed_predictable", "agrapa", "smooth_predictable", "inverse"]
+bets_list = ["fixed_predictable", "agrapa", "inverse"]
 allocations_dict = {
     "round_robin":Allocations.round_robin,
     "predictable_kelly":Allocations.predictable_kelly,
