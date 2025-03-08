@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import math
 import itertools
 import pypoman
+import warnings
 from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
@@ -97,7 +98,7 @@ class Bets:
         '''
         uses the optimal bets for the Bernoulli (following the SPRT), plugging in an estimate of the alternative mean
         lambda is eta-adaptive
-        -------------
+        ----------------------
         kwargs:
             mu_0: float in (eta, 1]
                 alternative hypothesized value for the population mean
@@ -244,6 +245,34 @@ class Bets:
                 lam = np.exp(1 - b * eta)
         return lam
 
+        def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
+            '''
+            WIP
+            computes a new bet as a convex combination of other bets
+            NOTE: could allow the weights to vary over time as well; e.g. proper dims are (len(bet_list), len(x))
+            --------
+            inputs:
+                bet_list: list of callables with args (x, eta) from class Bets
+                    the bets to be combined, use lambda functions to set additional kwargs
+                bet_weights: length len(bet_list) np.array of floats in [0,1], summing to 1
+            '''
+            if bet_weights is None:
+                warnings.warn("bet_weights is none, setting to unweighted average.")
+                bet_weights = np.ones(n_bets) * (1/n_bets) # use flat average as default
+            elif np.any(bet_weights < 0):
+                raise ValueError("some bet_weights are negative")
+            elif np.sum(bet_weights) != 1:
+                warnings.warn("bet_weights do not sum to 1, normalizing.")
+                bet_weights = np.array(bet_weights)
+                bet_weights = bet_weights / np.sum(bet_weights)
+            else:
+                bet_weights = np.array(bet_weights)
+            n_bets = len(bet_list)
+            lams = np.array((n_bets, len(x)))
+            for i in range(n_bets):
+                lams[i,:] = bet_list[i](x, eta)
+            lam = np.dot(bet_weights, lams)
+            return lam
 
 
 class Allocations:
@@ -1311,6 +1340,60 @@ def simulate_plurcomp(N, A_c, p_1 = np.array([0.0, 0.0]), p_2 = np.array([0.0, 0
             stopping_times[r] = np.where(any(lcb > eta_0), np.argmax(lcb > eta_0), np.sum(N))
             sample_sizes[r] = stopping_times[r]
     return np.mean(stopping_times), np.mean(sample_sizes)
+
+
+############ ONEAudit functions ##############
+# functions to generate ONEAudit populations per Stark, 2023 (https://arxiv.org/abs/2303.03335) and simulate sampling and inference
+def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
+    '''
+    a function to generate a population of assorters using ONE CVRs based on batch subtotals
+    from a two-candidate plurality contest, potentially with invalid votes
+
+    Parameters
+    --------------
+    batch_sizes: a length-B np.array of ints
+        the sizes of each of B batches; the population size is sum(batch_sizes)
+    A_c: a length-B np.array of floats in [0,1]
+        the reported (and true) assorter margin in each batch
+        expressed in terms of the proportion of valid votes for the winner: A_c[i] > 0.5 means the winner won batch i
+    invalid: a length-B np.array of floats in [0,1]
+        the proportion of invalid votes in each batch; defaults to 0
+
+    Returns
+    ------------
+    a list of ints; the ONE assorters representing the audit population
+    '''
+    assert np.dot(batch_sizes / np.sum(batch_sizes), A_c) > 1/2, "contradiction: batch-level assorter means imply reported winner lost"
+    B = len(batch_sizes) # the number of batches
+    u = 1 # the upper bound on the original assorters for plurality contests
+    batches = []
+    for i in range(B):
+        v = 2 * A_c[i] - 1 # reported assorter margin
+        # these votes are possibly fractional and need to be rounded
+        invalid_votes = batch_sizes[i] * invalid[i] # the number of invalid votes
+        votes_for_winner = batch_sizes[i] * A_c[i] * (1 - invalid[i]) # the number of votes for the winner
+        votes_for_loser = batch_sizes[i] * (1 - A_c[i]) * (1 - invalid[i]) # the number of votes for the loser
+        # rounding while preserving the sum
+        votes = saferound([invalid_votes, votes_for_winner, votes_for_loser], places = 0)
+        votes = [int(vote) for vote in votes] # conversion to integers
+
+        # ONE assorter values
+        B_i = (u + 1/2 - A_c[i]) / (2 * u - v) # assorter for invalid votes
+        B_w = (u + 1 - A_c[i]) / (2 * u - v) # assorter for winner votes
+        B_l = (u + 0 - A_c[i]) / (2 * u - v) # assorter for loser votes
+
+        # assorter populations as an array
+        batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
+    pop = np.concatenate(batches)
+    return pop
+
+# TODO: function to model ONEAudit populations
+# e.g., set up a grid of p, the proportion of 1s to 0s in each batch;
+# between/within heterogeneity is parameterized by the spread between teh minimum and maximum p and the global assorter mean
+
+
+
+
 
 
 ############ functions to compute the convex (inverse) UI-TS ############
