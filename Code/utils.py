@@ -10,6 +10,8 @@ from iteround import saferound
 from scipy.stats import bernoulli, multinomial, chi2, t
 from scipy.stats.mstats import gmean
 from welford import Welford
+from functools import lru_cache
+
 
 
 
@@ -245,34 +247,72 @@ class Bets:
                 lam = np.exp(1 - b * eta)
         return lam
 
-        def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
-            '''
-            WIP
-            computes a new bet as a convex combination of other bets
-            NOTE: could allow the weights to vary over time as well; e.g. proper dims are (len(bet_list), len(x))
-            --------
-            inputs:
-                bet_list: list of callables with args (x, eta) from class Bets
-                    the bets to be combined, use lambda functions to set additional kwargs
-                bet_weights: length len(bet_list) np.array of floats in [0,1], summing to 1
-            '''
-            if bet_weights is None:
-                warnings.warn("bet_weights is none, setting to unweighted average.")
-                bet_weights = np.ones(n_bets) * (1/n_bets) # use flat average as default
-            elif np.any(bet_weights < 0):
-                raise ValueError("some bet_weights are negative")
-            elif np.sum(bet_weights) != 1:
-                warnings.warn("bet_weights do not sum to 1, normalizing.")
-                bet_weights = np.array(bet_weights)
-                bet_weights = bet_weights / np.sum(bet_weights)
-            else:
-                bet_weights = np.array(bet_weights)
-            n_bets = len(bet_list)
-            lams = np.array((n_bets, len(x)))
-            for i in range(n_bets):
-                lams[i,:] = bet_list[i](x, eta)
-            lam = np.dot(bet_weights, lams)
-            return lam
+    @lru_cache(maxsize=None)
+    # python supports some maximal number of recursions (by default 1000)
+    # sys.setrecursionlimit allows this to be increased (say 10000)
+    # if there are too many samples in x use different behavior
+    # this will be an issue in particular if it hits a new value of lambda
+    # see how quickly it runs the way we wrote it before and use if its slow
+
+    #recursive derivative
+    # def deriv(lam, x, eta):
+    #     if len(x) == 1:
+    #         return (x[0] - eta) / (1 + lam * (x[0] - eta))
+    #     else:
+    #         return deriv(lam, x[:-1], eta) + (x[-1] - eta) / (1 + lam * (x[-1] - eta))
+
+    #simple derivative
+    def deriv(lam, x, eta):
+        np.sum((x - eta) / (1 + lam * (x - eta)))
+
+    def kelly_optimal(x, eta, **kwargs):
+        '''
+        finds a kelly optimal bet by numerically optimizing for x; i
+        if x is a lagged sample, this produces GRAPA as described in Section B.2 of https://arxiv.org/pdf/2010.09686
+        if x is the actual population, this produces the Kely-optimal bet
+        '''
+        # cache the sample or the derivatives at the previous step
+        # LRU cache function tells python to save function evaluations
+        # at step n+1 evaluate the derivatives by calling the function
+        # can't be a lambda function though, needs to be defined externally
+
+        # warm start by bracketing based on the last optimum
+        # x_0 in kwargs as a warm start (e.g., previous optimum)
+        lam_star = sp.optimize.root_scalar(lambda lam: deriv(lam, x, eta), bracket = [0, 1/eta], method = 'bisect')
+        if lam_star['converged']:
+            return lam_star['root']
+        else:
+            raise Exception('optimization using bisection search did not converge')
+
+
+    def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
+        '''
+        WIP
+        computes a new bet as a convex combination of other bets
+        NOTE: could allow the weights to vary over time as well; e.g. proper dims are (len(bet_list), len(x))
+        --------
+        inputs:
+            bet_list: list of callables with args (x, eta) from class Bets
+                the bets to be combined, use lambda functions to set additional kwargs
+            bet_weights: length len(bet_list) np.array of floats in [0,1], summing to 1
+        '''
+        if bet_weights is None:
+            warnings.warn("bet_weights is none, setting to unweighted average.")
+            bet_weights = np.ones(n_bets) * (1/n_bets) # use flat average as default
+        elif np.any(bet_weights < 0):
+            raise ValueError("some bet_weights are negative")
+        elif np.sum(bet_weights) != 1:
+            warnings.warn("bet_weights do not sum to 1, normalizing.")
+            bet_weights = np.array(bet_weights)
+            bet_weights = bet_weights / np.sum(bet_weights)
+        else:
+            bet_weights = np.array(bet_weights)
+        n_bets = len(bet_list)
+        lams = np.array((n_bets, len(x)))
+        for i in range(n_bets):
+            lams[i,:] = bet_list[i](x, eta)
+        lam = np.dot(bet_weights, lams)
+        return lam
 
 
 class Allocations:
@@ -1386,11 +1426,6 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
         batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
     pop = np.concatenate(batches)
     return pop
-
-# TODO: function to model ONEAudit populations
-# e.g., set up a grid of p, the proportion of 1s to 0s in each batch;
-# between/within heterogeneity is parameterized by the spread between teh minimum and maximum p and the global assorter mean
-
 
 
 
