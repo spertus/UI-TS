@@ -62,6 +62,33 @@ class Bets:
         lag_sd_hat = np.insert(np.array(sd_hat), 0, sd_0)[0:-1]
         return lag_mu_hat, lag_sd_hat
 
+    # alternative to Welford method above
+    def lag_mean_var(x, **kwargs):
+        '''
+        Computes the lagged running mean and variance of a sequence of data.
+        inserts default values of 1/2 for the mean and 1/4 for the SD at the beginning of the sequence
+        ---------------
+        Returns:
+            A tuple containing two numpy arrays:
+                - running_mean: The running mean of the data.
+                - running_var: The running variance of the data.`
+        '''
+        n = len(x)
+        mu_0 = kwargs.get("mu_0", 1/2)
+        sd_0 = kwargs.get("sd_0", 1/4)
+
+        mu_hat = np.zeros(n)
+        var_hat = np.zeros(n)
+
+        for i in range(n):
+            current_x = x[:i+1]
+            mu_hat[i] = np.mean(current_x)
+            var_hat[i] = np.var(current_x)
+        lag_mean = np.insert(mu_hat, 0, mu_0)[0:-1]
+        lag_var = np.insert(var_hat, 0, sd_0**2)[0:-1]
+        lag_sd = np.sqrt(lag_var)
+        return lag_mean, lag_sd
+
     #work in progress: rewrite classes to define and inherit arguments from init
     #use kwargs for additional arguments specific to each method
     def fixed(x, eta, **kwargs):
@@ -157,7 +184,7 @@ class Bets:
         c = kwargs.get('c', 0.95)
         minsd = kwargs.get('sd_min', 0.01)
 
-        S = np.insert(np.cumsum(x),0,0)[0:-1]  # 0, x_1, x_1+x_2, ...,
+        S = np.insert(np.cumsum(x), 0, 0)[0:-1]  # 0, x_1, x_1+x_2, ...,
         j = np.arange(1,len(x)+1)              # 1, 2, 3, ..., len(x)
         trunc_below = np.maximum((d * mu_0 + S)/(d+j-1), eta + eps_0/np.sqrt(d+j-1))
         lam = np.minimum((trunc_below / eta - 1)/(1 - eta), c/(eta+eta_tol))
@@ -180,8 +207,9 @@ class Bets:
         c = kwargs.get('c', 0.75) #threshold for bets from W-S and R
         eps = kwargs.get('eps', 1e-5) #floor for eta (prevents divide by zero error)
 
-
+        # using welford
         lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+
         lag_sd_hat = np.maximum(lag_sd_hat, sd_min)
         lam_untrunc = (lag_mu_hat - eta) / (lag_sd_hat**2 + (lag_mu_hat - eta)**2)
         #this rule says to bet the farm when eta is 0 (can't possibly lose)
@@ -247,14 +275,15 @@ class Bets:
                 lam = np.exp(1 - b * eta)
         return lam
 
-    @lru_cache(maxsize=None)
+
     # python supports some maximal number of recursions (by default 1000)
     # sys.setrecursionlimit allows this to be increased (say 10000)
     # if there are too many samples in x use different behavior
     # this will be an issue in particular if it hits a new value of lambda
     # see how quickly it runs the way we wrote it before and use if its slow
 
-    #recursive derivative
+    #recursive derivative w caching
+    # @lru_cache(maxsize=None)
     # def deriv(lam, x, eta):
     #     if len(x) == 1:
     #         return (x[0] - eta) / (1 + lam * (x[0] - eta))
@@ -263,7 +292,7 @@ class Bets:
 
     #simple derivative
     def deriv(lam, x, eta):
-        np.sum((x - eta) / (1 + lam * (x - eta)))
+        return np.sum((x - eta) / (1 + lam * (x - eta)))
 
     def kelly_optimal(x, eta, **kwargs):
         '''
@@ -278,11 +307,47 @@ class Bets:
 
         # warm start by bracketing based on the last optimum
         # x_0 in kwargs as a warm start (e.g., previous optimum)
-        lam_star = sp.optimize.root_scalar(lambda lam: deriv(lam, x, eta), bracket = [0, 1/eta], method = 'bisect')
-        if lam_star['converged']:
-            return lam_star['root']
+
+        # compute the slope at the endpointss
+        min_slope = Bets.deriv(0, x, eta)
+        max_slope = Bets.deriv(1/eta, x, eta)
+        # if the return is always growing, set lambda to the maximum allowed
+        if (min_slope > 0) & (max_slope > 0):
+            out = 1/eta
+        # if the return is always shrinking, set lambda to 0
+        elif (min_slope < 0) & (max_slope < 0):
+            out = 0
+        # otherwise, optimize on the interval [0, 1/eta]
         else:
-            raise Exception('optimization using bisection search did not converge')
+            lam_star = sp.optimize.root_scalar(lambda lam: Bets.deriv(lam, x, eta), bracket = [0, 1/eta], method = 'bisect')
+            out = lam_star['root']
+        return out
+
+    def grapa(x, eta, **kwargs):
+        '''
+        returns the (computationally expensive) GRAPA bet of https://arxiv.org/pdf/2010.09686
+        by finding the kelly-optimal bet using only the sample history (to make the bet predictable)
+        NB: this is not very efficient currently
+        -------------------
+        kwargs:
+            c: float, a threshold on the bet
+                useful to prevent "betting the farm" when the population contains 0s, defaults to 0.99
+            past: len(x)-1 length np.array, the history of bets to time t
+                if included, only the most recent bet is computed
+        '''
+        c = kwargs.get("c", 0.99)
+        past = kwargs.get("past", None)
+        if past:
+            lam = past
+            lam.append(kelly_optimal(x[:-1], eta))
+        else:
+            lam = np.zeros(len(x))
+            # the first bet is 0, the subsequent ones are optimal for the lagged sample
+            for i in range(1,len(x)):
+                lam[i] = Bets.kelly_optimal(x[0:i-1], eta)
+        return lam
+
+
 
 
     def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
@@ -1403,12 +1468,16 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
     ------------
     a list of ints; the ONE assorters representing the audit population
     '''
-    assert np.dot(batch_sizes / np.sum(batch_sizes), A_c) > 1/2, "contradiction: batch-level assorter means imply reported winner lost"
+    A_c_global = np.dot(batch_sizes / np.sum(batch_sizes), A_c)
+    assert A_c_global > 1/2, "contradiction: batch-level assorter means imply reported winner lost"
     B = len(batch_sizes) # the number of batches
+    if invalid is None:
+        invalid = np.zeros(B)
     u = 1 # the upper bound on the original assorters for plurality contests
     batches = []
+
+    v = 2 * A_c_global - 1 # global reported assorter margin
     for i in range(B):
-        v = 2 * A_c[i] - 1 # reported assorter margin
         # these votes are possibly fractional and need to be rounded
         invalid_votes = batch_sizes[i] * invalid[i] # the number of invalid votes
         votes_for_winner = batch_sizes[i] * A_c[i] * (1 - invalid[i]) # the number of votes for the winner
