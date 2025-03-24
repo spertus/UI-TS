@@ -321,7 +321,7 @@ class Bets:
         else:
             lam_star = sp.optimize.root_scalar(lambda lam: Bets.deriv(lam, x, eta), bracket = [0, 1/eta], method = 'bisect')
             out = lam_star['root']
-        return out
+        return out * np.ones(len(x))
 
     def grapa(x, eta, **kwargs):
         '''

@@ -24,26 +24,27 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 # could shrink agrapa towards something like the bernoulli optimal bet
 # with an a priori estimate of the mean (e.g. the reported assorter mean)
 
-#A_c_global_grid = np.linspace(0.51, 0.75, 20) # global assorter means
-A_c_global_grid = np.array([0.7])
+A_c_global_grid = np.linspace(0.51, 0.75, 20) # global assorter means
 delta_grid = [0, 0.1, 0.5] # maximum spread between batches
-polarized_grid = [False, True] # whether or not there is polarization (uniform or clustered batch totals)
+polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
 num_batch_grid = [1, 10, 100] # the number of batches of size > 1
 batch_size_grid = [100] # assuming for now, equally sized batches
 prop_invalid_grid = [0, 0.5] # proportion of invalid votes in each batch (uniform across batches)
 num_cvr_grid = [0, 10, 100, 1000, 10000] # number of cvrs
 alpha = 0.05 # risk limit
-n_reps = 1 # the number of replicate simulations
+n_reps = 100 # the number of replicate simulations
+stratified_grid = [True, False] # whether or not the population and inference will be stratified
+
 
 bets_dict = {
-    "agrapa":lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
+    "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
     "alpha": "special handling", # see below
-    "kelly-optimal": "special handling"}
+    "kelly-optimal": lambda x, eta: Bets.kelly_optimal(x, eta, c = 0.99)}
 bets_grid = list(bets_dict.keys())
 
 results = []
 
-for A_c_global, delta, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized in itertools.product(A_c_global_grid, delta_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid):
+for A_c_global, delta, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized, stratified in itertools.product(A_c_global_grid, delta_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid, stratified_grid):
     u = 1 # upper bound for plurality assorters
     v_global = 2 * A_c_global - 1 # global margin
 
@@ -75,29 +76,49 @@ for A_c_global, delta, num_batches, batch_size, prop_invalid, bet, num_cvrs, pol
     # NB: if stratification is used, may need to rethink rescaling: each stratum needs to be on [0,1] and the global null should still correspond to the assertion
     assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_global))
     eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_global))
+
     N = len(assorter_pop) # the size of the population/sample
-
-    #derive kelly-optimal bet one time by applying numerical optimization to entire population
-    if bet == "alpha":
-        # alpha (predictable bernoulli) get shrunk towards the true mean of the population
-        bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
-    if bet == "kelly-optimal":
-        ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
-
     stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
     run_times = np.zeros(n_reps) # container for run times in each simulation
-    for r in range(n_reps):
-        X = np.random.permutation(assorter_pop) # the sample is a permutation of the population
-        # TSMs are computed for sampling WOR
-        start_time = time.time()
+    if not stratified:
+        #derive kelly-optimal bet one time by applying numerical optimization to entire population
+        if bet == "alpha":
+            # alpha (predictable bernoulli) get shrunk towards the true mean of the population
+            bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
         if bet == "kelly-optimal":
-            m = mart(X, eta = eta_0, lam = ko_bet * np.ones(N), N = N, log = True)
-        else:
-            m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
-        run_time = start_time - time.time()
-        stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
-        stopping_times[r] = stopping_time
-        run_times[r] = run_time
+            ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
+        for r in range(n_reps):
+            X = np.random.permutation(assorter_pop) # the sample is a permutation of the population
+            # TSMs are computed for sampling WOR
+            start_time = time.time()
+            if bet == "kelly-optimal":
+                m = mart(X, eta = eta_0, lam = ko_bet, N = N, log = True)
+            else:
+                m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
+            run_time = start_time - time.time()
+            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
+            stopping_times[r] = stopping_time
+            run_times[r] = run_time
+    else:
+        strata = np.where(batch_sizes > 1, 0, 1) # place ballots with CVRs (batch_size == 1) into stratum 1, and larger batches into stratum 0
+        K = 2 # the number of strata
+        N_strat = np.unique(strata, return_counts = True)[1] # the size of the population in each stratum
+        etas = construct_eta_bands(eta_0, N_strat, n_bands = 100) # the null space, partitioned into bands
+        for r in range(n_reps):
+            # 'draw' a stratified sample by shuffling the population within strata
+            X = []
+            for k in range(K):
+                X.append(np.random.permutation(assorter_pop[strata == k]))
+            # TSMs are computed for sampling WOR
+            start_time = time.time()
+
+            if bets == "alpha":
+                bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
+            uits = banded_uits(X, N = N_strat, etas = etas, lam_func = bets_dict[bet], N = N, log = True)
+            run_time = start_time - time.time()
+            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
+            stopping_times[r] = stopping_time
+            run_times[r] = run_time
 
     expected_sample_size = np.mean(stopping_times)
     percentile_sample_size = np.percentile(stopping_times, 90)
