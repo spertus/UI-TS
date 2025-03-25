@@ -1475,6 +1475,7 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
         invalid = np.zeros(B)
     u = 1 # the upper bound on the original assorters for plurality contests
     batches = []
+    batch_labels = []
 
     v = 2 * A_c_global - 1 # global reported assorter margin
     for i in range(B):
@@ -1493,8 +1494,10 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
 
         # assorter populations as an array
         batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
+        batch_labels.append(i)
     pop = np.concatenate(batches)
-    return pop
+    labels = np.concatenate(batch_labels)
+    return pop, labels
 
 
 
