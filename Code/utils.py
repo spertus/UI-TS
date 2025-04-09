@@ -1456,8 +1456,8 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
 
     Parameters
     --------------
-    batch_sizes: a length-B np.array of ints
-        the sizes of each of B batches; the population size is sum(batch_sizes)
+    batch_sizes: a length-B np.array of positive ints
+        the sizes of each of B batches; NB: the population size is sum(batch_sizes)
     A_c: a length-B np.array of floats in [0,1]
         the reported (and true) assorter margin in each batch
         expressed in terms of the proportion of valid votes for the winner: A_c[i] > 0.5 means the winner won batch i
@@ -1475,7 +1475,7 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
         invalid = np.zeros(B)
     u = 1 # the upper bound on the original assorters for plurality contests
     batches = []
-    batch_labels = []
+    #batch_labels = []
 
     v = 2 * A_c_global - 1 # global reported assorter margin
     for i in range(B):
@@ -1494,10 +1494,10 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
 
         # assorter populations as an array
         batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
-        batch_labels.append(i)
+        #batch_labels.append(i)
     pop = np.concatenate(batches)
-    labels = np.concatenate(batch_labels)
-    return pop, labels
+    #labels = np.concatenate(batch_labels)
+    return pop
 
 
 
