@@ -87,7 +87,7 @@ for A_c_global, delta, num_batches, batch_size, prop_invalid, bet, num_cvrs, pol
     # add CVRs
     A_c = np.append(A_c, A_c_cvrs)
     batch_sizes = np.append(batch_sizes, np.ones(num_cvrs))
-    invalids = np.append(invalids, np.zeros(num_cvrs))
+    invalids = np.append(invalids, np.append(np.ones(cvrs_iwl[0]), np.zeros(cvrs_iwl[1] + cvrs_iwl[2])))
 
     assorter_pop_unscaled = generate_oneaudit_population(
             batch_sizes = batch_sizes,
@@ -142,9 +142,12 @@ for A_c_global, delta, num_batches, batch_size, prop_invalid, bet, num_cvrs, pol
                 "sample_size": stopping_time,
                 "run_time":run_time}
             results.append(data_dict)
-    else: # we don't compute the stratified p-value if there are no cvrs
+    else:
+        # don't compute the stratified p-value if there are no cvrs
         if num_cvrs == 0:
             continue
+        if bet == "kelly-optimal":
+            # TODO add Kelly-optimal bet here.
         strata = np.repeat(np.where(batch_sizes > 1, 0, 1), repeats = batch_sizes.astype("int")) # place ballots with CVRs (batch_size == 1) into stratum 1, and larger batches into stratum 0
         K = 2 # the number of strata
         N_strat = np.unique(strata, return_counts = True)[1] # the size of the population in each stratum
