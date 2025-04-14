@@ -1156,14 +1156,20 @@ def banded_uits(x, N, etas, lam_func, allocation_func = Allocations.proportional
         for i in np.arange(len(etas)):
             sel[i,:,:] = T_k
     else:
+        #draw the selection sequence one time if nonadaptive
+        if allocation_func in nonadaptive_allocations:
+            first_centroid = etas[0][1]
+            bets_i = [mart(x[k], first_centroid[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
+            T_k_i = selector(x, N, allocation_func, first_centroid, bets_i)
         for i in np.arange(len(etas)):
             centroid_eta = etas[i][1]
             max_eta = np.max(np.vstack(etas[i][0]),0) #record largest eta in the band for each stratum
             #bets are determined for max_eta, which makes the bets conservative for both strata and both vertices of the band
             bets_i = [mart(x[k], max_eta[k], lam_func[k], None, ws_N[k], log, output = "bets") for k in np.arange(K)]
             bets.append(bets_i)
-            #selections are determined by the centroid
-            T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
+            #adaptive selections are determined by the centroid of each band
+            if allocation_func not in nonadaptive_allocations:
+                T_k_i = selector(x, N, allocation_func, centroid_eta, bets_i)
             itsm_mat = np.zeros((np.sum(n)+1, 2))
             #minima are evaluated at the endpoints of the band//
             #one of which is the minimum over the whole band due to concavity

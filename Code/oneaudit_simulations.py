@@ -32,8 +32,8 @@ sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
-#A_c_global_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_global_grid = [0.51, 0.55, 0.75] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
+#A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
+A_c_bar_grid = [0.51, 0.55, 0.75] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
@@ -56,7 +56,7 @@ bets_grid = list(bets_dict.keys())
 results = []
 i = 0
 
-for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized, stratified in itertools.product(A_c_global_grid, delta_within_grid, delta_across_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid, stratified_grid):
+for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized, stratified in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid, stratified_grid):
     i += 1
     print(str(i))
     u = 1 # upper bound for plurality assorters
@@ -64,40 +64,40 @@ for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invali
     prop_cvrs = num_cvrs / N # proportion of votes that are CVRs
     prop_batches = 1 - prop_cvrs # proportion of votes that are in batches
 
-
     # means and sizes for batches
-    # A_c_global = prop_batches * A_c_global_batches + prop_cvrs * A_c_global_cvrs
-    A_c_global_batches = A_c_global - 0.5 * delta_across # overall batch mean
+    # A_c_bar = prop_batches * A_c_bar_batches + prop_cvrs * A_c_bar_cvrs
+    A_c_bar_batches = A_c_bar - 0.5 * delta_across # overall batch mean
     if num_batches == 1:
         if polarized:
             continue
         else:
-            A_c = A_c_global_batches
+            A_c_batches = A_c_bar_batches
     elif polarized:
-        assert (num_batches % 2) == 0, "number of batches must be divisible by two to maintain global mean with polarization"
-        A_c = np.append(
-            (A_c_global_batches - 0.5 * delta_within) * np.ones(int(num_batches/2)),
-            (A_c_global_batches + 0.5 * delta_within) * np.ones(int(num_batches/2))
+        assert (num_batches % 2) == 0, "number of batches must be divisible by two to maintain bar mean with polarization"
+        A_c_batches = np.append(
+            (A_c_bar_batches - 0.5 * delta_within) * np.ones(int(num_batches/2)),
+            (A_c_bar_batches + 0.5 * delta_within) * np.ones(int(num_batches/2))
         )
     else:
-        A_c = np.linspace(
-            A_c_global_batches - 0.5 * delta_within,
-            A_c_global_batches + 0.5 * delta_within,
+        A_c_batches = np.linspace(
+            A_c_bar_batches - 0.5 * delta_within,
+            A_c_bar_batches + 0.5 * delta_within,
             num_batches)
     batch_sizes = np.ones(num_batches) * batch_size
     invalids = np.ones(num_batches) * prop_invalid
 
 
     # make CVRs
-    A_c_global_cvrs = A_c_global + 0.5 * delta_across
-    cvrs_i = num_cvrs * prop_invalid # the number of CVRs showing invalid votes
-    cvrs_w = num_cvrs * A_c_global_cvrs * (1 - prop_invalid) # the number of CVRs showing votes for the winner
-    cvrs_l = num_cvrs * (1 - A_c_global_cvrs) * (1 - prop_invalid) # the number of CVRs showing votes for the winner
+    prop_invalid_cvrs = 0.0
+    A_c_bar_cvrs = A_c_bar + 0.5 * delta_across
+    cvrs_i = num_cvrs * prop_invalid_cvrs # the number of CVRs showing invalid votes
+    cvrs_w = num_cvrs * A_c_bar_cvrs * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
+    cvrs_l = num_cvrs * (1 - A_c_bar_cvrs) * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
     cvrs_iwl = [int(c) for c in saferound([cvrs_i, cvrs_w, cvrs_l], places = 0)] # rounding to integers
     A_c_cvrs = np.repeat([1/2, 1, 0], cvrs_iwl)
 
     # add CVRs
-    A_c = np.append(A_c, A_c_cvrs)
+    A_c = np.append(A_c_batches, A_c_cvrs)
     batch_sizes = np.append(batch_sizes, np.ones(num_cvrs))
     invalids = np.append(invalids, np.append(np.ones(cvrs_iwl[0]), np.zeros(cvrs_iwl[1] + cvrs_iwl[2])))
 
@@ -108,13 +108,13 @@ for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invali
         )
     eta_0_unscaled = 1/2 # global null mean
 
-    realized_A_c_global = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
-    v_global = 2 * realized_A_c_global - 1 # global margin
+    realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
+    v_bar = 2 * realized_A_c_bar - 1 # global margin
 
     # assorters and global null are rescaled to [0,1] for compatability with functions from utils
     # NB: if stratification is used, may need to rethink rescaling: each stratum needs to be on [0,1] and the global null should still correspond to the assertion
-    assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_global))
-    eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_global))
+    assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
+    eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
 
     N = len(assorter_pop) # the size of the population/sample
     stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
@@ -139,9 +139,10 @@ for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invali
             stopping_times[r] = stopping_time
             run_times[r] = run_time
             data_dict = {
-                "A_c_global":A_c_global,
-                "realized_A_c_global": realized_A_c_global,
-                "delta":delta,
+                "A_c_bar":A_c_bar,
+                "realized_A_c_bar": realized_A_c_bar,
+                "delta_within":delta_within,
+                "delta_across":delta_across,
                 "stratified":stratified,
                 "polarized":polarized,
                 "rep":r,
@@ -158,8 +159,6 @@ for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invali
         # don't compute the stratified p-value if there are no cvrs
         if num_cvrs == 0:
             continue
-        if bet == "kelly-optimal":
-            # TODO add Kelly-optimal bet here.
         strata = np.repeat(np.where(batch_sizes > 1, 0, 1), repeats = batch_sizes.astype("int")) # place ballots with CVRs (batch_size == 1) into stratum 1, and larger batches into stratum 0
         K = 2 # the number of strata
         N_strat = np.unique(strata, return_counts = True)[1] # the size of the population in each stratum
@@ -187,15 +186,16 @@ for A_c_global, delta_within, delta_across, num_batches, batch_size, prop_invali
             stopping_times[r] = stopping_time
             run_times[r] = run_time
             data_dict = {
-                "A_c_global":A_c_global,
-                "realized_A_c_global": realized_A_c_global,
-                "delta":delta,
+                "A_c_bar":A_c_bar,
+                "realized_A_c_bar": realized_A_c_bar,
+                "delta_within":delta_within,
+                "delta_across":delta_across,
                 "stratified":stratified,
                 "polarized":polarized,
                 "rep":r,
                 "num_batches":num_batches,
                 "num_cvrs":num_cvrs,
-                "prop_cvrs": prop_cvrs
+                "prop_cvrs": prop_cvrs,
                 "batch_size":batch_size,
                 "prop_invalid":prop_invalid,
                 "bet":str(bet),
