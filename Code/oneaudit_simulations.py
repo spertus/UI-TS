@@ -153,7 +153,11 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
                 "prop_invalid":prop_invalid,
                 "bet":str(bet),
                 "sample_size": stopping_time,
-                "run_time":run_time}
+                "run_time":run_time,
+                "cvr_mean": None,
+                "batch_mean":None,
+                "cvr_sd":None,
+                "batch_sd":None}
             results.append(data_dict)
     else:
         # don't compute the stratified p-value if there are no cvrs
@@ -200,7 +204,11 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
                 "prop_invalid":prop_invalid,
                 "bet":str(bet),
                 "sample_size": stopping_time,
-                "run_time":run_time}
+                "run_time":run_time,
+                "cvr_mean":np.mean(X[0]),
+                "batch_mean":np.mean(X[1]),
+                "cvr_sd":np.std(X[0]),
+                "batch_sd":np.std(X[1])}
             results.append(data_dict)
 results = pd.DataFrame(results)
 results.to_csv("sims/oneaudit_results_parallel_" + sim_id + ".csv", index = False)
