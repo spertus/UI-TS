@@ -9,7 +9,8 @@ from iteround import saferound
 from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, global_lower_bound,\
     intersection_mart, plot_marts_eta, construct_exhaustive_eta_grid, selector,\
     construct_eta_grid_plurcomp, construct_eta_bands, simulate_plurcomp, PGD, convex_uits,\
-    banded_uits, brute_force_uits, generate_oneaudit_population
+    banded_uits, brute_force_uits, generate_oneaudit_population, generate_hybrid_audit_population,\
+    construct_eta_bands_hybrid
 
 # Notes:
 # for modeling San Francisco there are many batches (say 90%) of size 1
@@ -24,6 +25,12 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 # could shrink agrapa towards something like the bernoulli optimal bet
 # with an a priori estimate of the mean (e.g. the reported assorter mean)
+
+#TODO: compare bets – COBRA, shrink-trunc, and kelly-optimal on a ONEAudit population
+#TODO: compare (unstratified) ONEAudit to a (stratified) hybrid audit for a range of specifications
+    # where there are ballots without CVRs and ballots with CVRS
+    # compare ONEAudit to a Hybrid audit; varying the gap between the CVRs and the
+
 
 
 rep_grid = np.arange(3) #allows reps within parallelized simulations
@@ -88,7 +95,7 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
 
 
     # make CVRs
-    prop_invalid_cvrs = 0.0
+    prop_invalid_cvrs = prop_invalid
     A_c_bar_cvrs = A_c_bar + 0.5 * delta_across
     cvrs_i = num_cvrs * prop_invalid_cvrs # the number of CVRs showing invalid votes
     cvrs_w = num_cvrs * A_c_bar_cvrs * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
@@ -101,25 +108,25 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
     batch_sizes = np.append(batch_sizes, np.ones(num_cvrs))
     invalids = np.append(invalids, np.append(np.ones(cvrs_iwl[0]), np.zeros(cvrs_iwl[1] + cvrs_iwl[2])))
 
-    assorter_pop_unscaled = generate_oneaudit_population(
-            batch_sizes = batch_sizes,
-            A_c = A_c,
-            invalid = invalids
-        )
-    eta_0_unscaled = 1/2 # global null mean
-
-    realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
-    v_bar = 2 * realized_A_c_bar - 1 # global margin
-
-    # assorters and global null are rescaled to [0,1] for compatability with functions from utils
-    # NB: if stratification is used, may need to rethink rescaling: each stratum needs to be on [0,1] and the global null should still correspond to the assertion
-    assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
-    eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
-
-    N = len(assorter_pop) # the size of the population/sample
     stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
     run_times = np.zeros(n_reps) # container for run times in each simulation
     if not stratified:
+        N = np.sum(batch_sizes) # the size of the population/sample
+        # create population of ONEAudit assorters
+        assorter_pop_unscaled = generate_oneaudit_population(
+                batch_sizes = batch_sizes,
+                A_c = A_c,
+                invalid = invalids
+            )
+        eta_0_unscaled = 1/2 # global null mean
+
+        realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
+        v_bar = 2 * realized_A_c_bar - 1 # global margin
+
+        # assorters and global null are rescaled to [0,1]
+        assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
+        eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
+
         #derive kelly-optimal bet one time by applying numerical optimization to entire population
         if bet == "alpha":
             # alpha (predictable bernoulli) get shrunk towards the true mean of the population
@@ -140,10 +147,10 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
             run_times[r] = run_time
             data_dict = {
                 "A_c_bar":A_c_bar,
-                "realized_A_c_bar": realized_A_c_bar,
                 "delta_within":delta_within,
                 "delta_across":delta_across,
                 "stratified":stratified,
+                "assort_method":"ONE",
                 "polarized":polarized,
                 "rep":r,
                 "num_batches":num_batches,
@@ -154,27 +161,30 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
                 "bet":str(bet),
                 "sample_size": stopping_time,
                 "run_time":run_time,
-                "cvr_mean": None,
-                "batch_mean":None,
+                "cvr_mean":None,
+                "batch_mean":np.mean(X),
                 "cvr_sd":None,
-                "batch_sd":None}
+                "batch_sd":np.std(X)}
             results.append(data_dict)
     else:
         # don't compute the stratified p-value if there are no cvrs
         if num_cvrs == 0:
             continue
+        # create hybrid audit population
         strata = np.repeat(np.where(batch_sizes > 1, 0, 1), repeats = batch_sizes.astype("int")) # place ballots with CVRs (batch_size == 1) into stratum 1, and larger batches into stratum 0
         K = 2 # the number of strata
         N_strat = np.unique(strata, return_counts = True)[1] # the size of the population in each stratum
-        etas = construct_eta_bands(eta_0, N_strat, n_bands = 100) # the null space, partitioned into bands
+        A_c_strat = [A_c_bar_batches, A_c_bar_cvrs]
+        prop_invalid_strat = prop_invalid * np.ones(K)
+        assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "STS")
+        etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "STS") # the null space, partitioned into bands
         for r in rep_grid:
             # 'draw' a stratified sample by shuffling the population within strata
             X = []
             for k in range(K):
-                X.append(np.random.permutation(assorter_pop[strata == k]))
+                X.append(np.random.permutation(assorter_pop[k]))
             # TSMs are computed for sampling WOR
             start_time = time.time()
-
             if bet == "alpha":
                 bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
             m = banded_uits(
@@ -191,10 +201,10 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
             run_times[r] = run_time
             data_dict = {
                 "A_c_bar":A_c_bar,
-                "realized_A_c_bar": realized_A_c_bar,
                 "delta_within":delta_within,
                 "delta_across":delta_across,
                 "stratified":stratified,
+                "assort_method":"STS",
                 "polarized":polarized,
                 "rep":r,
                 "num_batches":num_batches,
@@ -205,10 +215,10 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
                 "bet":str(bet),
                 "sample_size": stopping_time,
                 "run_time":run_time,
-                "cvr_mean":np.mean(X[0]),
-                "batch_mean":np.mean(X[1]),
-                "cvr_sd":np.std(X[0]),
-                "batch_sd":np.std(X[1])}
+                "cvr_mean":None,
+                "batch_mean":np.mean(X),
+                "cvr_sd":None,
+                "batch_sd":np.std(X)}
             results.append(data_dict)
 results = pd.DataFrame(results)
 results.to_csv("sims/oneaudit_results_parallel_" + sim_id + ".csv", index = False)

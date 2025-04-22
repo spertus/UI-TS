@@ -732,7 +732,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
 
 def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None, allocation_func = None, T_k = None, combine = "product", theta_func = None, log = True, WOR = False, return_selections = False, last = False, running_max = True):
     '''
-    an intersection martingale (I-TSM) for a vector \bs{eta}
+    an intersection test supermartingale (I-TSM) for a vector intersection null eta
     assumes sampling is with replacement: no population size is required
 
     Parameters
@@ -746,7 +746,7 @@ def intersection_mart(x, N, eta, lam_func = None, lam = None, mixing_dist = None
         lam_func: callable, a function from class Bets OR a list of functions, one for each stratum
             a betting strategy, a function that sets bets possibly given past data and eta
         lam: length-K list of length-n_k np.arrays corresponding to bets
-            bets for each stratum, real numbers between 0 and 1/\eta_k
+            bets for each stratum, real numbers between 0 and 1/eta_k
         mixing_dist: a B by K np.array in [0,1]
             lambdas to mix over, B is just any positive integer (the size of the mixing distribution)
         allocation_func: callable, a function from class Allocations
@@ -1299,7 +1299,7 @@ def brute_force_uits(x, N, etas, lam_func = None, allocation_func = Allocations.
         mart_opt[i] = obj[opt_index[i],i]
     return mart_opt, eta_opt, global_sample_size, T_k
 
-####### comparison audit functions #######
+####### stratified comparison audit functions #######
 
 def construct_eta_grid_plurcomp(N, A_c, assorter_method):
     '''
@@ -1376,7 +1376,7 @@ def construct_eta_bands_plurcomp(A_c, N, n_bands = 100):
     eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(u, eta_0/w[0]), n_bands + 1)
     eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
     # transformed overstatement assorters
-    # the transofmration is per STS, except divided by 2
+    # the transformation is per STS, except divided by 2
     # the division by 2 allows a plurality CCA population to be defined on [0,1] instead of [0,2]
     beta_1_grid = (eta_1_grid + 1 - A_c[0])/2 # transformed null means in stratum 1
     beta_2_grid = (eta_2_grid + 1 - A_c[1])/2 # transformed null means in stratum 2
@@ -1452,8 +1452,118 @@ def simulate_plurcomp(N, A_c, p_1 = np.array([0.0, 0.0]), p_2 = np.array([0.0, 0
             sample_sizes[r] = stopping_times[r]
     return np.mean(stopping_times), np.mean(sample_sizes)
 
+########### Hybrid audit ##########
+def generate_hybrid_audit_population(N, A_c, invalid = None, assort_method = "STS"):
+    '''
+    a function to generate a population of assorters for a hybrid audit of a plurality contest
+    the first stratum is a card-polling stratum (without CVRs)
+    the second stratum is the card-level comparision stratum (with CVRs)
 
-############ ONEAudit functions ##############
+    Parameters
+    --------------
+    N: a length-2 np.array or list of positive ints
+        the sizes of each stratum
+    A_c: a length-2 np.array of floats in [0,1]
+        the reported (and true) assorter mean in each batch
+        expressed in terms of the proportion of valid votes for the winner: A_c[i] > 0.5 means the winner won stratum i
+    invalid: a length-B np.array of floats in [0,1]
+        the proportion of invalid votes in each batch; defaults to 0
+    assort_method: str in ["STS","ONE"]
+        "STS" uses the method to construct assorters and intersection nulls in Sweeter than SUITE (https://arxiv.org/pdf/2207.03379)
+        "ONE" uses the method to construct assorters in ONEAudit (https://arxiv.org/pdf/2303.03335)
+    Returns
+    ------------
+    a list of ints; the assorters representing the hybrid audit population
+    '''
+    w = N / np.sum(N) # stratum weights
+    A_c_global = np.dot(w, A_c) # global reported assorter mean
+    assert (len(A_c) == 2) and (len(N) == 2), "a hybrid audit consists of exactly two strata"
+    assert A_c_global > 1/2, "contradiction: batch-level assorter means imply reported winner lost"
+    K = 2 # number of strata
+    u = 1 # upper bound for plurality assorters
+    if invalid is None:
+        invalid = np.zeros(2)
+    v = 2 * A_c_global - 1
+    if assort_method == "ONE":
+        batch_sizes = np.append(N[0], np.ones(N[1]))
+        # CVR stratum needs to be expanded to batches of size 1
+        N_2_i = N[1] * invalid[1] # the number of CVRs showing invalid votes
+        N_2_w = N[1] * A_c[1] * (1 - invalid[1]) # the number of CVRs showing votes for the winner
+        N_2_l = N[1] * (1 - A_c[1]) * (1 - invalid[1]) # the number of CVRs showing votes for the winner
+        N_2_iwl = [int(c) for c in saferound([N_2_i, N_2_w, N_2_l], places = 0)] # rounding to integers
+        A_c_cvrs = np.repeat([1/2, 1, 0], N_2_iwl)
+        A_c_batches = np.append(A_c[0], A_c_cvrs)
+        invalid_batches = np.append(invalid[0], np.append(np.ones(N_2_iwl[0]), np.zeros(N_2_iwl[1] + N_2_iwl[2])))
+        pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c_batches, invalid = invalid_batches)
+        strata = np.repeat(np.where(batch_sizes > 1, 0, 1), repeats = batch_sizes.astype("int"))
+        strat_pop = [pop[strata == 0], pop[strata == 1]] # split population into polling and clca strata
+    elif assort_method == "STS":
+        # number of cards of each kind in card-polling stratum
+        N_1_i = N[0] * invalid[0] # the number of CVRs showing invalid votes
+        N_1_w = N[0] * A_c[0] * (1 - invalid[0]) # the number of CVRs showing votes for the winner
+        N_1_l = N[0] * (1 - A_c[0]) * (1 - invalid[0])
+        N_1_iwl = [int(c) for c in saferound([N_1_i, N_1_w, N_1_l], places = 0)]
+        B_nocvrs = np.concatenate([1/2 * u * np.ones(N_1_iwl[0]), u * np.ones(N_1_iwl[1]), np.zeros(N_1_iwl[2])]) # the assorter values of cards without CVRs
+        B_cvrs = u * np.ones(N[1]) / (2 * u) # the assorter values of cards correct CVRs (divided by 2)
+        strat_pop = [B_nocvrs, B_cvrs]
+    else:
+        raise ValueError("Input assort_method in [\"STS\", \"ONE\"]")
+    return strat_pop
+
+def construct_eta_bands_hybrid(A_c, N, n_bands = 100, assort_method = "STS"):
+    '''
+    construct a set of bands to run a hybrid audit of a plurality contest
+    using the parameterization from Sweeter than SUITE (STS): https://arxiv.org/pdf/2207.03379
+
+    Parameters
+    ----------
+        A_c: length-2 list of floats in [0,1]
+            the reported assorter mean in each stratum
+            the first entry is the card-polling stratum, the second is the CLCA stratum
+        N: length-2 list of ints
+            the size of the population within each stratum
+            the first entry is the card-polling stratum, the second is the CLCA stratum
+        n_bands: positive int
+            the number of equal-width bands in the tesselation of the null boundary
+        assort_method: str in ["STS","ONE"]
+            the method used to parameterize the population and construct assorters
+            MUST MATCH THE STRATEGY USED TO CONSTRUCT ASSORTERS
+    Returns
+    ----------
+        a list of tuples of length points,
+        each tuple represents a band over which the null mean will be tested,
+        it contains one eta that is used to construct bets and selections
+        and two etas representing the endpoints of the band, which are used to conservatively test the intersection nulls for that band
+    '''
+    assert (np.max(A_c) <= 1) and (np.min(A_c) >= 0), "reported assorter margin is not in [0,1]"
+    assert np.min(N) >= 1, "N (population size) must be no less than 1 in all strata"
+    K = len(N)
+    u = 1 # the upper bound on the original assorters
+    eta_0 = 1/2 # the global null on the scale of the original assorters
+    assert K == 2, "only works for two strata"
+    w = N / np.sum(N)
+    assert np.dot(w, A_c) > 1/2, "reported assorter mean (A_c) implies the winner lost"
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(u_A, eta_0/w[0]), n_bands + 1)
+    eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
+    if assort_method == "STS":
+        # the transformation is per STS, except divided by 2 in the CLCA stratum
+        # the division of CLCA means (and overstatement assorters) by u is so the stratum is bounded on [0,1] (ow the CLCA stratum is bounded on [0,2])
+        beta_1_grid = eta_1_grid # nulls in card-polling stratum are not transformed by reported margin
+        beta_2_grid = (eta_2_grid + 1 - A_c[1]) / (2*u) # transformed null means in CLCA stratum
+    elif assort_method == "ONE":
+        # ONEAudit does not require transforming the nulls within the CVR stratum
+        beta_1_grid = eta_1_grid
+        beta_2_grid = eta_2_grid
+    else:
+        raise ValueError("assort_method must be in [\"STS\", \"ONE\"]")
+    beta_grid = np.transpose(np.vstack((beta_1_grid, beta_2_grid)))
+    betas = []
+    for i in np.arange(beta_grid.shape[0] - 1):
+        centroid = (beta_grid[i,:] + beta_grid[i+1,:]) / 2
+        betas.append([(beta_grid[i,:], beta_grid[i+1,:]), centroid])
+    return betas
+
+############ ONEAudit  ##############
 # functions to generate ONEAudit populations per Stark, 2023 (https://arxiv.org/abs/2303.03335) and simulate sampling and inference
 def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
     '''
@@ -1465,7 +1575,7 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
     batch_sizes: a length-B np.array of positive ints
         the sizes of each of B batches; NB: the population size is sum(batch_sizes)
     A_c: a length-B np.array of floats in [0,1]
-        the reported (and true) assorter margin in each batch
+        the reported (and true) assorter mean in each batch
         expressed in terms of the proportion of valid votes for the winner: A_c[i] > 0.5 means the winner won batch i
     invalid: a length-B np.array of floats in [0,1]
         the proportion of invalid votes in each batch; defaults to 0
@@ -1481,7 +1591,6 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
         invalid = np.zeros(B)
     u = 1 # the upper bound on the original assorters for plurality contests
     batches = []
-    #batch_labels = []
 
     v = 2 * A_c_global - 1 # global reported assorter margin
     for i in range(B):
@@ -1500,9 +1609,7 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
 
         # assorter populations as an array
         batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
-        #batch_labels.append(i)
     pop = np.concatenate(batches)
-    #labels = np.concatenate(batch_labels)
     return pop
 
 

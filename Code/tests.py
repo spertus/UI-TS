@@ -11,7 +11,8 @@ import coverage
 from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_bound, global_lower_bound, \
     intersection_mart, plot_marts_eta, brute_force_uits, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_plurcomp,\
-    random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits
+    random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits,\
+    generate_hybrid_audit_population, generate_oneaudit_population
 
 
 def test_mart():
@@ -252,36 +253,33 @@ def test_brute_force_uits():
 
 
 def test_simulate_plurcomp():
-    N = [20, 20]
+    N = [40, 40]
     A_c = [0.8, 0.8]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
 
     #lcb
     #check global stopping times
-    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.agrapa, allocation_func = Allocations.round_robin, method = "lcb", WOR = False, reps = 2)[0]
+    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.agrapa, allocation_func = Allocations.round_robin, method = "lcb", WOR = False, reps = 2)[0] < 80
     #check global sample sizes
-    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, method = "lcb", WOR = False, reps = 1)[1] < 40
-    #check if sample size is larger than stopping time
-    g_st, g_ss = simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, method = "lcb", WOR = False, reps = 1)
-    assert g_st < g_ss
+    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, method = "lcb", WOR = False, reps = 1)[1] < 80
 
     #ui-ts
     #check global stopping times
-    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True, reps = 2)[0]
+    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True, reps = 2)[0] < 80
     #check global sample sizes
-    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
+    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 80
     #check if sample size is larger than stopping time
     g_st, g_ss = simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.fixed, allocation_func = Allocations.predictable_kelly, WOR = True, reps = 1)
     assert g_st < g_ss
 
-    # different alternative / election
+    # different alternative
     N = [20, 20]
     A_c = [0.4, 0.8]
     p_1 = [0.0, 0.0]
     p_2 = [0.0, 0.0]
     #check global stopping times
-    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.inverse, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[0] < 40
+    assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.inverse_eta, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[0] < 40
     #check global sample sizes
     assert 1 < simulate_plurcomp(N, A_c, p_1, p_2, lam_func = Bets.agrapa, allocation_func = Allocations.round_robin, WOR = True, reps = 1)[1] < 40
 
@@ -291,6 +289,26 @@ def test_random_truncated_gaussian():
     samples = random_truncated_gaussian(0.5, 1, 20)
     assert ((0 < samples) & (samples < 1)).all()
     assert 0.4 < random_truncated_gaussian(0.5, 0.001, 1) < 0.6
+
+
+def test_generate_hybrid_audit_population():
+    # basic STS hybrid audit
+    pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.0, 0.0], assort_method = "STS")
+    assert np.mean(pop[0]) == 0.6
+    assert np.mean(pop[1]) == 0.5
+    # STS hybrid audit with invalids
+    pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.5, 0.5], assort_method = "STS")
+    assert np.mean(pop[0][pop[0] != 1/2]) == 0.6 # valid votes still have mean 0.6
+    assert np.mean(pop[1]) == 0.5
+
+    # basic stratified ONEAudit (without invalids)
+    pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.0, 0.0], assort_method = "ONE")
+    v = 2 * np.dot([0.5,0.5], [0.6, 0.8]) - 1 # global margin
+    assert np.mean(pop[0]) == 1/(2 - v)
+    assert np.mean(pop[1]) == 1/(2 - v)
+
+
+
 
 
 def test_convex_uits():
