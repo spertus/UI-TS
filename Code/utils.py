@@ -308,7 +308,7 @@ class Bets:
         # warm start by bracketing based on the last optimum
         # x_0 in kwargs as a warm start (e.g., previous optimum)
 
-        # compute the slope at the endpointss
+        # compute the slope at the endpoints
         min_slope = Bets.deriv(0, x, eta)
         max_slope = Bets.deriv(1/eta, x, eta)
         # if the return is always growing, set lambda to the maximum allowed
@@ -339,7 +339,7 @@ class Bets:
         past = kwargs.get("past", None)
         if past:
             lam = past
-            lam.append(kelly_optimal(x[:-1], eta))
+            lam.append(Bets.kelly_optimal(x[:-1], eta))
         else:
             lam = np.zeros(len(x))
             # the first bet is 0, the subsequent ones are optimal for the lagged sample
@@ -349,10 +349,9 @@ class Bets:
 
 
 
-
     def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
         '''
-        WIP
+        WIP, NOT FUNCTIONING
         computes a new bet as a convex combination of other bets
         NOTE: could allow the weights to vary over time as well; e.g. proper dims are (len(bet_list), len(x))
         --------
@@ -463,7 +462,11 @@ class Allocations:
         next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
-    def predictable_kelly(x, running_T_k, n, N, eta, lam, **kwargs):
+    def predictable_kelly(x, running_T_k, n, N, eta, lam, terms, **kwargs):
+        '''
+        for this allocation function and greedy kelly, need to pass in an array of the past log-growths (terms)
+        terms is a list of the log-growths in each stratum
+        '''
         #this estimates the expected log-growth of each martingale
         #and then draws with probability proportional to this growth
         #currently, can't use randomized betting rules (would need to pass in terms directly)
@@ -475,7 +478,7 @@ class Allocations:
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
             #compute martingale as if sampling were with replacement (N = np.inf)
-            past_terms = [mart(x[k], eta[k], lam_func = None, lam = lam[k], N = np.inf, log = True, output = "terms")[0:running_T_k[k]] for k in range(K)]
+            past_terms = [terms[0:running_T_k[k]] for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -485,10 +488,10 @@ class Allocations:
             next = np.argmax(scores)
         return next
     #essentially just a renaming of predictable_kelly, but is handled differently
-    def greedy_kelly(x, running_T_k, n, N, eta, lam, **kwargs):
-        #this estimates the expected log-growth of each martingale
-        #and then draws with probability proportional to this growth
-        #currently, can't use randomized betting rules (would need to pass in terms directly)
+    def greedy_kelly(x, running_T_k, n, N, eta, lam, terms, **kwargs):
+        '''
+        terms is a list of the log-growths in each stratum
+        '''
         if any(running_T_k <= 2):
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
         else:
@@ -497,7 +500,7 @@ class Allocations:
             sd_min = kwargs.get("sd_min", 0.05)
             #return past terms for each stratum on log scale
             #compute martingale as if sampling were with replacement (N = np.inf)
-            past_terms = [mart(x[k][0:running_T_k[k]], eta[k], lam_func = None, lam = lam[k][0:running_T_k[k]], N = np.inf, log = True, output = "terms") for k in range(K)]
+            past_terms = [terms[0:running_T_k[k]] for k in range(K)]
 
             #use a UCB-like approach to select next stratum
             est_log_growth = np.array([np.mean(t) for t in past_terms])
@@ -551,7 +554,9 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
             data
         eta: scalar in [0,1]
             null mean
-        lam_func: callable, a function from the Bets class
+        lam_func: callable, a function from the Bets class, or a list of callables
+            if callable, the TSM is computed for that betting function
+            if list, a TSM is computed for every betting function in the list and those TSMs are averaged into a new TSM
         lam: length-n_k np.array
             pre-set bets
         N: positive integer,
@@ -561,7 +566,6 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
         output: str
             indicates what to return
             "mart": return the martingale sequence (found by multiplication or summing if log)
-            "terms": returns just the terms, without running product/sum
             "bets": returns just the bets for the martingale
     Returns
     ----------
@@ -577,35 +581,27 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
         eta_t = eta * np.ones(len(x))
     else:
         raise ValueError("Input an integer value for N, possibly np.inf")
-    #note: per Waudby-Smith and Ramdas, the null mean for the bets does not update for sampling WOR
+    if callable(lam_func):
+        lam_func = [lam_func]
+    #note: per Waudby-Smith and Ramdas, the null mean for the bets does not update when sampling WOR
     #note: eta < 0 or eta > 1 can create runtime warnings in log, but are replaced appropriately by inf
     if lam_func is not None:
-        lam = lam_func(x, eta)
-    if output == "terms":
-        if log:
-            terms = np.insert(np.log(1 + lam * (x - eta_t)), 0, 0)
-            terms[np.insert(eta_t < 0, 0, False)] = np.inf
-            terms[np.insert(eta_t > 1, 0, False)] = -np.inf
-        else:
-            terms = np.insert(1 + lam * (x - eta_t), 0, 0)
-            terms[np.insert(eta_t < 0, 0, False)] = np.inf
-            terms[np.insert(eta_t > 1, 0, False)] = 0
-        return terms
-    elif output == "mart":
-        if log:
-            mart = np.insert(np.cumsum(np.log(1 + lam * (x - eta_t))), 0, 0)
-            mart[np.insert(eta_t < 0, 0, False)] = np.inf
-            mart[np.insert(eta_t > 1, 0, False)] = -np.inf
-        else:
-            mart = np.insert(np.cumprod(1 + lam * (x - eta_t)), 0, 1)
+        lam = [lf(x, eta) for lf in lam_func]
+    if output == "mart":
+        mart_array = np.zeros((len(x)+1, len(lam)))
+        for l in range(len(lam)):
+            mart = np.insert(np.cumprod(1 + lam[l] * (x - eta_t)), 0, 1)
             mart[np.insert(eta_t < 0, 0, False)] = np.inf
             mart[np.insert(eta_t > 1, 0, False)] = 0
-        return mart
+            mart_array[:,l] = mart
+        h_mart = np.mean(mart_array, 1) # this is the "hedged martingale", the flat average over the bets
+        h_mart = np.log(h_mart) if log else h_mart
+        out = h_mart
     elif output == "bets":
-        bets = lam
-        return bets
+        out = np.stack(lam)
     else:
-        "Input a valid argument to return, either 'marts', 'terms', or 'bets'"
+        out = "Input a valid argument to return, either 'marts', 'terms', or 'bets'"
+    return out
 
 
 def selector(x, N, allocation_func, eta = None, lam = None, for_samples = False):
@@ -641,6 +637,13 @@ def selector(x, N, allocation_func, eta = None, lam = None, for_samples = False)
         n = [len(x_k)-1 for x_k in x]
     else:
         n = [len(x_k) for x_k in x]
+    # special handling for predictable kelly and greedy kelly
+    if allocation_func in [Allocations.greedy_kelly, Allocations.predictable_kelly]:
+        terms = []
+        for k in range(K):
+            m = mart(x[k], eta[k], lam[k], N = np.inf, log = True)
+            log_growth = np.diff(m)
+            terms[k] = log_growth
     #selections from 0 in each stratum; time 1 is first sample
     T_k = np.zeros((np.sum(n) + 1, K), dtype = int)
     running_T_k = np.zeros(K, dtype = int)

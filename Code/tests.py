@@ -69,6 +69,11 @@ def test_global_lower_bound():
     assert global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] > global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = False)[-1]
 
 
+def test_convex_bets():
+    N = 10
+    eta = 0.5
+    x = 0.5 * np.ones(N)
+
 def test_selector():
     N = [1000, 1000, 1000]
     n = [50, 50, 50]
