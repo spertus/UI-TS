@@ -69,11 +69,6 @@ def test_global_lower_bound():
     assert global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = True)[-1] > global_lower_bound(samples, N, Bets.fixed, Allocations.proportional_round_robin, 0.05, WOR = False)[-1]
 
 
-def test_convex_bets():
-    N = 10
-    eta = 0.5
-    x = 0.5 * np.ones(N)
-
 def test_selector():
     N = [1000, 1000, 1000]
     n = [50, 50, 50]
@@ -120,7 +115,7 @@ def test_selector():
     eta_1 = [1,0]
     eta_2 = [0,1]
     samples = [0.6 * np.ones(n[0]), 0.6 * np.ones(n[1])]
-    bets = [Bets.fixed(samples[k], eta[k]) for k in np.arange(2)]
+    bets = [Bets.fixed(samples[k], eta_1[k]) for k in np.arange(2)]
     selections_1 = selector(samples, N, Allocations.predictable_kelly, eta_1, bets)
     selections_2 = selector(samples, N, Allocations.predictable_kelly, eta_2, bets)
     assert selections_1[10,1] > selections_2[10,1]
@@ -129,15 +124,22 @@ def test_selector():
 
 def test_intersection_mart():
     #null is true
+    K = 3
     N = [10,10,5]
     sample = [np.ones(N[0]) * 0.5, np.ones(N[1]) * 0.5, np.ones(N[2]) * 0.5]
+    lam = [Bets.fixed(x = sample[k], eta = 0.5) for k in range(len(sample))]
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product")[-1] == 0
-    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum")[-1] == 0
-    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "fisher")[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam = lam, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum")[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam = lam, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "fisher")[-1] == 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", log = False)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", log = False)[-1] == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "fisher", log = False)[-1] == 1
-    #without replacement
+
+    # test varying bets over strata and using mixtures of bets for each TSM
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = [Bets.fixed, Bets.agrapa, Bets.fixed], allocation_func = Allocations.round_robin)[-1] == 0
+    assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = [[Bets.fixed, Bets.agrapa] for k in range(K)], allocation_func = Allocations.round_robin)[-1] == 0
+
+    # without replacement
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, combine = "product", WOR = True)[-1] == 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "sum", WOR = True)[-1] == 0
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, allocation_func = Allocations.round_robin, theta_func = Weights.fixed, combine = "fisher", WOR = True)[-1] == 0
@@ -155,8 +157,6 @@ def test_intersection_mart():
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.negative_exponential, T_k = T_k, combine = "product", log = False, WOR = True, last = True) == 1
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = False, last = False)[-1] == intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = False, WOR = False, last = True)
     assert intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = True, WOR = False, last = False)[-1] == intersection_mart(sample, N, eta = [0.5, 0.5, 0.5], lam_func = Bets.fixed, T_k = T_k, combine = "product", log = True, WOR = False, last = True)
-
-
 
     #mixing distribution
     md = np.array([[0.5,0.5,0.5], [0.25, 0.5, 0.75]])
