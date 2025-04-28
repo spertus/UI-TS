@@ -26,9 +26,15 @@ def test_mart():
     assert mart(sample, eta = 0.5, lam_func = Bets.agrapa, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, lam_func = Bets.agrapa, log = False)[-1] > 1
     assert mart(sample, eta = 0.4, lam_func = Bets.predictable_plugin, log = False)[-1] > 1
+    assert mart(sample, eta = 0.4, lam_func = Bets.kelly_optimal, log = False)[-1] > 1
+
     #test kwargs
-    agrapa = lambda x, eta: Bets.agrapa(x, eta, c = 0.9, sd_min = 0.2) #is there an easier way to specify?
+    agrapa = lambda x, eta: Bets.agrapa(x, eta, c = 0.9, sd_min = 0.2)
     assert mart(sample, eta = 0.5, lam_func = agrapa, log = False)[-1] == 1
+    A_c = 0.6
+    cobra_sample = (1 / (2 - (2*A_c - 1))) * np.ones(10)
+    cobra = lambda x, eta: Bets.cobra(x, eta, A_c = A_c)
+    assert mart(cobra_sample, eta = 0.5, lam_func = cobra, log = False)[-1] > 1
     #WOR
     assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1

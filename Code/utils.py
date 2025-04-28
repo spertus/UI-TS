@@ -7,7 +7,7 @@ import itertools
 import pypoman
 import warnings
 from iteround import saferound
-from scipy.stats import bernoulli, multinomial, chi2, t
+from scipy.stats import bernoulli, multinomial, chi2, t, beta
 from scipy.stats.mstats import gmean
 from welford import Welford
 from functools import lru_cache
@@ -102,6 +102,54 @@ class Bets:
         c = kwargs.get('c', 0.75)
         lam = c * np.ones(x.size)
         return lam
+
+    def cobra(x, eta, A_c, **kwargs):
+        '''
+        comparison optimal betting, per Spertus (2023) https://arxiv.org/pdf/2304.01010
+        set up for a standard ballot-level comparison audit, defined on [0,1], ignoring understatements (i.e., interpreting them as correct CVRs), with null mean 1/2
+        eta-adaptive
+        -------------
+        A_c: float in [0,1]
+            the reported margin in the
+        kwargs:
+            p_1: the rate of 1-vote overstatements of the reported margin, defaults to 0
+            p_2: the rate of 2-vote overstatements of the reported margin, defaults to 0.001
+        '''
+        p_1 = kwargs.get('p_1', 0.0)
+        p_2 = kwargs.get('p_2', 0.001)
+        p_0 = 1 - p_1 - p_2
+        v = 2 * A_c - 1
+        a = 1/(2-v)
+        vals = np.array([0, a/2, a])
+        probs = np.array([p_2, p_1, p_0])
+        if (p_1 == 0) and (p_2 == 0):
+            out = (1/eta) * np.ones(len(x))
+        else:
+            deriv = lambda lam: np.sum(probs * (vals - eta) / (1 + lam * (vals - eta)))
+            lam_star = sp.optimize.root_scalar(deriv, bracket = [0, 1/eta], method = 'bisect')
+            out = lam_star['root'] * np.ones(len(x))
+        return out
+
+
+    def universal_portfolio(x, eta, **kwargs):
+        '''
+        universal portfolio bets; per Waudby-Smith et al (2025) https://arxiv.org/pdf/2504.02818
+        see also Ricardo Sandoval's code on Github: https://github.com/RicardoJSandoval/log-optimality/blob/main/utils/betting_strategies.py
+        from which this function is copied w minor alterations
+        '''
+        beta_distr = sp.stats.beta(0.5, 0.5)
+        n = len(x)
+        z = x - eta
+        out = np.zeros(len(x))
+        for i in range(1,n+1):
+            num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
+            denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
+
+            num_val = sp.integrate.quad(num, 0, 1)
+            denom_val = sp.integrate.quad(denom, 0, 1)
+            bet = num_val[0] / denom_val[0]
+            out[i-1] = bet
+        return out
 
     def predictable_plugin(x, eta, **kwargs):
         '''
@@ -1588,7 +1636,7 @@ def construct_eta_bands_hybrid(A_c, N, n_bands = 100, assort_method = "STS"):
     assert K == 2, "only works for two strata"
     w = N / np.sum(N)
     assert np.dot(w, A_c) > 1/2, "reported assorter mean (A_c) implies the winner lost"
-    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(u_A, eta_0/w[0]), n_bands + 1)
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(u, eta_0/w[0]), n_bands + 1)
     eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
     if assort_method == "STS":
         # the transformation is per STS, except divided by 2 in the CLCA stratum
