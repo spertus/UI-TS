@@ -28,13 +28,21 @@ def test_mart():
     assert mart(sample, eta = 0.4, lam_func = Bets.predictable_plugin, log = False)[-1] > 1
     assert mart(sample, eta = 0.4, lam_func = Bets.kelly_optimal, log = False)[-1] > 1
 
-    #test kwargs
+    # agrapa + kwargs
     agrapa = lambda x, eta: Bets.agrapa(x, eta, c = 0.9, sd_min = 0.2)
     assert mart(sample, eta = 0.5, lam_func = agrapa, log = False)[-1] == 1
+    # universal portfolio + kwargs
+    sample_up = np.random.normal(0.7, 0.1, 10)
+    up_1 = lambda x, eta: Bets.universal_portfolio(x, eta, step = 1)
+    up_5 = lambda x, eta: Bets.universal_portfolio(x, eta, step = 5)
+    assert mart(sample_up, eta = 0.5, lam_func = up_1, log = False)[-1] >= 1
+    assert mart(sample_up, eta = 0.5, lam_func = up_5, log = False)[-1] >= 1
+    # cobra + kwargs
     A_c = 0.6
     cobra_sample = (1 / (2 - (2*A_c - 1))) * np.ones(10)
     cobra = lambda x, eta: Bets.cobra(x, eta, A_c = A_c)
     assert mart(cobra_sample, eta = 0.5, lam_func = cobra, log = False)[-1] > 1
+
     #WOR
     assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1

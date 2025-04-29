@@ -136,19 +136,26 @@ class Bets:
         universal portfolio bets; per Waudby-Smith et al (2025) https://arxiv.org/pdf/2504.02818
         see also Ricardo Sandoval's code on Github: https://github.com/RicardoJSandoval/log-optimality/blob/main/utils/betting_strategies.py
         from which this function is copied w minor alterations
+        -----------------------------------
+        kwargs:
+            step: int, defaults to 1
+                this is a step size in n = len(x), at which the up bet will be recomputed
+                e.g., if step = 10, the bet is only recomputed every 10 samples
         '''
         beta_distr = sp.stats.beta(0.5, 0.5)
+        step = kwargs.get("step", 1)
         n = len(x)
         z = x - eta
         out = np.zeros(len(x))
         for i in range(1,n+1):
-            num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
-            denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
+            if (i == 1) or (i % step == 0):
+                num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
+                denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
 
-            num_val = sp.integrate.quad(num, 0, 1)
-            denom_val = sp.integrate.quad(denom, 0, 1)
-            bet = num_val[0] / denom_val[0]
-            out[i-1] = bet
+                num_val = sp.integrate.quad(num, 0, 1)
+                denom_val = sp.integrate.quad(denom, 0, 1)
+                bet = num_val[0] / denom_val[0]
+            out[i-1] = bet 
         return out
 
     def predictable_plugin(x, eta, **kwargs):
