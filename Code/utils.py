@@ -155,7 +155,7 @@ class Bets:
                 num_val = sp.integrate.quad(num, 0, 1)
                 denom_val = sp.integrate.quad(denom, 0, 1)
                 bet = num_val[0] / denom_val[0]
-            out[i-1] = bet 
+            out[i-1] = bet
         return out
 
     def predictable_plugin(x, eta, **kwargs):
@@ -1603,8 +1603,16 @@ def generate_hybrid_audit_population(N, A_c, invalid = None, assort_method = "ST
         N_1_w = N[0] * A_c[0] * (1 - invalid[0]) # the number of CVRs showing votes for the winner
         N_1_l = N[0] * (1 - A_c[0]) * (1 - invalid[0])
         N_1_iwl = [int(c) for c in saferound([N_1_i, N_1_w, N_1_l], places = 0)]
-        B_nocvrs = np.concatenate([1/2 * u * np.ones(N_1_iwl[0]), u * np.ones(N_1_iwl[1]), np.zeros(N_1_iwl[2])]) # the assorter values of cards without CVRs
-        B_cvrs = u * np.ones(N[1]) / (2 * u) # the assorter values of cards correct CVRs (divided by 2)
+        # population values for the polling stratum, as overstatements from pseudo-CVRs
+        # B_nocvrs_i = 1 + (np.ones(N_1_iwl[0])/2 - A_c[0])
+        # B_nocvrs_w = 1 + (np.ones(N_1_iwl[1]) - A_c[0])
+        # B_nocvrs_l = 1 + (np.zeros(N_1_iwl[2]) - A_c[0])
+        # population values as raw assorters
+        B_nocvrs_i = np.ones(N_1_iwl[0])/2 # invalid votes
+        B_nocvrs_w = np.ones(N_1_iwl[1]) # votes for winner
+        B_nocvrs_l = np.zeros(N_1_iwl[2]) # votes for loser
+        B_nocvrs = np.concatenate([B_nocvrs_i, B_nocvrs_w, B_nocvrs_l]) # the assorter values of cards without CVRs
+        B_cvrs = np.ones(N[1]) / (2 * u) # the assorter values of cards correct CVRs (divided by 2)
         strat_pop = [B_nocvrs, B_cvrs]
     else:
         raise ValueError("Input assort_method in [\"STS\", \"ONE\"]")
@@ -1648,8 +1656,9 @@ def construct_eta_bands_hybrid(A_c, N, n_bands = 100, assort_method = "STS"):
     if assort_method == "STS":
         # the transformation is per STS, except divided by 2 in the CLCA stratum
         # the division of CLCA means (and overstatement assorters) by u is so the stratum is bounded on [0,1] (ow the CLCA stratum is bounded on [0,2])
-        beta_1_grid = eta_1_grid # nulls in card-polling stratum are not transformed by reported margin
-        beta_2_grid = (eta_2_grid + 1 - A_c[1]) / (2*u) # transformed null means in CLCA stratum
+        #beta_1_grid = (eta_1_grid + 1 - A_c[0]) / (2*u) # null means in card-polling stratum
+        beta_1_grid = eta_1_grid
+        beta_2_grid = (eta_2_grid + 1 - A_c[1]) / (2*u) # null means in CLCA stratum
     elif assort_method == "ONE":
         # ONEAudit does not require transforming the nulls within the CVR stratum
         beta_1_grid = eta_1_grid
@@ -1840,7 +1849,7 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     samples_t[0] = [np.array([]) for _ in range(K)] #initialize with no samples
     T_k = np.zeros((np.sum(n)+1, K), dtype = int)
     eta_stars = np.zeros((np.sum(n)+1, K)) #stores minimizing etas
-    bets_t = [np.zeros(0)]*K # stores bets within each stratum at each time
+    bets_t = [np.zeros(1)]*K # stores bets within each stratum at each time; first bet is 0
     #constraint set for cvxopt
     G = np.concatenate((
         np.expand_dims(w, axis = 0),

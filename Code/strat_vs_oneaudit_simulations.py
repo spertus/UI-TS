@@ -44,12 +44,12 @@ A_c_bar_grid = [0.51, 0.55, 0.6] # these are the attempted global margins, the a
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
-#num_batch_grid = [1, 10] # the number of batches of size > 1; note that if there is one batch it is equivalent to polling
-num_batch_grid = [10]
-batch_size_grid = [100] # assuming for now, equally sized batches
 prop_invalid_grid = [0.0] # proportion of invalid votes in each batch (uniform across batches)
+num_batches = 10 # the number of batches
+batch_size = 1000 # the size of each batch
 #num_cvr_grid = [0, 1000] # number of cvrs
-num_cvr_grid = [1000]
+num_cvrs = 10000
+N = num_batches * batch_size + num_cvrs # population size
 alpha = 0.05 # risk limit
 stratified_grid = [True, False] # whether or not the population and inference will be stratified
 assort_method_grid = ["STS","ONE"] # the method for defining the population of assorters
@@ -57,17 +57,20 @@ assort_method_grid = ["STS","ONE"] # the method for defining the population of a
 bets_dict = {
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
     "alpha": "special handling", # see below
-    "kelly-optimal": lambda x, eta: Bets.kelly_optimal(x, eta, c = 0.99)}
+    "kelly-optimal": "special handling"}
 bets_grid = list(bets_dict.keys())
 
 results = []
 i = 0
 
-for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid, stratified_grid, assort_method_grid):
+n_next = 100 #size of blocks at which sample will expand
+n_max = N # maximum size of sample, at which point the simulation will terminate
+
+for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, polarized_grid, stratified_grid, assort_method_grid):
     i += 1
     print(str(i))
     u = 1 # upper bound for plurality assorters
-    N = num_batches * batch_size + num_cvrs # population size
+
     prop_cvrs = num_cvrs / N # proportion of votes that are CVRs
     prop_batches = 1 - prop_cvrs # proportion of votes that are in batches
 
@@ -114,7 +117,6 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
         # the STS assort method is only relevant (and valid) for stratification
         if assort_method == "STS":
             continue
-        N = np.sum(batch_sizes) # the size of the population/sample
         # create population of ONEAudit assorters
         assorter_pop_unscaled = generate_oneaudit_population(
                 batch_sizes = batch_sizes,
@@ -129,25 +131,33 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
         # assorters and global null are rescaled to [0,1]
         assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
         eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
+        # containers for expanding sample
+        selected = np.array([]) # the index of samples that have been selected
+        remaining = np.arange(N) # the index of values remaining the population
 
         #derive kelly-optimal bet one time by applying numerical optimization to entire population
         if bet == "alpha":
             # alpha (predictable bernoulli) gets shrunk towards the true mean of the population
             bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
         if bet == "kelly-optimal":
+            # pre-compute Kelly-optimal bets for whole population
             ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
         for r in rep_grid:
-            X = np.random.permutation(assorter_pop) # the sample is a permutation of the population
-            # TSMs are computed for sampling WOR
+            done = False
             start_time = time.time()
-            if bet == "kelly-optimal":
-                m = mart(X, eta = eta_0, lam = ko_bet, N = N, log = True)
-            else:
-                m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
-            run_time = start_time - time.time()
-            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
-            stopping_times[r] = stopping_time
-            run_times[r] = run_time
+            while not done:
+                selected = np.append(selected, np.random.choice(remaining, size = n_next, replace = False))
+                remaining = np.setdiff1d(remaining, selected)
+                X = assorter_pop[selected]
+                # TSMs are computed for sampling WOR
+                if bet == "kelly-optimal":
+                    m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = N, log = True)
+                else:
+                    m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
+                if any(m > -np.log(alpha)):
+                    done = True
+            stopping_times[r] =np.argmax(m > -np.log(alpha))
+            run_times[r] = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
                 "delta_within":delta_within,
@@ -181,27 +191,42 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
         prop_invalid_strat = prop_invalid * np.ones(K)
         assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = assort_method)
         etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = assort_method) # the null space, partitioned into bands
+
+        if bet == "kelly-optimal":
+            # the sample is ignored when the bet is called inside banded_uits and the full population is inserted
+            # this produces the kelly-optimal bet at all times for the full population, not just the sample at hand
+            bets_dict["kelly-optimal"] = [lambda x, eta: Bets.kelly_optimal(assorter_pop[k], eta) for k in range(K)]
+        if bet == "alpha":
+            # alpha bets are shrunk towards the true population mean
+            bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
+
+        # containers for expanding sample in each stratum
+        selected = [np.array([]), np.array([])] # the index of samples that have been selected
+        remaining = [np.arange(N_strat[0]), np.arange(N_strat[1])] # the index of values remaining the population
+
         for r in rep_grid:
-            # 'draw' a stratified sample by shuffling the population within strata
-            X = []
-            for k in range(K):
-                X.append(np.random.permutation(assorter_pop[k]))
-            # TSMs are computed for sampling WOR
+            X = [np.array([]), np.array([])] # container for samples
+            
+            done = False
             start_time = time.time()
-            if bet == "alpha":
-                bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
-            m = banded_uits(
-                X,
-                N = N_strat,
-                etas = etas,
-                lam_func = bets_dict[bet],
-                allocation_func = Allocations.proportional_round_robin,
-                log = True,
-                WOR = True)[0]
-            run_time = start_time - time.time()
-            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
-            stopping_times[r] = stopping_time
-            run_times[r] = run_time
+            while not done:
+                for k in range(K):
+                    selected[k] = np.append(selected[k], np.random.choice(remaining[k], size = n_next, replace = False))
+                    remaining[k] = np.setdiff1d(remaining[k], selected[k])
+                    X[k] = assorter_pop[k][selected[k]]
+                # TSMs are computed for sampling WOR
+                m = banded_uits(
+                    X,
+                    N = N_strat,
+                    etas = etas,
+                    lam_func = bets_dict[bet],
+                    allocation_func = Allocations.proportional_round_robin,
+                    log = True,
+                    WOR = True)[0]
+                if any(m > -np.log(alpha)):
+                    done = True
+            stopping_times[r] =np.argmax(m > -np.log(alpha))
+            run_times[r] = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
                 "delta_within":delta_within,

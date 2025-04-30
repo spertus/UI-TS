@@ -12,7 +12,7 @@ from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_b
     intersection_mart, plot_marts_eta, brute_force_uits, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_plurcomp,\
     random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits,\
-    generate_hybrid_audit_population, generate_oneaudit_population
+    generate_hybrid_audit_population, generate_oneaudit_population, construct_eta_bands_hybrid
 
 
 def test_mart():
@@ -313,19 +313,58 @@ def test_random_truncated_gaussian():
 def test_generate_hybrid_audit_population():
     # basic STS hybrid audit
     pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.0, 0.0], assort_method = "STS")
-    assert np.mean(pop[0]) == 0.6
-    assert np.mean(pop[1]) == 0.5
+    assert np.round(np.mean(pop[0]), 4) == 0.6
+    assert np.round(np.mean(pop[1]), 4) == 0.5
     # STS hybrid audit with invalids
     pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.5, 0.5], assort_method = "STS")
-    assert np.mean(pop[0][pop[0] != 1/2]) == 0.6 # valid votes still have mean 0.6
-    assert np.mean(pop[1]) == 0.5
-
-    # basic stratified ONEAudit (without invalids)
+    assert np.round(np.mean(pop[0][pop[0] != 1/2]), 4) == 0.6 # check mean of valid votes
+    assert np.round(np.mean(pop[1]), 4) == 0.5
+    # basic stratified ONEAudit
     pop = generate_hybrid_audit_population(N = [200, 200], A_c = [0.6, 0.8], invalid = [0.0, 0.0], assort_method = "ONE")
     v = 2 * np.dot([0.5,0.5], [0.6, 0.8]) - 1 # global margin
     assert np.mean(pop[0]) == 1/(2 - v)
     assert np.mean(pop[1]) == 1/(2 - v)
 
+def test_hybrid_audit():
+    # STS formulation
+    N_strat = [1000, 1000]
+    A_c_strat = [0.2, 0.9]
+    prop_invalid_strat = [0.0, 0.0]
+    K = 2
+    assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "STS")
+    etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "STS")
+    X = []
+    for k in range(K):
+        X.append(np.random.permutation(assorter_pop[k]))
+    m_sts = banded_uits(X, N = N_strat, etas = etas, lam_func = Bets.kelly_optimal, allocation_func = Allocations.proportional_round_robin, log = True)[0]
+    assert m_sts[-1] > 1
+
+    #ONE formulation
+    assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "ONE")
+    etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "ONE")
+    X = []
+    for k in range(K):
+        X.append(np.random.permutation(assorter_pop[k]))
+    m_one = banded_uits(X, N = N_strat, etas = etas, lam_func = Bets.kelly_optimal, allocation_func = Allocations.proportional_round_robin, log = True)[0]
+    assert m_one[-1] > 1
+
+    # marginal election, martingales should be small
+    N_strat = [100, 100]
+    A_c_strat = [0.51, 0.51]
+    assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "STS")
+    etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "STS")
+    X = []
+    for k in range(K):
+        X.append(np.random.permutation(assorter_pop[k]))
+    m_sts = banded_uits(X, N = N_strat, etas = etas, lam_func = Bets.kelly_optimal, allocation_func = Allocations.proportional_round_robin, log = True)[0]
+    assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "ONE")
+    etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "ONE")
+    X = []
+    for k in range(K):
+        X.append(np.random.permutation(assorter_pop[k]))
+    m_one = banded_uits(X, N = N_strat, etas = etas, lam_func = Bets.kelly_optimal, allocation_func = Allocations.proportional_round_robin, log = True)[0]
+    assert m_one[-1] < 5
+    assert m_sts[-1] < 5
 
 
 
