@@ -33,40 +33,47 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 
 
-rep_grid = np.arange(3) #allows reps within parallelized simulations
+rep_grid = np.arange(10) #allows reps within parallelized simulations
 n_reps = len(rep_grid)
 sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
-
 #A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_bar_grid = [0.51, 0.55, 0.75] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
+A_c_bar_grid = [0.51, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ slightly because of integer rounding of votes
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
-polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
+polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
 #num_batch_grid = [1, 10] # the number of batches of size > 1; note that if there is one batch it is equivalent to polling
-num_batch_grid = [10]
-batch_size_grid = [100] # assuming for now, equally sized batches
-prop_invalid_grid = [0.0, 0.5] # proportion of invalid votes in each batch (uniform across batches)
-#num_cvr_grid = [0, 1000] # number of cvrs
-num_cvr_grid = [1000]
+num_batches = 100
+batch_size = 1000 # assuming for now, equally sized batches
+ratio_cvrs_grid = [0.0, 0.1, 1, 10] # the ratio of the size of the CVR stratum to the batches
+prop_invalid_grid = [0.0, 0.1, 0.5, 0.9] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
-stratified_grid = [True, False] # whether or not the population and inference will be stratified
+
+
+
+n_next = 500 #size of blocks at which sample will expand
+n_max = 1500 # maximum size of sample, at which point the simulation will terminate
 
 
 bets_dict = {
+    "cobra": lambda x, eta: Bets.cobra(x, eta),
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
     "alpha": "special handling", # see below
-    "kelly-optimal": lambda x, eta: Bets.kelly_optimal(x, eta, c = 0.99)}
+    "kelly-optimal": "special handling",
+    "universal-portfolio": lambda x, eta: Bets.universal_portfolio(x, eta, step = 50)
+    }
 bets_grid = list(bets_dict.keys())
 
 results = []
 i = 0
 
-for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, bet, num_cvrs, polarized, stratified in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, num_batch_grid, batch_size_grid, prop_invalid_grid, bets_grid, num_cvr_grid, polarized_grid, stratified_grid):
+for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, polarized in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, polarized_grid):
     i += 1
     print(str(i))
     u = 1 # upper bound for plurality assorters
+
+    num_cvrs = ratio_cvrs * batch_size * num_batches
     N = num_batches * batch_size + num_cvrs # population size
     prop_cvrs = num_cvrs / N # proportion of votes that are CVRs
     prop_batches = 1 - prop_cvrs # proportion of votes that are in batches
@@ -80,6 +87,8 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
         else:
             A_c_batches = A_c_bar_batches
     elif polarized:
+        if delta_within == 0:
+            continue
         assert (num_batches % 2) == 0, "number of batches must be divisible by two to maintain bar mean with polarization"
         A_c_batches = np.append(
             (A_c_bar_batches - 0.5 * delta_within) * np.ones(int(num_batches/2)),
@@ -110,115 +119,60 @@ for A_c_bar, delta_within, delta_across, num_batches, batch_size, prop_invalid, 
 
     stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
     run_times = np.zeros(n_reps) # container for run times in each simulation
-    if not stratified:
-        N = np.sum(batch_sizes) # the size of the population/sample
-        # create population of ONEAudit assorters
-        assorter_pop_unscaled = generate_oneaudit_population(
-                batch_sizes = batch_sizes,
-                A_c = A_c,
-                invalid = invalids
-            )
-        eta_0_unscaled = 1/2 # global null mean
 
-        realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
-        v_bar = 2 * realized_A_c_bar - 1 # global margin
+    # create population of ONEAudit assorters
+    assorter_pop_unscaled = generate_oneaudit_population(
+            batch_sizes = batch_sizes,
+            A_c = A_c,
+            invalid = invalids
+        )
+    eta_0_unscaled = 1/2 # global null mean
 
-        # assorters and global null are rescaled to [0,1]
-        assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
-        eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
+    realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
+    v_bar = 2 * realized_A_c_bar - 1 # global margin
 
-        #derive kelly-optimal bet one time by applying numerical optimization to entire population
-        if bet == "alpha":
-            # alpha (predictable bernoulli) get shrunk towards the true mean of the population
-            bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
-        if bet == "kelly-optimal":
-            ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
-        for r in rep_grid:
-            X = np.random.permutation(assorter_pop) # the sample is a permutation of the population
+    # assorters and global null are rescaled to [0,1]
+    assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
+    eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
+
+    #derive kelly-optimal bet one time by applying numerical optimization to entire population
+    if bet == "alpha":
+        # alpha (predictable bernoulli) get shrunk towards the true mean of the population
+        bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
+    if bet == "kelly-optimal":
+        ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
+    for r in rep_grid:
+        done = False
+        start_time = time.time()
+        while not done:
+            selected = np.append(selected, np.random.choice(remaining, size = n_next, replace = False))
+            remaining = np.setdiff1d(remaining, selected)
+            X = assorter_pop[selected]
             # TSMs are computed for sampling WOR
-            start_time = time.time()
             if bet == "kelly-optimal":
-                m = mart(X, eta = eta_0, lam = ko_bet, N = N, log = True)
+                m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = N, log = True)
             else:
                 m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
-            run_time = start_time - time.time()
-            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
-            stopping_times[r] = stopping_time
-            run_times[r] = run_time
-            data_dict = {
-                "A_c_bar":A_c_bar,
-                "delta_within":delta_within,
-                "delta_across":delta_across,
-                "stratified":stratified,
-                "assort_method":"ONE",
-                "polarized":polarized,
-                "rep":r,
-                "num_batches":num_batches,
-                "num_cvrs":num_cvrs,
-                "prop_cvrs": prop_cvrs,
-                "batch_size":batch_size,
-                "prop_invalid":prop_invalid,
-                "bet":str(bet),
-                "sample_size": stopping_time,
-                "run_time":run_time,
-                "cvr_mean":None,
-                "batch_mean":np.mean(X),
-                "cvr_sd":None,
-                "batch_sd":np.std(X)}
-            results.append(data_dict)
-    else:
-        # don't compute the stratified p-value if there are no cvrs
-        if num_cvrs == 0:
-            continue
-        # create hybrid audit population
-        strata = np.repeat(np.where(batch_sizes > 1, 0, 1), repeats = batch_sizes.astype("int")) # place ballots with CVRs (batch_size == 1) into stratum 1, and larger batches into stratum 0
-        K = 2 # the number of strata
-        N_strat = np.unique(strata, return_counts = True)[1] # the size of the population in each stratum
-        A_c_strat = [A_c_bar_batches, A_c_bar_cvrs]
-        prop_invalid_strat = prop_invalid * np.ones(K)
-        assorter_pop = generate_hybrid_audit_population(N_strat, A_c_strat, prop_invalid_strat, assort_method = "STS")
-        etas = construct_eta_bands_hybrid(A_c_strat, N_strat, n_bands = 100, assort_method = "STS") # the null space, partitioned into bands
-        for r in rep_grid:
-            # 'draw' a stratified sample by shuffling the population within strata
-            X = []
-            for k in range(K):
-                X.append(np.random.permutation(assorter_pop[k]))
-            # TSMs are computed for sampling WOR
-            start_time = time.time()
-            if bet == "alpha":
-                bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
-            m = banded_uits(
-                X,
-                N = N_strat,
-                etas = etas,
-                lam_func = bets_dict[bet],
-                allocation_func = Allocations.proportional_round_robin,
-                log = True,
-                WOR = True)[0]
-            run_time = start_time - time.time()
-            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N) # where the TSM crosses 1/alpha, or else the population size
-            stopping_times[r] = stopping_time
-            run_times[r] = run_time
-            data_dict = {
-                "A_c_bar":A_c_bar,
-                "delta_within":delta_within,
-                "delta_across":delta_across,
-                "stratified":stratified,
-                "assort_method":"STS",
-                "polarized":polarized,
-                "rep":r,
-                "num_batches":num_batches,
-                "num_cvrs":num_cvrs,
-                "prop_cvrs": prop_cvrs,
-                "batch_size":batch_size,
-                "prop_invalid":prop_invalid,
-                "bet":str(bet),
-                "sample_size": stopping_time,
-                "run_time":run_time,
-                "cvr_mean":None,
-                "batch_mean":np.mean(X),
-                "cvr_sd":None,
-                "batch_sd":np.std(X)}
-            results.append(data_dict)
+            if any(m > -np.log(alpha)) or (len(X) >= n_max):
+                done = True
+        stopping_times[r] = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), n_max) # where the TSM crosses 1/alpha, or else the population size
+        run_times[r] = time.time() - start_time
+        data_dict = {
+            "A_c_bar":A_c_bar,
+            "delta_within":delta_within,
+            "delta_across":delta_across,
+            "assort_method":"ONE",
+            "polarized":polarized,
+            "rep":r,
+            "num_batches":num_batches,
+            "num_cvrs":num_cvrs,
+            "prop_cvrs":prop_cvrs,
+            "batch_size":batch_size,
+            "prop_invalid":prop_invalid,
+            "bet":str(bet),
+            "sample_size": stopping_time,
+            "run_time":run_time}
+        results.append(data_dict)
+
 results = pd.DataFrame(results)
-results.to_csv("sims/oneaudit_results_parallel_" + sim_id + ".csv", index = False)
+results.to_csv("sims/oneaudit_betting_results_parallel_" + sim_id + ".csv", index = False)
