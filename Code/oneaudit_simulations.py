@@ -26,12 +26,6 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 # could shrink agrapa towards something like the bernoulli optimal bet
 # with an a priori estimate of the mean (e.g. the reported assorter mean)
 
-#TODO: compare bets – COBRA, shrink-trunc, and kelly-optimal on a ONEAudit population
-#TODO: compare (unstratified) ONEAudit to a (stratified) hybrid audit for a range of specifications
-    # where there are ballots without CVRs and ballots with CVRS
-    # compare ONEAudit to a Hybrid audit; varying the gap between the CVRs and the
-
-
 
 rep_grid = np.arange(10) #allows reps within parallelized simulations
 n_reps = len(rep_grid)
@@ -43,9 +37,8 @@ A_c_bar_grid = [0.51, 0.55, 0.6] # these are the attempted global margins, the a
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
-#num_batch_grid = [1, 10] # the number of batches of size > 1; note that if there is one batch it is equivalent to polling
-num_batches = 100
-batch_size = 1000 # assuming for now, equally sized batches
+num_batch_ballots = 10000
+batch_size_grid = [1000, 10000] # assuming for now, equally sized batches
 ratio_cvrs_grid = [0.0, 0.1, 1, 10] # the ratio of the size of the CVR stratum to the batches
 prop_invalid_grid = [0.0, 0.1, 0.5, 0.9] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
@@ -57,7 +50,7 @@ n_max = 1500 # maximum size of sample, at which point the simulation will termin
 
 
 bets_dict = {
-    "cobra": lambda x, eta: Bets.cobra(x, eta),
+    "cobra": "special handling",
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
     "alpha": "special handling", # see below
     "kelly-optimal": "special handling",
@@ -68,13 +61,14 @@ bets_grid = list(bets_dict.keys())
 results = []
 i = 0
 
-for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, polarized in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, polarized_grid):
+for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_size, polarized in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, batch_size_grid, polarized_grid):
     i += 1
     print(str(i))
     u = 1 # upper bound for plurality assorters
-
-    num_cvrs = ratio_cvrs * batch_size * num_batches
-    N = num_batches * batch_size + num_cvrs # population size
+    assert (num_batch_ballots % batch_size) == 0, "number of batch ballots is not divisible by the number of batches"
+    num_batches = int(num_batch_ballots / batch_size)
+    num_cvrs = int(np.round(ratio_cvrs * num_batch_ballots))
+    N = num_batch_ballots + num_cvrs # population size
     prop_cvrs = num_cvrs / N # proportion of votes that are CVRs
     prop_batches = 1 - prop_cvrs # proportion of votes that are in batches
 
@@ -135,13 +129,21 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, polarize
     assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
     eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
 
+
+
     #derive kelly-optimal bet one time by applying numerical optimization to entire population
     if bet == "alpha":
         # alpha (predictable bernoulli) get shrunk towards the true mean of the population
         bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
     if bet == "kelly-optimal":
         ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
+    if bet == "cobra":
+        bets_dict["cobra"] = lambda x, eta: Bets.cobra(x, eta, A_c = A_c_bar)
+
     for r in rep_grid:
+        # containers for expanding samples
+        selected = np.array([], dtype = np.int32) # the index of samples that have been selected
+        remaining = np.arange(N) # the index of values remaining the population
         done = False
         start_time = time.time()
         while not done:
@@ -155,8 +157,8 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, polarize
                 m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
             if any(m > -np.log(alpha)) or (len(X) >= n_max):
                 done = True
-        stopping_times[r] = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), n_max) # where the TSM crosses 1/alpha, or else the population size
-        run_times[r] = time.time() - start_time
+        stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), n_max) # where the TSM crosses 1/alpha, or else the population size
+        run_time = time.time() - start_time
         data_dict = {
             "A_c_bar":A_c_bar,
             "delta_within":delta_within,

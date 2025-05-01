@@ -63,7 +63,7 @@ bets_grid = list(bets_dict.keys())
 results = []
 i = 0
 
-n_next = 100 #size of blocks at which sample will expand
+n_next = 200 #size of blocks at which sample will expand
 n_max = N # maximum size of sample, at which point the simulation will terminate
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, polarized_grid, stratified_grid, assort_method_grid):
@@ -111,8 +111,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
     batch_sizes = np.append(batch_sizes, np.ones(num_cvrs))
     invalids = np.append(invalids, np.append(np.ones(cvrs_iwl[0]), np.zeros(cvrs_iwl[1] + cvrs_iwl[2])))
 
-    stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
-    run_times = np.zeros(n_reps) # container for run times in each simulation
     if not stratified:
         # the STS assort method is only relevant (and valid) for stratification
         if assort_method == "STS":
@@ -131,9 +129,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
         # assorters and global null are rescaled to [0,1]
         assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
         eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
-        # containers for expanding sample
-        selected = np.array([]) # the index of samples that have been selected
-        remaining = np.arange(N) # the index of values remaining the population
+
 
         #derive kelly-optimal bet one time by applying numerical optimization to entire population
         if bet == "alpha":
@@ -143,6 +139,9 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
             # pre-compute Kelly-optimal bets for whole population
             ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
         for r in rep_grid:
+            # containers for expanding sample
+            selected = np.array([], dtype = np.int32) # the index of samples that have been selected
+            remaining = np.arange(N) # the index of values remaining the population
             done = False
             start_time = time.time()
             while not done:
@@ -156,8 +155,8 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
                 if any(m > -np.log(alpha)):
                     done = True
-            stopping_times[r] =np.argmax(m > -np.log(alpha))
-            run_times[r] = time.time() - start_time
+            stopping_time = np.argmax(m > -np.log(alpha))
+            run_time = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
                 "delta_within":delta_within,
@@ -200,13 +199,14 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
             # alpha bets are shrunk towards the true population mean
             bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
 
-        # containers for expanding sample in each stratum
-        selected = [np.array([]), np.array([])] # the index of samples that have been selected
-        remaining = [np.arange(N_strat[0]), np.arange(N_strat[1])] # the index of values remaining the population
+
 
         for r in rep_grid:
-            X = [np.array([]), np.array([])] # container for samples
-            
+            # containers for expanding the sample in each stratum
+            selected = [np.array([], dtype = np.int32), np.array([], dtype = np.int32)] # the index of samples that have been selected
+            remaining = [np.arange(N_strat[0]), np.arange(N_strat[1])] # the index of values remaining the population
+            X = [np.array([]), np.array([])] # samples
+
             done = False
             start_time = time.time()
             while not done:
@@ -223,10 +223,10 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     allocation_func = Allocations.proportional_round_robin,
                     log = True,
                     WOR = True)[0]
-                if any(m > -np.log(alpha)):
+                if any(m > -np.log(alpha)) or (len(X[0]) == n_max):
                     done = True
-            stopping_times[r] =np.argmax(m > -np.log(alpha))
-            run_times[r] = time.time() - start_time
+            stopping_time = np.argmax(m > -np.log(alpha))
+            run_time = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
                 "delta_within":delta_within,
@@ -249,4 +249,4 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 "batch_sd":np.std(X)}
             results.append(data_dict)
 results = pd.DataFrame(results)
-results.to_csv("sims/oneaudit_results_parallel_" + sim_id + ".csv", index = False)
+results.to_csv("sims/strat_vs_oneaudit_results_parallel_" + sim_id + ".csv", index = False)
