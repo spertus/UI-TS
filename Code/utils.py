@@ -136,6 +136,7 @@ class Bets:
         universal portfolio bets; per Waudby-Smith et al (2025) https://arxiv.org/pdf/2504.02818
         see also Ricardo Sandoval's code on Github: https://github.com/RicardoJSandoval/log-optimality/blob/main/utils/betting_strategies.py
         from which this function is copied w minor alterations
+        computation can be unstable because a high-order polynomial (the raw wealth) is being integrated
         -----------------------------------
         kwargs:
             step: int, defaults to 1
@@ -145,7 +146,7 @@ class Bets:
         beta_distr = sp.stats.beta(0.5, 0.5)
         step = kwargs.get("step", 1)
         n = len(x)
-        z = x - eta
+        z = x/eta - 1
         out = np.zeros(len(x))
         for i in range(1,n+1):
             if (i == 1) or (i % step == 0):
@@ -154,9 +155,13 @@ class Bets:
 
                 num_val = sp.integrate.quad(num, 0, 1)
                 denom_val = sp.integrate.quad(denom, 0, 1)
-                bet = num_val[0] / denom_val[0]
+                weight = num_val[0] / denom_val[0]
+                if weight > 1 or weight < 0:
+                    raise ValueError("UP is numerically unstable and returning invalid weights")
+            bet = weight / eta# transformation to a bet per 1.2 of https://arxiv.org/pdf/2504.02818
             out[i-1] = bet
         return out
+
 
     def predictable_plugin(x, eta, **kwargs):
         '''
@@ -1135,7 +1140,8 @@ def construct_vertex_etas(eta_0, N):
 
 def construct_eta_bands(eta_0, N, n_bands = 100):
     '''
-
+    partition the null space into a set of n_bands equi-spaced bands, represented by their vertices and a centroid
+    allows the null eta_0 to be tested by the banding method
     Parameters
     ----------
         eta_0: scalar in [0,1]
@@ -1704,17 +1710,17 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None):
     v = 2 * A_c_global - 1 # global reported assorter margin
     for i in range(B):
         # these votes are possibly fractional and need to be rounded
-        invalid_votes = batch_sizes[i] * invalid[i] # the number of invalid votes
+        invalid_votes    = batch_sizes[i] * invalid[i] # the number of invalid votes
         votes_for_winner = batch_sizes[i] * A_c[i] * (1 - invalid[i]) # the number of votes for the winner
-        votes_for_loser = batch_sizes[i] * (1 - A_c[i]) * (1 - invalid[i]) # the number of votes for the loser
+        votes_for_loser  = batch_sizes[i] * (1 - A_c[i]) * (1 - invalid[i]) # the number of votes for the loser
         # rounding while preserving the sum
         votes = saferound([invalid_votes, votes_for_winner, votes_for_loser], places = 0)
         votes = [int(vote) for vote in votes] # conversion to integers
 
         # ONE assorter values
         B_i = (u + 1/2 - A_c[i]) / (2 * u - v) # assorter for invalid votes
-        B_w = (u + 1 - A_c[i]) / (2 * u - v) # assorter for winner votes
-        B_l = (u + 0 - A_c[i]) / (2 * u - v) # assorter for loser votes
+        B_w = (u + 1   - A_c[i]) / (2 * u - v) # assorter for winner votes
+        B_l = (u + 0   - A_c[i]) / (2 * u - v) # assorter for loser votes
 
         # assorter populations as an array
         batches.append(np.concatenate([B_i * np.ones(votes[0]), B_w * np.ones(votes[1]), B_l * np.ones(votes[2])]))
