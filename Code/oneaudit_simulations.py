@@ -39,7 +39,7 @@ delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
 num_batch_ballots = 10000
 batch_size_grid = [1000, 10000] # assuming for now, equally sized batches
-ratio_cvrs_grid = [0.0, 0.1, 1, 10] # the ratio of the size of the CVR stratum to the batches
+ratio_cvrs_grid = [1] # the ratio of the size of the CVR stratum to the batches
 prop_invalid_grid = [0.0, 0.1, 0.5, 0.9] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
 
@@ -63,7 +63,7 @@ i = 0
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_size, polarized in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, batch_size_grid, polarized_grid):
     i += 1
-    print(str(i))
+    print(f'A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
     u = 1 # upper bound for plurality assorters
     assert (num_batch_ballots % batch_size) == 0, "number of batch ballots is not divisible by the number of batches"
     num_batches = int(num_batch_ballots / batch_size)
@@ -100,9 +100,10 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
     # make CVRs
     prop_invalid_cvrs = prop_invalid
     A_c_bar_cvrs = A_c_bar + 0.5 * delta_across
+    assert 0 <= A_c_bar_cvrs - prop_invalid_cvrs/2 <= (1 - prop_invalid_cvrs), "the CVR group mean is not attainable with this number of invalids"
     cvrs_i = num_cvrs * prop_invalid_cvrs # the number of CVRs showing invalid votes
-    cvrs_w = num_cvrs * A_c_bar_cvrs * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
-    cvrs_l = num_cvrs * (1 - A_c_bar_cvrs) * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
+    cvrs_w = num_cvrs * (A_c_bar_cvrs - prop_invalid_cvrs/2) # the number of CVRs showing votes for the winner
+    cvrs_l = num_cvrs * (1 - A_c_bar_cvrs - prop_invalid_cvrs/2) # the number of CVRs showing votes for the winner
     cvrs_iwl = [int(c) for c in saferound([cvrs_i, cvrs_w, cvrs_l], places = 0)] # rounding to integers
     A_c_cvrs = np.repeat([1/2, 1, 0], cvrs_iwl)
 
@@ -128,7 +129,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
     # assorters and global null are rescaled to [0,1]
     assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
     eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
-
 
 
     #derive kelly-optimal bet one time by applying numerical optimization to entire population
@@ -175,6 +175,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
             "sample_size": stopping_time,
             "run_time":run_time}
         results.append(data_dict)
+        print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
 
 results = pd.DataFrame(results)
 results.to_csv("sims/oneaudit_betting_results_parallel_" + sim_id + ".csv", index = False)

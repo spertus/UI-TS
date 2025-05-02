@@ -68,7 +68,6 @@ n_max = N # maximum size of sample, at which point the simulation will terminate
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, polarized_grid, stratified_grid, assort_method_grid):
     i += 1
-    print(str(i))
     u = 1 # upper bound for plurality assorters
 
     prop_cvrs = num_cvrs / N # proportion of votes that are CVRs
@@ -101,8 +100,8 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
     prop_invalid_cvrs = prop_invalid
     A_c_bar_cvrs = A_c_bar + 0.5 * delta_across
     cvrs_i = num_cvrs * prop_invalid_cvrs # the number of CVRs showing invalid votes
-    cvrs_w = num_cvrs * A_c_bar_cvrs * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
-    cvrs_l = num_cvrs * (1 - A_c_bar_cvrs) * (1 - prop_invalid_cvrs) # the number of CVRs showing votes for the winner
+    cvrs_w = num_cvrs * (A_c_bar_cvrs - prop_invalid_cvrs/2) # the number of CVRs showing votes for the winner
+    cvrs_l = num_cvrs * (1 - A_c_bar_cvrs - prop_invalid_cvrs/2) # the number of CVRs showing votes for the winner
     cvrs_iwl = [int(c) for c in saferound([cvrs_i, cvrs_w, cvrs_l], places = 0)] # rounding to integers
     A_c_cvrs = np.repeat([1/2, 1, 0], cvrs_iwl)
 
@@ -153,9 +152,9 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = N, log = True)
                 else:
                     m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
-                if any(m > -np.log(alpha)):
+                if any(m > -np.log(alpha)) or (len(X) == n_max): # technically this shouldn't happen
                     done = True
-            stopping_time = np.argmax(m > -np.log(alpha))
+            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N)
             run_time = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
@@ -178,6 +177,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 "cvr_sd":None,
                 "batch_sd":np.std(X)}
             results.append(data_dict)
+            print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
     else:
         # don't compute the stratified p-value if there are no cvrs
         if num_cvrs == 0:
@@ -223,9 +223,9 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     allocation_func = Allocations.proportional_round_robin,
                     log = True,
                     WOR = True)[0]
-                if any(m > -np.log(alpha)) or (len(X[0]) == n_max):
+                if any(m > -np.log(alpha)) or (len(X[0]) + len(X[1]) == n_max):
                     done = True
-            stopping_time = np.argmax(m > -np.log(alpha))
+            stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N)
             run_time = time.time() - start_time
             data_dict = {
                 "A_c_bar":A_c_bar,
@@ -248,5 +248,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 "cvr_sd":None,
                 "batch_sd":np.std(X)}
             results.append(data_dict)
+            print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
 results = pd.DataFrame(results)
 results.to_csv("sims/strat_vs_oneaudit_results_parallel_" + sim_id + ".csv", index = False)
