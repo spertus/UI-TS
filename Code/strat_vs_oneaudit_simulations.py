@@ -40,7 +40,7 @@ np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 #A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_bar_grid = [0.505, 0.51, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
+A_c_bar_grid = [0.505, 0.525, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
@@ -67,6 +67,7 @@ n_next = 200 #size of blocks at which sample will expand
 n_max = N # maximum size of sample, at which point the simulation will terminate
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, polarized_grid, stratified_grid, assort_method_grid):
+    n_next = int(n_max/2) if A_c_bar in [0.505, 0.525] else int(200)
     i += 1
     u = 1 # upper bound for plurality assorters
 
@@ -194,10 +195,10 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
         if bet == "kelly-optimal":
             # the sample is ignored when the bet is called inside banded_uits and the full population is inserted
             # this produces the kelly-optimal bet at all times for the full population, not just the sample at hand
-            bets_dict["kelly-optimal"] = [lambda x, eta: Bets.kelly_optimal(x, eta, pop = assorter_pop[k]) for k in range(K)]
+            bets_dict["kelly-optimal"] = [lambda x, eta, pop = assorter_pop[k]: Bets.kelly_optimal(x, eta, pop = pop) for k in range(K)]
         if bet == "alpha":
             # alpha bets are shrunk towards the true population mean
-            bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
+            bets_dict["alpha"] = [lambda x, eta, mu_0 = np.mean(assorter_pop[k]): Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = mu_0) for k in range(K)]
 
         for r in rep_grid:
             # containers for expanding the sample in each stratum
