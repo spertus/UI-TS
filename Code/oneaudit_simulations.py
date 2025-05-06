@@ -27,7 +27,7 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 # with an a priori estimate of the mean (e.g. the reported assorter mean)
 
 
-rep_grid = np.arange(10) #allows reps within parallelized simulations
+rep_grid = np.arange(50) #allows reps within parallelized simulations
 n_reps = len(rep_grid)
 sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
