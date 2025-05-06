@@ -33,14 +33,14 @@ from utils import Bets, Allocations, Weights, mart, lower_confidence_bound, glob
 
 
 
-rep_grid = np.arange(3) #allows reps within parallelized simulations
+rep_grid = np.arange(5) #allows reps within parallelized simulations
 n_reps = len(rep_grid)
 sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
 #A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_bar_grid = [0.51, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
+A_c_bar_grid = [0.505, 0.51, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
@@ -52,7 +52,7 @@ num_cvrs = 10000
 N = num_batches * batch_size + num_cvrs # population size
 alpha = 0.05 # risk limit
 stratified_grid = [True, False] # whether or not the population and inference will be stratified
-assort_method_grid = ["STS","ONE"] # the method for defining the population of assorters
+assort_method_grid = ["ONE"] # the method for defining the population of assorters
 
 bets_dict = {
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
@@ -147,12 +147,12 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 selected = np.append(selected, np.random.choice(remaining, size = n_next, replace = False))
                 remaining = np.setdiff1d(remaining, selected)
                 X = assorter_pop[selected]
-                # TSMs are computed for sampling WOR
+                # TSMs are computed for sampling with replacement by setting N=np.inf
                 if bet == "kelly-optimal":
-                    m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = N, log = True)
+                    m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = np.inf, log = True)
                 else:
-                    m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
-                if any(m > -np.log(alpha)) or (len(X) == n_max): # technically this shouldn't happen
+                    m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = np.inf, log = True)
+                if any(m > -np.log(alpha)) or (len(X) == n_max):
                     done = True
             stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N)
             run_time = time.time() - start_time
@@ -177,7 +177,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 "cvr_sd":None,
                 "batch_sd":np.std(X)}
             results.append(data_dict)
-            print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
+            print(f'run_time: {run_time}, stopping_time:{stopping_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
     else:
         # don't compute the stratified p-value if there are no cvrs
         if num_cvrs == 0:
@@ -194,12 +194,10 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
         if bet == "kelly-optimal":
             # the sample is ignored when the bet is called inside banded_uits and the full population is inserted
             # this produces the kelly-optimal bet at all times for the full population, not just the sample at hand
-            bets_dict["kelly-optimal"] = [lambda x, eta: Bets.kelly_optimal(assorter_pop[k], eta) for k in range(K)]
+            bets_dict["kelly-optimal"] = [lambda x, eta: Bets.kelly_optimal(x, eta, pop = assorter_pop[k]) for k in range(K)]
         if bet == "alpha":
             # alpha bets are shrunk towards the true population mean
             bets_dict["alpha"] = [lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop[k])) for k in range(K)]
-
-
 
         for r in rep_grid:
             # containers for expanding the sample in each stratum
@@ -214,7 +212,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     selected[k] = np.append(selected[k], np.random.choice(remaining[k], size = n_next, replace = False))
                     remaining[k] = np.setdiff1d(remaining[k], selected[k])
                     X[k] = assorter_pop[k][selected[k]]
-                # TSMs are computed for sampling WOR
                 m = banded_uits(
                     X,
                     N = N_strat,
@@ -222,7 +219,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                     lam_func = bets_dict[bet],
                     allocation_func = Allocations.proportional_round_robin,
                     log = True,
-                    WOR = True)[0]
+                    WOR = False)[0]
                 if any(m > -np.log(alpha)) or (len(X[0]) + len(X[1]) == n_max):
                     done = True
             stopping_time = np.where(any(m > -np.log(alpha)), np.argmax(m > -np.log(alpha)), N)
@@ -248,6 +245,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 "cvr_sd":None,
                 "batch_sd":np.std(X)}
             results.append(data_dict)
-            print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
+            print(f'run_time: {run_time}, stopping_time:{stopping_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, polarized: {polarized}, stratified: {stratified}, assort_method: {assort_method}')
 results = pd.DataFrame(results)
 results.to_csv("sims/strat_vs_oneaudit_results_parallel_" + sim_id + ".csv", index = False)

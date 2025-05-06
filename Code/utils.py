@@ -158,7 +158,7 @@ class Bets:
                 weight = num_val[0] / denom_val[0]
                 if weight > 1 or weight < 0:
                     raise ValueError("UP is numerically unstable and returning invalid weights")
-            bet = weight / eta# transformation to a bet per 1.2 of https://arxiv.org/pdf/2504.02818
+            bet = weight / eta # transformation to a bet per 1.2 of https://arxiv.org/pdf/2504.02818
             out[i-1] = bet
         return out
 
@@ -359,6 +359,7 @@ class Bets:
         finds a kelly optimal bet by numerically optimizing for x; i
         if x is a lagged sample, this produces GRAPA as described in Section B.2 of https://arxiv.org/pdf/2010.09686
         if x is the actual population, this produces the Kely-optimal bet
+        if pop is specified as a kwarg, it overrides x and uses pop to produce the bet, but the sequence is still len(x) long
         '''
         # cache the sample or the derivatives at the previous step
         # LRU cache function tells python to save function evaluations
@@ -369,8 +370,9 @@ class Bets:
         # x_0 in kwargs as a warm start (e.g., previous optimum)
 
         # compute the slope at the endpoints
-        min_slope = Bets.deriv(0, x, eta)
-        max_slope = Bets.deriv(1/eta, x, eta)
+        pop = kwargs.get("pop", x)
+        min_slope = Bets.deriv(0, pop, eta)
+        max_slope = Bets.deriv(1/eta, pop, eta)
         # if the return is always growing, set lambda to the maximum allowed
         if (min_slope > 0) & (max_slope > 0):
             out = 1/eta
@@ -379,7 +381,7 @@ class Bets:
             out = 0
         # otherwise, optimize on the interval [0, 1/eta]
         else:
-            lam_star = sp.optimize.root_scalar(lambda lam: Bets.deriv(lam, x, eta), bracket = [0, 1/eta], method = 'bisect')
+            lam_star = sp.optimize.root_scalar(lambda lam: Bets.deriv(lam, pop, eta), bracket = [0, 1/eta], method = 'bisect')
             out = lam_star['root']
         return out * np.ones(len(x))
 

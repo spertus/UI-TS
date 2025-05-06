@@ -38,23 +38,23 @@ delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
 num_batch_ballots = 10000
-batch_size_grid = [1000, 10000] # assuming for now, equally sized batches
+batch_size_grid = [10000] # assuming for now, equally sized batches
 ratio_cvrs_grid = [1] # the ratio of the size of the CVR stratum to the batches
-prop_invalid_grid = [0.0, 0.1, 0.5, 0.9] # proportion of invalid votes in each batch (uniform across batches)
+prop_invalid_grid = [0.0, 0.1] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
 
 
 
 n_next = 500 #size of blocks at which sample will expand
-n_max = 1500 # maximum size of sample, at which point the simulation will terminate
+n_max = 20000 # maximum size of sample, at which point the simulation will terminate
 
 
 bets_dict = {
-    "cobra": "special handling",
+    "cobra": "special handling", # see below
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
-    "alpha": "special handling", # see below
+    "alpha": "special handling",
     "kelly-optimal": "special handling",
-    "universal-portfolio": lambda x, eta: Bets.universal_portfolio(x, eta, step = 50)
+    "universal-portfolio": "special handling"
     }
 bets_grid = list(bets_dict.keys())
 
@@ -130,7 +130,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
     assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
     eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
 
-
     #derive kelly-optimal bet one time by applying numerical optimization to entire population
     if bet == "alpha":
         # alpha (predictable bernoulli) get shrunk towards the true mean of the population
@@ -139,6 +138,12 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
         ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
     if bet == "cobra":
         bets_dict["cobra"] = lambda x, eta: Bets.cobra(x, eta, A_c = A_c_bar)
+    if bet == "universal-portfolio":
+        # this does not actually compute the universal portfolio bet
+        # it computes a discrete mixture wealth strategy that approximates the wealth under the universal universal_portfolio
+        # it seems to be both faster and more numerically stable than computing the actual universal portfolio
+        # see Cover 1991, Lemma 2.5 (https://isl.stanford.edu/~cover/papers/paper93.pdf)
+        bets_dict["universal-portfolio"] = [lambda x, eta: Bets.fixed(x, eta, c = b) for b in np.linspace(0.001,1/eta_0 - 0.001,100)]
 
     for r in rep_grid:
         # containers for expanding samples
@@ -175,7 +180,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
             "sample_size": stopping_time,
             "run_time":run_time}
         results.append(data_dict)
-        print(f'run_time: {run_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
+        print(f'run_time: {run_time}, stopping_time:{stopping_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
 
 results = pd.DataFrame(results)
 results.to_csv("sims/oneaudit_betting_results_parallel_" + sim_id + ".csv", index = False)
