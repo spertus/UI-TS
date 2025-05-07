@@ -39,24 +39,21 @@ sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
 
-#A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_bar_grid = [0.505, 0.525, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ because of integer rounding of votes
+
+A_c_bar_grid = [0.505, 0.52, 0.55, 0.6] # these are the reported and true reported margins
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized_grid = [False] # whether or not there is polarization (uniform or clustered batch totals)
 prop_invalid_grid = [0.0] # proportion of invalid votes in each batch (uniform across batches)
 num_batches = 10 # the number of batches
 batch_size = 1000 # the size of each batch
-#num_cvr_grid = [0, 1000] # number of cvrs
-num_cvrs = 10000
+num_cvrs = 10000 # number of cvrs
 N = num_batches * batch_size + num_cvrs # population size
 alpha = 0.05 # risk limit
 stratified_grid = [True, False] # whether or not the population and inference will be stratified
 assort_method_grid = ["ONE"] # the method for defining the population of assorters
 
 bets_dict = {
-    "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
-    "alpha": "special handling", # see below
     "kelly-optimal": "special handling"}
 bets_grid = list(bets_dict.keys())
 
@@ -67,6 +64,7 @@ n_next = 200 #size of blocks at which sample will expand
 n_max = N # maximum size of sample, at which point the simulation will terminate
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratified, assort_method in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, polarized_grid, stratified_grid, assort_method_grid):
+    v_bar = 2 * A_c_bar - 1 # global margin
     n_next = int(n_max/2) if A_c_bar in [0.505, 0.525] else int(200)
     i += 1
     u = 1 # upper bound for plurality assorters
@@ -122,9 +120,6 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, polarized, stratifie
                 invalid = invalids
             )
         eta_0_unscaled = 1/2 # global null mean
-
-        realized_A_c_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_c) # the actual global mean based on the batch sizes and means
-        v_bar = 2 * realized_A_c_bar - 1 # global margin
 
         # assorters and global null are rescaled to [0,1]
         assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))

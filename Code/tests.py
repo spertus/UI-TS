@@ -27,6 +27,15 @@ def test_mart():
     assert mart(sample, eta = 0.4, lam_func = Bets.agrapa, log = False)[-1] > 1
     assert mart(sample, eta = 0.4, lam_func = Bets.predictable_plugin, log = False)[-1] > 1
     assert mart(sample, eta = 0.4, lam_func = Bets.kelly_optimal, log = False)[-1] > 1
+    assert mart(sample, eta = 0.4, lam_func = lambda x, eta: Bets.kelly_optimal(x, eta, pop = np.append(sample, 0)), log = False)[-1] > 1
+
+    #test mixture
+    eta_0 = 1/2
+    mix_bets = [lambda x,eta: Bets.fixed(x, eta, c = b) for b in np.linspace(0.05,1/eta_0-0.05,100)]
+    assert mart(sample, eta = eta_0, lam_func = mix_bets, log = True)[-1] == 0
+    mix_mart_alternative = mart(sample + 0.1, eta = eta_0, lam_func = mix_bets, log = False)[-1]
+    ko_mart_alternative = mart(sample + 0.1, eta = eta_0, lam_func = Bets.kelly_optimal, log = False)[-1]
+    assert mix_mart_alternative < ko_mart_alternative
 
     # agrapa + kwargs
     agrapa = lambda x, eta: Bets.agrapa(x, eta, c = 0.9, sd_min = 0.2)
@@ -42,11 +51,11 @@ def test_mart():
     cobra_sample = (1 / (2 - (2*A_c - 1))) * np.ones(10)
     cobra = lambda x, eta: Bets.cobra(x, eta, A_c = A_c)
     assert mart(cobra_sample, eta = 0.5, lam_func = cobra, log = False)[-1] > 1
-
     #WOR
     assert mart(sample, eta = 0.5, N = 15, lam_func = Bets.fixed, log = False)[-1] == 1
     assert mart(sample, eta = 0.4, N = 15, lam_func = Bets.agrapa, log = False)[-1] > 1
     assert mart(sample, eta = 0.1, N = 15, lam_func = Bets.fixed, log = False)[-1] == np.inf
+
 
 
 
@@ -195,8 +204,6 @@ def test_intersection_mart():
     sample = [np.ones(N[0]) * .3, np.ones(N[0]) * .8]
     assert intersection_mart(sample, N, eta = [0, 1], lam_func = Bets.agrapa, allocation_func = Allocations.predictable_kelly, combine = "product", log = False, WOR = True)[-1] >= 1
 
-
-
 def test_construct_eta_bands():
     N = [15, 15]
     eta_bands = construct_eta_bands(eta_0 = 0.5, N = N, n_bands = 100)
@@ -308,6 +315,30 @@ def test_random_truncated_gaussian():
     samples = random_truncated_gaussian(0.5, 1, 20)
     assert ((0 < samples) & (samples < 1)).all()
     assert 0.4 < random_truncated_gaussian(0.5, 0.001, 1) < 0.6
+
+
+def test_generate_oneaudit_population():
+    # check w two batches
+    A_c = [0.5, 0.6]
+    batch_sizes = [200, 200]
+    w = batch_sizes/np.sum(batch_sizes)
+    v = 2 * np.dot(w, A_c) - 1
+    invalid = [0.0, 0.0]
+    pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, invalid = invalid)
+    assert len(pop) == 400
+    assert np.mean(pop) == 1/(2-v)
+    # check what happens when there is error
+    A_m = [0.5, 0.55]
+    pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_m)
+    assert len(pop) == 400
+    assert np.mean(pop) <= 1/(2-v)
+    # check what happens when the reported outcome is wrong
+    A_m = [0.1, 0.1]
+    pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_m)
+    assert len(pop) == 400
+    assert np.mean(pop) <= 1/(2-v)
+    X = np.random.choice(pop, size = len(pop), replace = False)
+    m = mart(X, eta = 1/2, N = len(pop), lam_func = Bets.fixed, log = False)[-1] < 1
 
 
 def test_generate_hybrid_audit_population():

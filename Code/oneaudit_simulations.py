@@ -32,20 +32,19 @@ n_reps = len(rep_grid)
 sim_id = os.getenv('SLURM_ARRAY_TASK_ID')
 np.random.seed(int(sim_id)) #this sets a different seed for every rep
 
-#A_c_bar_grid = np.linspace(0.51, 0.75, 5) # global assorter means
-A_c_bar_grid = [0.51, 0.55, 0.6] # these are the attempted global margins, the actual global margin may differ slightly because of integer rounding of votes
+
+A_c_bar_grid = [0.505, 0.51, 0.55, 0.6] # global true assorter means
+tally_error_grid = [False, True] # induces half-margin error in the reported batch totals in the true assorter population
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
-polarized_grid = [True, False] # whether or not there is polarization (uniform or clustered batch totals)
+polarized = False # whether or not there is polarization (uniform or clustered batch totals)
 num_batch_ballots = 20000
 batch_size_grid = [10, 100, 1000, 20000] # assuming for now, equally sized batches
 ratio_cvrs_grid = [1] # the ratio of the size of the CVR stratum to the batches
-prop_invalid_grid = [0.0, 0.1] # proportion of invalid votes in each batch (uniform across batches)
+prop_invalid_grid = [0.0] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
 
 
-
-n_next = 500 #size of blocks at which sample will expand
 n_max = 40000 # maximum size of sample, at which point the simulation will terminate
 
 
@@ -53,7 +52,8 @@ bets_dict = {
     "cobra": "special handling", # see below
     "agrapa": lambda x, eta: Bets.agrapa(x, eta, c = 0.99),
     "alpha": "special handling",
-    "kelly-optimal": "special handling",
+    "oracle-kelly-optimal": "special handling",
+    "ap-kelly-optimal": "special handling",
     "universal-portfolio": "special handling"
     }
 bets_grid = list(bets_dict.keys())
@@ -61,9 +61,10 @@ bets_grid = list(bets_dict.keys())
 results = []
 i = 0
 
-for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_size, polarized in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, batch_size_grid, polarized_grid):
+for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_size, tally_error in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, batch_size_grid, tally_error_grid):
+    n_next = int(n_max/2) if A_c_bar in [0.505, 0.51] else int(200)
+    v_bar = 2 * A_c_bar - 1 # global reported margin
     i += 1
-    print(f'A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
     u = 1 # upper bound for plurality assorters
     assert (num_batch_ballots % batch_size) == 0, "number of batch ballots is not divisible by the number of batches"
     num_batches = int(num_batch_ballots / batch_size)
@@ -112,28 +113,42 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
     batch_sizes = np.append(batch_sizes, np.ones(num_cvrs))
     invalids = np.append(invalids, np.append(np.ones(cvrs_iwl[0]), np.zeros(cvrs_iwl[1] + cvrs_iwl[2])))
 
-    stopping_times = np.zeros(n_reps) # container for stopping times in each simulation
-    run_times = np.zeros(n_reps) # container for run times in each simulation
+    # create A_m, the true results
+    if tally_error:
+        A_m = A_c
+        # a tally error results in the batches (half the population) having an error the size of the margin
+        # this brings the true global margin to half the reported global margin, with all error confined to the batch stratum
+        A_m[0:num_batches] = A_m[0:num_batches] - v_bar
+    else:
+        A_m = A_c
+    A_m_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_m) # unknown true assorter mean
 
-    # create population of ONEAudit assorters
-    assorter_pop_unscaled = generate_oneaudit_population(
+    # create suspected and true populations of ONEAudit assorters
+    reported_assorter_pop_unscaled = generate_oneaudit_population(
             batch_sizes = batch_sizes,
             A_c = A_c,
             invalid = invalids
         )
-    eta_0_unscaled = 1/2 # global null mean
-
-    v_bar = 2 * A_c_bar - 1 # global margin
-
+    assorter_pop_unscaled = generate_oneaudit_population(
+            batch_sizes = batch_sizes,
+            A_c = A_c,
+            invalid = invalids,
+            A_m = A_m
+        )
     # assorters and global null are rescaled to [0,1]
+    reported_assorter_pop = reported_assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
     assorter_pop = assorter_pop_unscaled / (2 * u / (2 * u - v_bar))
+
+    eta_0_unscaled = 1/2 # global null mean
     eta_0 = eta_0_unscaled / (2 * u / (2 * u - v_bar))
 
     #derive kelly-optimal bet one time by applying numerical optimization to entire population
     if bet == "alpha":
         # alpha (predictable bernoulli) get shrunk towards the true mean of the population
-        bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(assorter_pop))
-    if bet == "kelly-optimal":
+        bets_dict["alpha"] = lambda x, eta: Bets.predictable_bernoulli(x, eta, c = 0.99, mu_0 = np.mean(reported_assorter_pop))
+    if bet == "ap-kelly-optimal":
+        ko_bet = Bets.kelly_optimal(reported_assorter_pop, eta_0)
+    if bet == "oracle-kelly-optimal":
         ko_bet = Bets.kelly_optimal(assorter_pop, eta_0)
     if bet == "cobra":
         bets_dict["cobra"] = lambda x, eta: Bets.cobra(x, eta, A_c = A_c_bar)
@@ -144,6 +159,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
         # see Cover 1991, Lemma 2.5 (https://isl.stanford.edu/~cover/papers/paper93.pdf)
         bets_dict["universal-portfolio"] = [(lambda x, eta, c=b: Bets.fixed(x, eta, c=c)) for b in np.linspace(0.05, 1/eta_0-0.05, 100)]
 
+    # run replicate simulations
     for r in rep_grid:
         # containers for expanding samples
         selected = np.array([], dtype = np.int32) # the index of samples that have been selected
@@ -155,7 +171,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
             remaining = np.setdiff1d(remaining, selected)
             X = assorter_pop[selected]
             # TSMs are computed for sampling WOR
-            if bet == "kelly-optimal":
+            if bet in ["oracle-kelly-optimal", "ap-kelly-optimal"]:
                 m = mart(X, eta = eta_0, lam = ko_bet[0:len(X)], N = N, log = True)
             else:
                 m = mart(X, eta = eta_0, lam_func = bets_dict[bet], N = N, log = True)
@@ -165,6 +181,8 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
         run_time = time.time() - start_time
         data_dict = {
             "A_c_bar":A_c_bar,
+            "A_m_bar":A_m_bar,
+            "tally_error":tally_error,
             "delta_within":delta_within,
             "delta_across":delta_across,
             "assort_method":"ONE",
