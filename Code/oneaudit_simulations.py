@@ -38,15 +38,15 @@ tally_error_grid = [False, True] # induces half-margin error in the reported bat
 delta_across_grid = [0, 0.5] # controls the spread between the mean for CVRs and the mean for batches
 delta_within_grid = [0, 0.5] # controls the spread between batches
 polarized = False # whether or not there is polarization (uniform or clustered batch totals)
-num_batch_ballots = 20000
-batch_size_grid = [10, 100, 1000, 20000] # assuming for now, equally sized batches
+num_batch_ballots = 100000
+batch_size_grid = [1000] # assuming for now, equally sized batches
 ratio_cvrs_grid = [1] # the ratio of the size of the CVR stratum to the batches
 prop_invalid_grid = [0.0] # proportion of invalid votes in each batch (uniform across batches)
 alpha = 0.05 # risk limit
 
 
-n_max = 40000 # maximum size of sample, at which point the simulation will terminate
-
+n_max = 200000 # maximum size of sample, at which point the simulation will terminate
+n_next = int(n_max)
 
 bets_dict = {
     "cobra": "special handling", # see below
@@ -62,7 +62,6 @@ results = []
 i = 0
 
 for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_size, tally_error in itertools.product(A_c_bar_grid, delta_within_grid, delta_across_grid, prop_invalid_grid, bets_grid, ratio_cvrs_grid, batch_size_grid, tally_error_grid):
-    n_next = int(n_max/2) if A_c_bar in [0.505, 0.51] else int(200)
     v_bar = 2 * A_c_bar - 1 # global reported margin
     i += 1
     u = 1 # upper bound for plurality assorters
@@ -118,7 +117,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
         A_m = A_c
         # a tally error results in the batches (half the population) having an error the size of the margin
         # this brings the true global margin to half the reported global margin, with all error confined to the batch stratum
-        A_m[0:num_batches] = A_m[0:num_batches] - v_bar
+        A_m[0:num_batches] = A_m[0:num_batches] - v_bar/2
     else:
         A_m = A_c
     A_m_bar = np.dot(batch_sizes / np.sum(batch_sizes), A_m) # unknown true assorter mean
@@ -197,7 +196,7 @@ for A_c_bar, delta_within, delta_across, prop_invalid, bet, ratio_cvrs, batch_si
             "sample_size": stopping_time,
             "run_time":run_time}
         results.append(data_dict)
-        print(f'run_time: {run_time}, stopping_time:{stopping_time}, rep: {r}, A_c: {A_c_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
+        print(f'run_time: {run_time}, stopping_time:{stopping_time}, rep: {r}, A_c: {A_c_bar}, A_m: {A_m_bar}, delta_w: {delta_within}, delta_a: {delta_across}, prop_invalid: {prop_invalid}, bet: {bet}, ratio_cvrs: {ratio_cvrs}, batch_size: {batch_size}, polarized: {polarized}')
 
 results = pd.DataFrame(results)
 results.to_csv("sims/oneaudit_betting_results_parallel_" + sim_id + ".csv", index = False)
