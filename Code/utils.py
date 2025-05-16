@@ -143,15 +143,15 @@ class Bets:
                 this is a step size in n = len(x), at which the up bet will be recomputed
                 e.g., if step = 10, the bet is only recomputed every 10 samples
         '''
-        beta_distr = sp.stats.beta(0.5, 0.5)
+        #beta_distr = sp.stats.beta(0.5, 0.5) <- this is for the beta(1/2, 1/2)-weighted UP, we can also just use the uniform weighted UP
         step = kwargs.get("step", 1)
         n = len(x)
         z = x/eta - 1
         out = np.zeros(len(x))
         for i in range(1,n+1):
             if (i == 1) or (i % step == 0):
-                num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
-                denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128)) * beta_distr.pdf(l)
+                num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128))
+                denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128))
 
                 num_val = sp.integrate.quad(num, 0, 1)
                 denom_val = sp.integrate.quad(denom, 0, 1)
@@ -1710,7 +1710,9 @@ def generate_oneaudit_population(batch_sizes, A_c, invalid = None, A_m = None):
         invalid = np.zeros(B)
     A_c_global = np.dot(batch_sizes / np.sum(batch_sizes), A_c)
     A_m_global = np.dot(batch_sizes / np.sum(batch_sizes), A_c)
-    if A_m_global > 1/2:
+    if A_c_global < 1/2:
+        warnings.warn("reported assorter means imply reported winner lost")
+    if A_m_global < 1/2:
         warnings.warn("true assorter means imply reported winner lost")
 
 

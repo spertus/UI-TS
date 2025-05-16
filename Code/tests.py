@@ -326,20 +326,30 @@ def test_generate_oneaudit_population():
     invalid = [0.0, 0.0]
     pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, invalid = invalid)
     assert len(pop) == 400
-    assert np.mean(pop) == 1/(2-v)
+    assert np.round(np.mean(pop), 4) == np.round(1/(2-v), 4)
     # check what happens when there is error
     A_m = [0.5, 0.55]
     pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_m)
     assert len(pop) == 400
-    assert np.mean(pop) <= 1/(2-v)
+    assert np.round(np.mean(pop), 4) <= np.round(1/(2-v), 4)
     # check what happens when the reported outcome is wrong
     A_m = [0.1, 0.1]
     pop = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_m)
     assert len(pop) == 400
-    assert np.mean(pop) <= 1/(2-v)
+    assert np.round(np.mean(pop), 4) < np.round(1/(2-v), 4)
     X = np.random.choice(pop, size = len(pop), replace = False)
-    m = mart(X, eta = 1/2, N = len(pop), lam_func = Bets.fixed, log = False)[-1] < 1
+    m = mart(X, eta = 1/2, N = len(pop), lam_func = Bets.fixed, log = False)[-1]
+    assert m < 1
 
+    # when the reported votes are incorrect and the margin is smaller the martingale should be smaller as well
+    A_m = [0.4, 0.55]
+    pop_incorrect = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_m)
+    pop_correct = generate_oneaudit_population(batch_sizes = batch_sizes, A_c = A_c, A_m = A_c)
+    X_correct = np.random.choice(pop_correct, size = len(pop), replace = False)
+    X_incorrect = np.random.choice(pop_incorrect, size = len(pop), replace = False)
+    m_correct = mart(X_correct, eta = 1/2, N = len(pop_correct), lam_func = Bets.fixed, log = False)[-1]
+    m_incorrect = mart(X_incorrect, eta = 1/2, N = len(pop_incorrect), lam_func = Bets.fixed, log = False)[-1]
+    assert m_correct > m_incorrect
 
 def test_generate_hybrid_audit_population():
     # basic STS hybrid audit

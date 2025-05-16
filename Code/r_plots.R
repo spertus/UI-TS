@@ -4,6 +4,11 @@ library(latex2exp)
 library(xtable)
 
 
+
+
+
+
+
 ###### significance levels at different sample sizes for stratified mixture distributions ######3
 significance_data <- read_csv("significance_simulation_results.csv")
 
@@ -78,7 +83,7 @@ kelly_optimal_stopping_times <- point_mass_stopping_times %>%
 plot_point_mass_data <- point_mass_stopping_times %>% 
   filter(((method == "UI-TS") & (n_bands == 100)) | ((method == "LCB") & (n_bands == 1)))
 
-ggplot(point_mass_stopping_times %>% filter((n_bands == 100)|(method == "LCB" & )), aes(x = alt, y = sample_size, color = bet, linetype = method)) +
+ggplot(plot_point_mass_data, aes(x = alt, y = sample_size, color = bet, linetype = method)) +
   geom_line(size = 1.5) +
   facet_grid(allocation ~ delta_long) +
   theme_bw() +
