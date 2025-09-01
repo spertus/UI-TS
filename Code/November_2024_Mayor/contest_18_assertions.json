@@ -1,0 +1,260 @@
+{
+    "Overall Expected Polls (#)": "13",
+    "Ballots involved in audit (#)": "376311",
+    "parameters": {
+        "risk_limit": "0.050000000000000003"
+    },
+    "audits": [
+        {
+            "contest": "18",
+            "winner": "57",
+            "eliminated": [
+                "65",
+                "60",
+                "54",
+                "63",
+                "59",
+                "56",
+                "58",
+                "66",
+                "64",
+                "55",
+                "61",
+                "62"
+            ],
+            "Expected Polls (#)": "13",
+            "Expected Polls (%)": "1",
+            "assertions": [
+                {
+                    "winner": "62",
+                    "loser": "55",
+                    "already_eliminated": [
+                        "54",
+                        "56",
+                        "57",
+                        "58",
+                        "59",
+                        "60",
+                        "61",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 62 55]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "55",
+                    "already_eliminated": [
+                        "54",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 62 55 61]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "62",
+                    "already_eliminated": [
+                        "54",
+                        "55",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "61",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 62]"
+                },
+                {
+                    "winner": "62",
+                    "loser": "61",
+                    "already_eliminated": [
+                        "54",
+                        "55",
+                        "56",
+                        "57",
+                        "58",
+                        "59",
+                        "60",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 62 61]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "64",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 64"
+                },
+                {
+                    "winner": "57",
+                    "loser": "55",
+                    "already_eliminated": [
+                        "54",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "62",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 55 61]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "55",
+                    "already_eliminated": [
+                        "54",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "61",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 55 62]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "61",
+                    "already_eliminated": [
+                        "54",
+                        "55",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 61 62]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "55",
+                    "already_eliminated": [
+                        "54",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "61",
+                        "62",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 55]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "61",
+                    "already_eliminated": [
+                        "54",
+                        "55",
+                        "56",
+                        "58",
+                        "59",
+                        "60",
+                        "62",
+                        "63",
+                        "64",
+                        "65",
+                        "66"
+                    ],
+                    "assertion_type": "IRV_ELIMINATION",
+                    "explanation": "Rules out outcomes with tail [... 57 61]"
+                },
+                {
+                    "winner": "57",
+                    "loser": "66",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 66"
+                },
+                {
+                    "winner": "57",
+                    "loser": "59",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 59"
+                },
+                {
+                    "winner": "57",
+                    "loser": "54",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 54"
+                },
+                {
+                    "winner": "57",
+                    "loser": "58",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 58"
+                },
+                {
+                    "winner": "57",
+                    "loser": "56",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 56"
+                },
+                {
+                    "winner": "57",
+                    "loser": "60",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 60"
+                },
+                {
+                    "winner": "57",
+                    "loser": "63",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 63"
+                },
+                {
+                    "winner": "57",
+                    "loser": "65",
+                    "already_eliminated": "",
+                    "assertion_type": "WINNER_ONLY",
+                    "explanation": "Rules out case where 57 is eliminated before 65"
+                }
+            ]
+        }
+    ]
+}
