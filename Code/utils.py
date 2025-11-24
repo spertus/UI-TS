@@ -797,7 +797,7 @@ def global_lower_bound(x, N, lam_func, allocation_func, alpha, WOR = False, brea
         lcbs.append(lower_confidence_bound(
             x = x[k],
             lam_func = lam_func[k],
-            alpha = alpha,
+            alpha = 1-(1-alpha)**(1/K), # sidak correction to each bound
             N = N_k,
             breaks = breaks))
     T_k = selector(x, N, allocation_func, eta = None, lam = None)
