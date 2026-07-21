@@ -39,7 +39,7 @@ allocations_list = ["round_robin"]
 
 K = 2
 w = [1/2, 1/2]
-N = np.array([100, 100]) #size of initial sample
+N_start = np.array([100, 100]) #size of initial sample
 N_next = np.array([100, 100]) #size of blocks at which sample will expand
 N_max = np.array([2000, 2000]) #maximum size
 results = []
@@ -49,6 +49,7 @@ for alt, delta, rep in itertools.product(alt_grid, delta_grid, rep_grid):
     print(str(alt))
     sim_rep = sim_id + "_" + str(rep)
     means = [alt - 0.5*delta, alt + 0.5*delta]
+    N = N_start.copy() #reset sample size for each new replicate, rather than carrying growth over from the last one
     samples = [np.random.binomial(1, means[k], N[k]) for k in range(K)]
     #ap bernoulli is based on the true means
     bets_dict["apriori_bernoulli"] = [
