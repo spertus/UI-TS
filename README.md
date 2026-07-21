@@ -11,7 +11,7 @@ The `Code` directory contains the following python scripts:
 - `significance_simulations.py` runs the t-test simulation that generated Figure 1
 - `pointmass_simulations.py` runs the pointmass simulations presented in Section 7.1
 - `bernoulli_simulations.py` runs the Bernoulli simulations presented in Section 7.2
-- `gaussian_simulations.py` runs the Gaussian simulations presented in Section 7.3
+- `gaussian_simulations.py` runs Gaussian simulations (not currently described in the manuscript)
 - `pgd_time.py` times the convex UI-TS against the LCB method, as described in Section C.4
 - `r_plots.R` contains the R code used to generate all plots in the paper
 
