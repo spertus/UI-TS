@@ -44,6 +44,7 @@ for alt, delta, method, bet, allocation, n_bands in itertools.product(alt_grid, 
         if (allocation in ['predictable_kelly','greedy_kelly']) or (n_bands != 1):
             stopping_time = None
             sample_size = None
+            run_time = None
         else:
             start_time = time.time()
             stopping_time, sample_size = simulate_plurcomp(

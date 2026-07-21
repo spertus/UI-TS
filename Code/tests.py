@@ -57,6 +57,68 @@ def test_mart():
     assert mart(sample, eta = 0.1, N = 15, lam_func = Bets.fixed, log = False)[-1] == np.inf
 
 
+def test_apriori_bernoulli_no_nan():
+    '''
+    regression test: an infinite bet (apriori_bernoulli at eta=0) times an exact-zero
+    margin (x - eta == 0) used to compute 0 * inf = nan, which silently poisoned the
+    entire cumulative martingale from that point forward instead of leaving it at 1
+    '''
+    apb = lambda x, eta: Bets.apriori_bernoulli(x, eta, mu_0 = 0.9)
+    #data entirely consistent with eta = 0 should never move the martingale
+    x_allzero = np.array([0., 0., 0.])
+    m_allzero = mart(x_allzero, eta = 0.0, lam_func = apb, log = False)
+    assert not np.any(np.isnan(m_allzero))
+    np.testing.assert_array_equal(m_allzero, np.ones(4))
+
+    #once a positive value appears, eta = 0 is certainly false and the mart should be infinite, not nan
+    x_mixed = np.array([0., 0., 1., 1., 1.])
+    m_mixed = mart(x_mixed, eta = 0.0, lam_func = apb, log = False)
+    assert not np.any(np.isnan(m_mixed))
+    np.testing.assert_array_equal(m_mixed, [1., 1., 1., np.inf, np.inf, np.inf])
+
+
+def test_negative_exponential_eps():
+    '''
+    regression test for an off-by-one in the lagged-mean calculation used when eps is
+    passed explicitly (previously divided by the wrong index, understating every lagged
+    mean relative to Bets.lag_welford, which the default code path already relies on)
+    '''
+    x = np.array([0.6, 0.6, 0.6, 0.6, 0.6])
+    eps = 0.5
+    lam_eps = Bets.negative_exponential(x, eta = 0.5, eps = eps)
+    assert not np.any(np.isnan(lam_eps))
+    lag_mu_hat, _ = Bets.lag_welford(x)
+    expected_lam = np.exp(1 - ((1 - np.log(eps)) / lag_mu_hat) * 0.5)
+    np.testing.assert_allclose(lam_eps, expected_lam)
+    #mean (0.6) is above the null (0.5), so betting should grow the martingale
+    negexp_eps = lambda x, eta: Bets.negative_exponential(x, eta, eps = eps)
+    assert mart(x, eta = 0.5, lam_func = negexp_eps, log = False)[-1] > 1
+
+
+def test_grapa():
+    '''
+    regression test for Bets.grapa: previously used x[0:i-1] (dropping the most recent
+    lagged observation), treated an explicitly-passed empty `past` list as falsy/ignored,
+    and assigned the length-i array returned by kelly_optimal directly into a scalar slot
+    '''
+    x = np.array([0.6, 0.6, 0.6, 0.6, 0.6])
+    lam = Bets.grapa(x, eta = 0.5)
+    assert len(lam) == len(x)
+    assert lam[0] == 0 #no data yet, so the first bet is always 0
+    assert all(lam[1:] > 0) #mean (0.6) is above the null (0.5): later bets should be positive
+    assert mart(x, eta = 0.5, lam_func = Bets.grapa, log = False)[-1] > 1
+
+    #a null-true sample shouldn't be able to grow the martingale
+    x_null = np.ones(5) * 0.5
+    assert mart(x_null, eta = 0.5, lam_func = Bets.grapa, log = False)[-1] <= 1
+
+    #the 'past' kwarg should extend a previously-computed sequence by exactly one predictable bet
+    lam_full = Bets.grapa(x, eta = 0.5)
+    lam_partial = list(Bets.grapa(x[:-1], eta = 0.5))
+    lam_extended = Bets.grapa(x, eta = 0.5, past = lam_partial)
+    assert len(lam_extended) == len(x)
+    np.testing.assert_allclose(lam_extended, lam_full)
+
 
 
 def test_lower_confidence_bound():
@@ -126,6 +188,10 @@ def test_selector():
     #check whether the first stratum is preferentially sampled
     selections = selector(samples, N, Allocations.proportional_to_mart, eta, bets)
     assert selections[100,0] > selections[100,2]
+    #regression test: proportional_to_mart must fall back to round robin while any stratum
+    #has <= 1 samples (previously that branch was computed but silently discarded, so the
+    #martingale-based selection took over from t=1 instead of after the round-robin warmup)
+    np.testing.assert_array_equal(selections[6,:], [2, 2, 2])
     #same as above but for predictable_kelly
     assert selector(samples, N, Allocations.predictable_kelly, eta, bets).shape[0] == 3001
     assert selector(samples, N, Allocations.predictable_kelly, eta, bets).shape[1] == 3
@@ -203,6 +269,15 @@ def test_intersection_mart():
     N = [20, 20]
     sample = [np.ones(N[0]) * .3, np.ones(N[0]) * .8]
     assert intersection_mart(sample, N, eta = [0, 1], lam_func = Bets.agrapa, allocation_func = Allocations.predictable_kelly, combine = "product", log = False, WOR = True)[-1] >= 1
+
+    #regression test: a boundary intersection null (eta_k = 0) combined with an infinite bet
+    #(apriori_bernoulli) and an exact-zero sample value used to poison the martingale with nan
+    N = [5, 5]
+    sample = [np.array([0., 0., 1., 1., 1.]), np.array([1., 1., 1., 1., 1.])]
+    apb = lambda x, eta: Bets.apriori_bernoulli(x, eta, mu_0 = 0.9)
+    result = intersection_mart(sample, N, eta = [0, 1], lam_func = apb, allocation_func = Allocations.round_robin, combine = "product", log = False, WOR = True)
+    assert not np.any(np.isnan(result))
+    assert result[-1] == np.inf
 
 def test_construct_eta_bands():
     N = [15, 15]

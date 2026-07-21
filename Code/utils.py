@@ -322,7 +322,7 @@ class Bets:
             eps = kwargs.get("eps", None)
             if eps is not None:
                 assert 0 < eps <= 1, "eps is OOB, must be in (0,1]"
-                lag_mu_hat = np.insert(np.cumsum(x),0,1/2)[0:-1] / np.arange(1,len(x)+1)
+                lag_mu_hat, _ = Bets.lag_welford(x)
                 b = (1 - np.log(eps)) / lag_mu_hat
                 lam = np.exp(1 - b * eta)
             elif (a is not None) and (b is not None):
@@ -399,45 +399,14 @@ class Bets:
         '''
         c = kwargs.get("c", 0.99)
         past = kwargs.get("past", None)
-        if past:
-            lam = past
-            lam.append(Bets.kelly_optimal(x[:-1], eta))
+        if past is not None:
+            #kelly_optimal returns an array broadcast to len(x); take the (constant) scalar value
+            lam = np.append(np.asarray(past), Bets.kelly_optimal(x[:-1], eta)[-1])
         else:
             lam = np.zeros(len(x))
             # the first bet is 0, the subsequent ones are optimal for the lagged sample
             for i in range(1,len(x)):
-                lam[i] = Bets.kelly_optimal(x[0:i-1], eta)
-        return lam
-
-
-
-    def convex_combination(x, eta, bet_list, bet_weights = None, **kwargs):
-        '''
-        WIP, NOT FUNCTIONING
-        computes a new bet as a convex combination of other bets
-        NOTE: could allow the weights to vary over time as well; e.g. proper dims are (len(bet_list), len(x))
-        --------
-        inputs:
-            bet_list: list of callables with args (x, eta) from class Bets
-                the bets to be combined, use lambda functions to set additional kwargs
-            bet_weights: length len(bet_list) np.array of floats in [0,1], summing to 1
-        '''
-        if bet_weights is None:
-            warnings.warn("bet_weights is none, setting to unweighted average.")
-            bet_weights = np.ones(n_bets) * (1/n_bets) # use flat average as default
-        elif np.any(bet_weights < 0):
-            raise ValueError("some bet_weights are negative")
-        elif np.sum(bet_weights) != 1:
-            warnings.warn("bet_weights do not sum to 1, normalizing.")
-            bet_weights = np.array(bet_weights)
-            bet_weights = bet_weights / np.sum(bet_weights)
-        else:
-            bet_weights = np.array(bet_weights)
-        n_bets = len(bet_list)
-        lams = np.array((n_bets, len(x)))
-        for i in range(n_bets):
-            lams[i,:] = bet_list[i](x, eta)
-        lam = np.dot(bet_weights, lams)
+                lam[i] = Bets.kelly_optimal(x[0:i], eta)[-1]
         return lam
 
 
@@ -516,12 +485,13 @@ class Allocations:
         #this function involves alot of overhead, may want to restructure
         if any(running_T_k <= 1):
             next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
-        K = len(x)
-        marts = np.array([mart(x[k], eta[k], None, lam[k], N[k], log = False)[running_T_k[k]] for k in range(K)])
-        scores = np.minimum(np.maximum(marts, 1), 1e3)
-        scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
-        probs = scores / np.sum(scores)
-        next = np.random.choice(np.arange(K), size = 1, p = probs)
+        else:
+            K = len(x)
+            marts = np.array([mart(x[k], eta[k], None, lam[k], N[k], log = False)[running_T_k[k]] for k in range(K)])
+            scores = np.minimum(np.maximum(marts, 1), 1e3)
+            scores = np.where(running_T_k == n, 0, scores) #if the stratum is exhausted, its score is 0
+            probs = scores / np.sum(scores)
+            next = np.random.choice(np.arange(K), size = 1, p = probs)
         return next
 
     def predictable_kelly(x, running_T_k, n, N, eta, lam, terms, **kwargs):
@@ -655,7 +625,12 @@ def mart(x, eta, lam_func = None, lam = None, N = np.inf, log = True, output = "
     if output == "mart":
         mart_array = np.zeros((len(x)+1, len(lam)))
         for l in range(len(lam)):
-            mart = np.insert(np.cumprod(1 + lam[l] * (x - eta_t)), 0, 1)
+            #an infinite bet (e.g. Bets.apriori_bernoulli at eta=0) times an exact-zero margin (x - eta_t == 0)
+            #is 0 * inf = nan in IEEE floats, but mathematically the term is just 1 (no growth, no loss)
+            with np.errstate(invalid = "ignore"):
+                terms = 1 + lam[l] * (x - eta_t)
+            terms = np.where(np.isnan(terms), 1.0, terms)
+            mart = np.insert(np.cumprod(terms), 0, 1)
             mart[np.insert(eta_t < 0, 0, False)] = np.inf
             mart[np.insert(eta_t > 1, 0, False)] = 0
             mart_array[:,l] = mart
