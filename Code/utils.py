@@ -409,6 +409,40 @@ class Bets:
                 lam[i] = Bets.kelly_optimal(x[0:i], eta)[-1]
         return lam
 
+    def peak(x, eta, **kwargs):
+        '''
+        betting rule of Cho, Gan, and Kallus (2024), "Peeking with PEAK: Sequential, Nonparametric
+        Composite Hypothesis Tests for Means of Multiple Data Streams" https://arxiv.org/abs/2402.06122
+        (see also their reference implementation, https://github.com/brianc0413/PEAK)
+        lambda_t(eta) := (mu_hat_{t-1} - eta) / c, where mu_hat_{t-1} is a running mean of past data
+        regularized by one pseudo-observation of value mu_0, i.e.
+            mu_hat_{t-1} := (mu_0 + sum of the first t-1 observations) / t,
+        and c >= 1/4 is a tuning constant; c = 1/4 is the smallest value that keeps the resulting
+        capital process nonnegative for any predictable [0,1]-valued mu_hat (their Theorem 1).
+        NB: the arXiv manuscript's Equations (4)-(5) display mu_hat as seeded at eta (the null being
+        tested) with no persistent regularization thereafter; their published reference
+        implementation (e.g. THR/thr_PEEK.R, BAI/bai_PEEK.R) instead seeds at a fixed mu_0 = 0.5 with
+        the persistent one-pseudo-observation regularization implemented here (their Table 1-2 and
+        Figure 2 results are produced by the latter), which is what we match by default
+        eta-adaptive
+        -------------
+        kwargs:
+            c: float >= 1/4, the tuning constant; defaults to 0.26, the value used throughout
+                Cho, Gan, and Kallus (2024)
+            mu_0: float in [0,1], the pseudo-observation seeding mu_hat before any data is observed;
+                defaults to 0.5, matching their reference implementation (their manuscript's
+                displayed equations instead suggest mu_0 = eta with no persistent regularization,
+                available here by passing mu_0 = eta explicitly)
+        '''
+        c = kwargs.get('c', 0.26)
+        mu_0 = kwargs.get('mu_0', 0.5)
+        n = len(x)
+        S = np.insert(np.cumsum(x), 0, 0)[0:n]
+        j = np.arange(1, n + 1)
+        lag_mu_hat = (mu_0 + S) / j
+        lam = (lag_mu_hat - eta) / c
+        return lam
+
 
 class Allocations:
     '''
@@ -1382,6 +1416,63 @@ def brute_force_uits(x, N, etas, lam_func = None, allocation_func = Allocations.
         mart_opt[i] = obj[opt_index[i],i]
     return mart_opt, eta_opt, global_sample_size, T_k
 
+
+def peak_uits(x, N, eta_0, allocation_func = Allocations.round_robin, c = 0.26, mu_0 = 0.5, n_grid = 100, log = True, WOR = False):
+    '''
+    the joint test process of PEAK (Peeking with Expectation-based Averaged Capital),
+    Cho, Gan, and Kallus (2024) https://arxiv.org/abs/2402.06122, minimized over a composite
+    null H_0: w . eta <= eta_0, for K = 2 strata
+
+    PEAK bets lambda_t(eta) = (mu_hat_{t-1} - eta)/c using a regularized lagged sample mean
+    (Bets.peak), and combines evidence across strata/arms by AVERAGING the within-stratum
+    capital processes rather than multiplying them (their Equations 8-9):
+        K_t^a(m_a) = prod_{i<=t} (1 - 1[A_i=a] + 1[A_i=a] (1 + lambda_i(m_a)(X_i - m_a)))
+        E_t(m) = (1/W) sum_a K_t^a(m_a)
+    which is exactly intersection_mart with combine = "sum" and equal (Weights.fixed) weights.
+
+    Because E_t(m) is convex (not log-concave) in eta, its minimum over the composite null
+    need not occur at a vertex of the null boundary (their Section 4.2), so unlike banded_uits
+    we minimize over a fine grid of points spanning the boundary rather than just its endpoints.
+
+    Parameters
+    ----------
+        x: length-K list of length-n_k np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        N: length-K list of ints
+            the size of each stratum
+        eta_0: float in [0,1]
+            the global null mean
+        allocation_func: callable, a function from class Allocations
+            the allocation function used to interleave samples across strata
+        c: float >= 1/4
+            the PEAK tuning constant passed to Bets.peak; defaults to 0.26
+        mu_0: float in [0,1]
+            the pseudo-observation seeding Bets.peak's running mean; defaults to 0.5, matching
+            the PEAK reference implementation (see Bets.peak)
+        n_grid: positive int
+            the number of equally-spaced points along the null boundary to minimize over
+        log: Boolean
+            return the log test process if true, otherwise return on original scale
+        WOR: Boolean
+            should the martingales be computed under sampling without replacement
+    Returns
+    ----------
+        mart_opt, eta_opt, global_sample_size, T_k as in brute_force_uits:
+        the value of the PEAK joint test process minimized over the composite null, using all
+        data x, along with the minimizing eta at each time and the global sample size
+    '''
+    K = len(N)
+    assert K == 2, "peak_uits currently only supports K = 2 strata"
+    N = np.array(N)
+    w = N / np.sum(N)
+    eta_1_grid = np.linspace(max(0, eta_0 - w[1]), min(1, eta_0 / w[0]), n_grid)
+    eta_2_grid = (eta_0 - w[0] * eta_1_grid) / w[1]
+    etas = list(zip(eta_1_grid, eta_2_grid))
+    peak_bet = lambda x, eta: Bets.peak(x, eta, c = c, mu_0 = mu_0)
+    return brute_force_uits(
+        x = x, N = N, etas = etas, lam_func = peak_bet, allocation_func = allocation_func,
+        combine = "sum", theta_func = Weights.fixed, log = log, WOR = WOR)
+
 ####### stratified comparison audit functions #######
 
 def construct_eta_grid_plurcomp(N, A_c, assorter_method):
@@ -1859,8 +1950,6 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
     eta_stars = np.zeros((np.sum(n)+1, K))
     eta_star_start = pypoman.projection.project_point_to_polytope(point = np.ones(K), ineq = (G, h), qpsolver = 'cvxopt')
     eta_stars[0,:] = eta_star_start
-
-
 
     for i in np.arange(1, np.sum(n)):
         #select next stratum

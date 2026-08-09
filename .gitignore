@@ -3,3 +3,17 @@
 *.bbl
 *.out
 *.synctex.gz
+
+# OS / editor cruft
+.DS_Store
+.Rhistory
+
+# Python
+__pycache__/
+*.pyc
+.coverage
+.ipynb_checkpoints/
+.virtual_documents/
+
+# Large CVR data dump - never commit
+Code/sf-cvrs-2024/
