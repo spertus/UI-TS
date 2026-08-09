@@ -12,7 +12,8 @@ from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_b
     intersection_mart, plot_marts_eta, brute_force_uits, construct_exhaustive_eta_grid,\
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_plurcomp,\
     random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits,\
-    generate_hybrid_audit_population, generate_oneaudit_population, construct_eta_bands_hybrid
+    generate_hybrid_audit_population, generate_oneaudit_population, construct_eta_bands_hybrid,\
+    peak_uits
 
 
 def test_mart():
@@ -518,3 +519,127 @@ def test_convex_uits():
     N = [10 for _ in range(K)]
     x_alt_1 = [random_truncated_gaussian(0.8, 0.05, N[k]) for k in range (K)]
     assert np.max(convex_uits(x_alt_1, N, Allocations.round_robin, eta_0 = 0.5)[0]) > np.log(5)
+
+
+def test_bets_peak():
+    '''
+    Bets.peak implements lambda_t(eta) = (mu_hat_{t-1} - eta) / c, where mu_hat_{t-1} is a running
+    mean regularized by one pseudo-observation of value mu_0, i.e.
+        mu_hat_{t-1} = (mu_0 + sum of the first t-1 observations) / t;
+    check this against a plain, independently-written (non-vectorized) reference loop
+    '''
+    x = np.array([0.6, 0.7, 0.5, 0.6, 0.55, 0.9, 0.1])
+    eta = 0.4
+    c = 0.26
+    mu_0 = 0.5
+    expected_lam = np.zeros(len(x))
+    running_sum = 0.0
+    for i in range(len(x)):
+        mu_hat = (mu_0 + running_sum) / (i + 1)
+        expected_lam[i] = (mu_hat - eta) / c
+        running_sum += x[i]
+    np.testing.assert_allclose(Bets.peak(x, eta, c = c, mu_0 = mu_0), expected_lam)
+    #default kwargs should match c = 0.26, mu_0 = 0.5
+    np.testing.assert_allclose(Bets.peak(x, eta), expected_lam)
+    #the first bet only ever depends on mu_0, never the data
+    assert Bets.peak(x, eta, mu_0 = 0.5)[0] == (0.5 - eta) / c
+    #mu_0 = eta recovers a zero first bet (the convention suggested by the arXiv manuscript's
+    #displayed Equations (4)-(5), as opposed to their published reference implementation)
+    assert Bets.peak(x, eta = 0.4, mu_0 = 0.4)[0] == 0
+
+
+def test_bets_peak_matches_reference_implementation():
+    '''
+    verify Bets.peak / mart(..., lam_func = Bets.peak) against an independent line-by-line port of
+    Cho, Gan, and Kallus's own reference code (https://github.com/brianc0413/PEAK): the e_value()
+    function in THR/thr_PEEK.R, combined with the mu_hat recursion used throughout that file and
+    BAI/bai_PEEK.R (`mus[[h]] <- c(mus[[h]], (1/2 + sum(S_list[[h]])) / (length(S_list[[h]]) + 1))`,
+    seeded at `mus <- list(1/2, ...)`).
+
+    NB: this regularized-mean, mu_0 = 0.5 convention is what their published code actually uses to
+    produce their Table 1-2 / Figure 2 results; it differs from the un-regularized, mu_0 = eta
+    convention suggested by the arXiv manuscript's displayed Equations (4)-(5). Both are valid
+    (Theorem 1's c >= 1/4 bound only requires mu_hat to be a predictable [0,1]-valued sequence, not
+    any particular choice of it), but they are numerically different bets; we match their code here.
+    '''
+    def peak_reference_capital_process(S, m, c = 0.26, mu_0 = 0.5):
+        K = 1.0
+        running_sum = 0.0
+        for i in range(len(S)):
+            mu_hat = (mu_0 + running_sum) / (i + 1)
+            lam = (mu_hat - m) / c
+            K *= (1 + lam * (S[i] - m))
+            running_sum += S[i]
+        return K
+
+    rng = np.random.default_rng(42)
+    for m in [0.3, 0.5, 0.7]:
+        S = rng.uniform(0, 1, 25)
+        expected = peak_reference_capital_process(S, m)
+        actual = mart(S, eta = m, lam_func = Bets.peak, log = False)[-1]
+        np.testing.assert_allclose(actual, expected, rtol = 1e-10)
+
+
+def test_peak_uits_joint_capital_process():
+    '''
+    verify that intersection_mart(..., lam_func = Bets.peak, combine = "sum", theta_func =
+    Weights.fixed) -- what peak_uits uses internally -- reproduces PEAK's joint/averaged capital
+    process E_t(m), Equations (8)-(9) of Cho, Gan, and Kallus (2024): K_t^a(m_a) is arm a's own
+    capital process evaluated only on the rounds it was pulled (flat otherwise), and
+    E_t(m) = (1/W) sum_a K_t^a(m_a); checked here against an independent oracle that walks a fixed,
+    known interleaving by hand.
+    '''
+    N = [8, 8]
+    x = [np.array([0.6, 0.55, 0.7, 0.5, 0.65, 0.6, 0.75, 0.5]),
+         np.array([0.4, 0.45, 0.3, 0.5, 0.35, 0.4, 0.25, 0.5])]
+    eta = np.array([0.45, 0.55]) #an intersection null on the boundary w.eta=0.5 for w=[1/2,1/2]
+    T_k = selector(x, N, Allocations.round_robin, eta = None, lam = None)
+    #recover the exact interleaving (which stratum is drawn at each global time step) from T_k
+    selections = np.argmax(np.diff(T_k, axis = 0), axis = 1)
+
+    def peak_reference_joint_capital_process(x_list, m_vec, selections, c = 0.26, mu_0 = 0.5):
+        W = len(x_list)
+        running_sum = np.zeros(W)
+        n_seen = np.zeros(W, dtype = int)
+        K_arms = np.ones(W)
+        E = [1.0]
+        for a in selections:
+            mu_hat = (mu_0 + running_sum[a]) / (n_seen[a] + 1)
+            lam = (mu_hat - m_vec[a]) / c
+            x_val = x_list[a][n_seen[a]]
+            K_arms[a] *= (1 + lam * (x_val - m_vec[a]))
+            running_sum[a] += x_val
+            n_seen[a] += 1
+            E.append(np.mean(K_arms))
+        return np.array(E)
+
+    expected = peak_reference_joint_capital_process(x, eta, selections)
+    #running_max = False: compare the raw (not anytime-maximized) joint process, matching the oracle
+    actual = intersection_mart(x, N, eta = eta, lam_func = Bets.peak, T_k = T_k,
+        combine = "sum", theta_func = Weights.fixed, log = False, running_max = False)
+    np.testing.assert_allclose(actual, expected, rtol = 1e-10)
+
+
+def test_peak_uits_basic():
+    '''
+    peak_uits minimizes PEAK's joint capital process, which is CONVEX (not log-concave) in eta
+    (unlike our own product-combined I-TSMs), so unlike banded_uits its grid-based minimum is only
+    an upper bound on the true continuous minimum over the null boundary: it can drift slightly
+    above what the exact minimum would show, even when the null is exactly true, if the grid misses
+    the true minimizer. Point-mass data exactly at eta_0 in both strata is the worst case for this
+    (the true minimizer sits exactly at the boundary midpoint, and the process should stay exactly
+    flat there), so it is used here to check that the drift (a) stays small and (b) shrinks as
+    n_grid grows, rather than asserting it never leaves zero.
+    '''
+    N = [15, 15]
+    sample = [np.ones(N[0]) * 0.5, np.ones(N[1]) * 0.5]
+    coarse, _, _, _ = peak_uits(sample, N, eta_0 = 0.5, n_grid = 20)
+    assert all(coarse < np.log(2)) #grid-approximation drift stays small
+    fine, _, _, _ = peak_uits(sample, N, eta_0 = 0.5, n_grid = 200)
+    assert fine[-1] < coarse[-1] #a finer grid gets closer to the true (flat) minimum
+    #null is clearly false: process should eventually grow past a comfortable rejection margin
+    sample = [np.ones(N[0]) * 0.9, np.ones(N[1]) * 0.9]
+    mart_opt, _, ss, _ = peak_uits(sample, N, eta_0 = 0.5, n_grid = 20)
+    assert mart_opt[-1] > np.log(5)
+    #sample size should never exceed the total number of samples actually drawn
+    assert ss[-1] <= np.sum(N)
