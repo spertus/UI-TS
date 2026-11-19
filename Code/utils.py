@@ -446,6 +446,52 @@ class Bets:
         lam = (lag_mu_hat - eta) / c
         return lam
 
+    def kelly_reference(x, eta, **kwargs):
+        '''
+        null-free Kelly fraction at a reference null (strategy S1 of the convexity note in Convexity/):
+        lambda_i = c_i / eta, where the fraction c_i is the predictable Kelly fraction at the reference null eta_ref_i,
+            c_i = argmax_{c in [0, c_max]} sum_{j < i} log(1 - c + c x_j / eta_ref_i)    (see kelly_fraction),
+        and c_1 = 0 (no past data). c_i uses only x[:i] and eta_ref_i, never eta, so the log-TSM
+        sum_i log(1 - c_i + c_i x_i / eta) is convex and nonincreasing in eta (convexifying)
+        eta-adaptive (the fraction is not)
+        -------------
+        kwargs:
+            eta_ref: float in (0,1], or length-len(x) np.array with elements in (0,1]; defaults to eta
+                the reference null used for the fraction on each draw: eta_ref[i] is used for the bet on x[i]
+                (e.g., the minimizing intersection null at the time x[i] is drawn, as in waterfill_uits)
+            c_max: float in [0,1), the largest allowed fraction; defaults to 0.9
+        '''
+        x = np.asarray(x, dtype = float)
+        c_max = kwargs.get("c_max", 0.9)
+        eta_ref = _reference_nulls(x, kwargs.get("eta_ref", eta))
+        c = np.array([kelly_fraction(x[0:i], eta_ref[i], c_max) for i in range(len(x))], dtype = float)
+        return c / eta
+
+    def taylor_reference(x, eta, **kwargs):
+        '''
+        null-free Taylor fraction at a reference null (strategy S2 of the convexity note in Convexity/):
+        lambda_i = c_i / eta, where c_i is the second-order (Taylor) approximation to the Kelly fraction at eta_ref_i,
+            c_i = eta_ref_i (mu_hat - eta_ref_i) / (sd_hat^2 + (mu_hat - eta_ref_i)^2), clipped to [0, c_max]
+        (see taylor_fraction), i.e., eta_ref_i times the AGRAPA bet evaluated at eta_ref_i; and c_1 = 0.
+        mu_hat and sd_hat are the lagged mean and SD of x[:i] from Bets.lag_welford.
+        c_i uses only x[:i] and eta_ref_i, never eta, so the log-TSM is convex and nonincreasing in eta (convexifying)
+        eta-adaptive (the fraction is not)
+        -------------
+        kwargs:
+            eta_ref: float in (0,1], or length-len(x) np.array with elements in (0,1]; defaults to eta
+                the reference null used for the fraction on each draw: eta_ref[i] is used for the bet on x[i]
+            c_max: float in [0,1), the largest allowed fraction; defaults to 0.9
+            sd_min: positive float, floor on the lagged SD; defaults to 0.01
+        '''
+        x = np.asarray(x, dtype = float)
+        c_max = kwargs.get("c_max", 0.9)
+        sd_min = kwargs.get("sd_min", 0.01)
+        eta_ref = _reference_nulls(x, kwargs.get("eta_ref", eta))
+        lag_mu_hat, lag_sd_hat = Bets.lag_welford(x)
+        c = np.array([0.0 if i == 0 else taylor_fraction(lag_mu_hat[i], lag_sd_hat[i], eta_ref[i], c_max, sd_min)
+            for i in range(len(x))], dtype = float)
+        return c / eta
+
 
 class Allocations:
     '''
@@ -576,6 +622,37 @@ class Allocations:
             se_log_growth = np.array([np.maximum(np.std(pt), sd_min) for pt in past_terms]) / np.sqrt(running_T_k)
             ucbs_log_growth = est_log_growth + 2 * se_log_growth
             scores = np.where(running_T_k == n, -np.inf, ucbs_log_growth)
+            next = np.argmax(scores)
+        return next
+
+    def greedy_kelly_hindsight(x, running_T_k, n, N, eta, lam, terms = None, **kwargs):
+        '''
+        greedy selection on the estimated Kelly growth rate at a single intersection null
+        (Section 4.4 of the convexity note in Convexity/); eta should be the minimizing intersection null at the
+        previous time, so the same selection is used for every intersection null (as for greedy_kelly)
+        uses round robin until every stratum that still has samples has been sampled twice; after that, selects the
+        stratum with the largest upper confidence bound
+            mean + ucb_mult * max(sd, sd_min) / sqrt(T_k)
+        of the per-draw log-growth log(1 - c + c x_ki / eta_k) of the hindsight Kelly fraction c at eta_k (see growth_at)
+        exhausted strata (running_T_k == n) are never selected; lam and terms are ignored
+        ----------
+        kwargs:
+            ucb_mult: positive float, the multiplier on the standard error; defaults to 2
+            sd_min: positive float, floor on the SD of the per-draw log-growth; defaults to 0.05
+            c_max: float in [0,1), the largest fraction for the hindsight Kelly bet; defaults to 0.9
+        '''
+        ucb_mult = kwargs.get("ucb_mult", 2)
+        sd_min = kwargs.get("sd_min", 0.05)
+        c_max = kwargs.get("c_max", 0.9)
+        running_T_k = np.asarray(running_T_k)
+        available = running_T_k < np.asarray(n)
+        if any(running_T_k[available] < 2):
+            next = Allocations.round_robin(x, running_T_k, n, N, eta, lam)
+        else:
+            scores = np.full(len(x), -np.inf)
+            for k in np.flatnonzero(available):
+                mean_k, sd_k = growth_at(x[k][0:running_T_k[k]], eta[k], c_max)
+                scores[k] = mean_k + ucb_mult * max(sd_k, sd_min) / np.sqrt(running_T_k[k])
             next = np.argmax(scores)
         return next
 
@@ -1997,6 +2074,457 @@ def convex_uits(x, N, allocation_func, eta_0 = 1/2, log = True):
         else:
             uits.append(np.exp(log_ts))
     return np.array(uits), eta_stars, T_k
+
+
+############ null-free betting fractions and the water-filling UI-TS ############
+# Ported from Convexity/code/uits_convexity.py, the companion code for the draft note "Betting rules that make
+# union-of-intersections test sequences convex" (Convexity/manuscript/main.tex).
+# Bets of the form lambda_ki(eta_k) = c_ki / eta_k, where the fraction c_ki does not depend on eta, make each
+# within-stratum log-TSM L_k(eta_k) = sum_i log(1 - c_ki + c_ki x_ki / eta_k) convex and nonincreasing in eta_k.
+# With selections that are the same for every intersection null and sampling with replacement,
+# log M_t(eta) = sum_k L_k(eta_k) is separable, and its minimum over C = {eta in [0,1]^K : w . eta = eta_0}
+# can be found by water-filling (waterfill_min), which is fast for large K and handles strata that never bet.
+
+def _reference_nulls(x, eta_ref):
+    '''
+    helper for Bets.kelly_reference and Bets.taylor_reference:
+    returns one reference null per draw, given a float or a length-len(x) array
+    '''
+    eta_ref = np.asarray(eta_ref, dtype = float)
+    if eta_ref.ndim == 0:
+        return np.full(len(x), float(eta_ref))
+    if eta_ref.shape != (len(x),):
+        raise ValueError("eta_ref must be a float or an array with one reference null per draw")
+    return eta_ref
+
+
+def kelly_fraction(x_past, eta_ref, c_max = 0.9):
+    '''
+    predictable Kelly fraction at a single reference null (strategy S1 of the convexity note):
+        argmax_{c in [0, c_max]} sum_i log(1 - c + c x_i / eta_ref)
+    found by bisection on the derivative in c, which is decreasing
+
+    Parameters
+    ----------
+        x_past: 1-dimensional np.array with elements in [0,1]
+            the past data in one stratum
+        eta_ref: float in (0,1]
+            the reference null at which the fraction is optimized
+        c_max: float in [0,1)
+            the largest allowed fraction
+    Returns
+    ----------
+        c: float in [0, c_max], the fraction; 0 if x_past is empty
+    '''
+    x_past = np.asarray(x_past, float)
+    if len(x_past) == 0:
+        return 0.0
+    z = x_past / eta_ref - 1
+    score = lambda c: np.sum(z / (1 + c * z))           # derivative in c; decreasing
+    if score(0.0) <= 0:
+        return 0.0
+    if score(c_max) >= 0:
+        return c_max
+    lo, hi = 0.0, c_max
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if score(mid) > 0 else (lo, mid)
+    return (lo + hi) / 2
+
+
+def taylor_fraction(mu_hat, sd_hat, eta_ref, c_max = 0.9, sd_min = 0.01):
+    '''
+    second-order (Taylor) approximation to the Kelly fraction at a reference null (strategy S2 of the convexity note):
+        c = eta_ref (mu_hat - eta_ref) / (sd_hat^2 + (mu_hat - eta_ref)^2), clipped to [0, c_max]
+    this is eta_ref times the (untruncated) AGRAPA bet of Bets.agrapa, evaluated once, at the reference null
+
+    Parameters
+    ----------
+        mu_hat: float in [0,1]
+            the (lagged) estimate of the stratum mean
+        sd_hat: nonnegative float
+            the (lagged) estimate of the stratum SD
+        eta_ref: float in (0,1]
+            the reference null
+        c_max: float in [0,1)
+            the largest allowed fraction
+        sd_min: positive float
+            floor on sd_hat
+    Returns
+    ----------
+        c: float in [0, c_max], the fraction
+    '''
+    d = mu_hat - eta_ref
+    return float(np.clip(eta_ref * d / (max(sd_hat, sd_min) ** 2 + d ** 2), 0.0, c_max))
+
+
+def growth_at(x_past, eta_ref, c_max = 0.9):
+    '''
+    mean and SD of the per-draw log factors log(1 - c + c x_i / eta_ref) at the hindsight Kelly fraction
+    c = kelly_fraction(x_past, eta_ref, c_max): an (optimistic) estimate of the stratum's Kelly growth rate at eta_ref
+    used by Allocations.greedy_kelly_hindsight
+
+    Parameters
+    ----------
+        x_past: 1-dimensional np.array with elements in [0,1]
+            the past data in one stratum
+        eta_ref: float in (0,1]
+            the null at which the growth rate is estimated
+        c_max: float in [0,1)
+            the largest allowed fraction
+    Returns
+    ----------
+        (mean, sd): floats; the SD uses ddof = 1. Returns (0, inf) if there are fewer than 2 past draws
+    '''
+    x_past = np.asarray(x_past, float)
+    if len(x_past) < 2:
+        return 0.0, np.inf
+    c = kelly_fraction(x_past, eta_ref, c_max)
+    f = np.log(1 - c + c * x_past / eta_ref)
+    return float(f.mean()), float(f.std(ddof=1))
+
+
+def _up_quadrature(n, prior = "uniform"):
+    '''
+    nodes and weights for integrating a degree-n polynomial in the fraction c against the prior on [0,1]
+    (Gauss-Legendre for the uniform prior, Gauss-Jacobi for the Beta(1/2, 1/2) prior); exact because m >= (n+1)/2
+    '''
+    m = max(32, n // 2 + 2)
+    if prior == "uniform":
+        z, wq = np.polynomial.legendre.leggauss(m)
+        return (z + 1) / 2, wq / 2
+    elif prior == "jeffreys":
+        from scipy.special import roots_jacobi
+        z, wq = roots_jacobi(m, -0.5, -0.5)
+        return (z + 1) / 2, wq / wq.sum()
+    else:
+        raise ValueError("prior must be 'uniform' or 'jeffreys'")
+
+
+def _up_log_mart_path(x, eta, prior = "uniform"):
+    '''
+    log of the UP mixture TSM at a single null eta after each of 0, 1, ..., len(x) draws (helper for waterfill_uits);
+    the differences are the per-draw log-growths of the predictable UP bets
+    '''
+    x = np.asarray(x, dtype = float)
+    out = np.zeros(len(x) + 1)
+    if len(x) > 0:
+        cs, wq = _up_quadrature(len(x), prior)
+        a = np.cumsum(np.log(1 - cs[None, :] + cs[None, :] * x[:, None] / eta), axis = 0) + np.log(wq)[None, :]
+        mx = a.max(1)
+        out[1:] = mx + np.log(np.exp(a - mx[:, None]).sum(1))
+    return out
+
+
+def up_log_mart(x, eta, prior = "uniform", N = np.inf):
+    '''
+    exact log of the universal portfolio (UP) mixture TSM over the betting fraction (strategy S3 of the convexity note):
+        log M(eta) = log int_0^1 prod_i [1 - c + c x_i / eta] pi(dc)
+    The integrand is a polynomial of degree len(x) in c, so Gauss quadrature with enough nodes is exact.
+    For the uniform prior, M(eta) equals the product of the predictable bets of Bets.universal_portfolio,
+    but it is computed stably on the log scale and vectorized over eta. M(eta) is log-convex and nonincreasing in eta.
+    Currently only works for sampling with replacement.
+
+    Parameters
+    ----------
+        x: 1-dimensional np.array with elements in [0,1]
+            data from one stratum
+        eta: float or np.array with elements in (0,1]
+            null mean(s) at which to evaluate the mixture
+        prior: str
+            the prior on the fraction c: "uniform" (the default, as in Bets.universal_portfolio)
+            or "jeffreys" (Beta(1/2, 1/2))
+        N: np.inf
+            sampling without replacement (finite N) is not implemented
+    Returns
+    ----------
+        the log mixture TSM after len(x) draws: a float if eta is a scalar, otherwise an np.array shaped like eta
+    '''
+    if N < np.inf:
+        raise NotImplementedError("up_log_mart is only implemented for sampling with replacement (N = np.inf)")
+    x = np.asarray(x, dtype = float)
+    eta_flat = np.atleast_1d(np.asarray(eta, dtype = float)).ravel()
+    out = np.zeros(len(eta_flat))
+    if len(x) > 0:
+        cs, wq = _up_quadrature(len(x), prior)
+        LL = np.zeros((len(eta_flat), len(cs)))
+        chunk = max(1, 2**22 // (len(eta_flat) * len(cs))) # bounds memory use for long x or many etas
+        for start in range(0, len(x), chunk):
+            x_chunk = x[start:(start + chunk)]
+            LL += np.log(1 - cs[None, None, :] + cs[None, None, :] * x_chunk[None, :, None] / eta_flat[:, None, None]).sum(1)
+        a = LL + np.log(wq)[None, :]
+        mx = a.max(1)
+        out = mx + np.log(np.exp(a - mx[:, None]).sum(1))
+    return float(out[0]) if np.ndim(eta) == 0 else out.reshape(np.shape(eta))
+
+
+def _pad(xs, fill=0.0):
+    '''
+    stack a list of K 1-dimensional arrays of different lengths into a K-by-max(length) array, padded with fill;
+    also returns a mask that is True for real (not padded) entries
+    '''
+    n = max(1, max(len(x) for x in xs)); K = len(xs)
+    X = np.full((K, n), fill); mask = np.zeros((K, n), bool)
+    for k, x in enumerate(xs):
+        X[k, :len(x)] = x; mask[k, :len(x)] = True
+    return X, mask
+
+
+class FractionObjective:
+    '''
+    separable log I-TSM for null-free fractions (strategies S1, S2, and the inverse bets of Bets.inverse_eta):
+        L_k(eta_k) = sum_i log(1 - c_ki + c_ki x_ki / eta_k)
+    each L_k is convex and nonincreasing in eta_k; an input to waterfill_min
+
+    Parameters
+    ----------
+        xs: length-K list of 1-dimensional np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        cs: length-K list of 1-dimensional np.arrays, cs[k] of the same length as xs[k], with elements in [0,1)
+            the fraction c_ki used for each draw (lambda_ki(eta) = c_ki / eta)
+    Methods (each takes a length-K np.array eta and returns length-K np.arrays)
+    ----------
+        value(eta): [L_1(eta_1), ..., L_K(eta_K)]
+        deriv(eta): first derivatives L_k'(eta_k)
+        deriv2(eta): second derivatives L_k''(eta_k)
+        d12(eta): (deriv(eta), deriv2(eta)), sharing work
+    '''
+    def __init__(self, xs, cs):
+        self.X, self.mask = _pad(xs); self.C, _ = _pad(cs)
+        self.C = np.where(self.mask, self.C, 0.0)
+    def value(self, eta):
+        e = np.asarray(eta, float)[:, None]
+        return np.log(1 - self.C + self.C * self.X / e).sum(1)
+    def deriv(self, eta):
+        e = np.asarray(eta, float)[:, None]
+        num = self.C * self.X / e ** 2
+        return -(num / (1 - self.C + self.C * self.X / e)).sum(1)
+    def deriv2(self, eta):
+        e = np.asarray(eta, float)[:, None]
+        D = 1 - self.C + self.C * self.X / e; A = self.C * self.X / e ** 2
+        return (2 * self.C * self.X / (e ** 3 * D) - A ** 2 / D ** 2).sum(1)
+    def d12(self, eta):
+        e = np.asarray(eta, float)[:, None]
+        D = 1 - self.C + self.C * self.X / e; A = self.C * self.X / e ** 2; r = A / D
+        return -r.sum(1), (2 * r / e - r ** 2).sum(1)
+
+
+class MixtureObjective:
+    '''
+    separable log I-TSM for the universal portfolio mixture (strategy S3):
+        L_k(eta_k) = log int_0^1 prod_i (1 - c + c x_ki / eta_k) dc   (uniform prior on the fraction c)
+    computed by Gauss-Legendre quadrature with m nodes, which is exact when m >= (n_k + 1)/2 (the default m is chosen so);
+    each L_k is convex and nonincreasing in eta_k; an input to waterfill_min. The methods are as for FractionObjective.
+
+    Parameters
+    ----------
+        xs: length-K list of 1-dimensional np.arrays with elements in [0,1]
+            the data sampled from each stratum
+        m: positive int or None
+            the number of quadrature nodes; defaults to max(8, ceil((max_k n_k + 1)/2))
+    '''
+    def __init__(self, xs, m=None):
+        self.X, self.mask = _pad(xs)
+        m = m or max(8, int(np.ceil((self.X.shape[1] + 1) / 2)))
+        z, wq = np.polynomial.legendre.leggauss(m); self.cs, self.lw = (z + 1) / 2, np.log(wq / 2)
+    def _terms(self, eta):
+        e = np.asarray(eta, float)[:, None, None]
+        cc = self.cs[None, None, :]; xx = self.X[:, :, None]; mm = self.mask[:, :, None]
+        a = np.where(mm, np.log(1 - cc + cc * xx / e), 0.0).sum(1) + self.lw[None, :]   # (K, m)
+        return a, cc, xx, mm, e
+    def value(self, eta):
+        a = self._terms(eta)[0]; mx = a.max(1)
+        return mx + np.log(np.exp(a - mx[:, None]).sum(1))
+    def _slopes(self, eta):
+        a, cc, xx, mm, e = self._terms(eta)
+        post = np.exp(a - a.max(1, keepdims=True)); post /= post.sum(1, keepdims=True)
+        D = 1 - cc + cc * xx / e; A = cc * xx / e ** 2
+        d1 = np.where(mm, -A / D, 0.0).sum(1)                                        # (K, m)
+        d2 = np.where(mm, 2 * cc * xx / (e ** 3 * D) - A ** 2 / D ** 2, 0.0).sum(1)
+        return post, d1, d2
+    def deriv(self, eta):
+        post, d1, _ = self._slopes(eta)
+        return (post * d1).sum(1)
+    def deriv2(self, eta):
+        return self.d12(eta)[1]
+    def d12(self, eta):
+        post, d1, d2 = self._slopes(eta)
+        m1 = (post * d1).sum(1)
+        return m1, (post * (d2 + d1 ** 2)).sum(1) - m1 ** 2
+
+
+def waterfill_min(obj, w, eta_0, eps=1e-6, newton_iters=40):
+    '''
+    minimize sum_k L_k(eta_k) subject to w . eta = eta_0 and eps <= eta_k <= 1, for convex nonincreasing L_k
+
+    Water-filling: for a level nu <= 0, every stratum takes the eta_k(nu) at which its slope L_k'(eta_k) equals nu w_k
+    (clipped to [eps, 1]). Because L_k' is nondecreasing (convexity), eta_k(nu) is unique and nondecreasing in nu,
+    so the total w . eta(nu) is monotone and the level with w . eta(nu) = eta_0 is a one-dimensional root.
+    These are exactly the KKT conditions, which are sufficient for a global minimum because the problem is convex.
+    Inner roots: safeguarded Newton on (-L_k')^(-1/2), all strata at once. Outer root: Brent's method on log(-nu).
+    Each slope evaluation costs O(total number of draws) (times the number of quadrature nodes for MixtureObjective).
+    Strata with no information (L_k' = 0, e.g., unsampled strata or strata that never bet) sit at eps, which leaves as
+    much null mass as possible for the informative strata, and take up whatever null mass is left over if the
+    informative strata all reach eta_k = 1.
+    Unlike the interior-point solve in convex_uits, this does not break down when some strata are flat.
+
+    Parameters
+    ----------
+        obj: FractionObjective or MixtureObjective (or any object with value, deriv, and d12 methods)
+            the separable objective
+        w: length-K np.array of positive floats summing to 1
+            the stratum weights
+        eta_0: float in [0,1]
+            the global null mean
+        eps: small positive float
+            lower bound on each eta_k (convexifying log-TSMs are +infinity at eta_k = 0)
+        newton_iters: positive int
+            maximum number of Newton iterations for the inner roots
+    Returns
+    ----------
+        (minimum, minimizer): the minimum value of sum_k L_k(eta_k) (a float) and the minimizing eta (a length-K np.array)
+    '''
+    from scipy.optimize import brentq
+    w = np.asarray(w, float); K = len(w)
+    lo_b, hi_b = np.full(K, eps), np.ones(K)
+    d_lo, d_hi = obj.deriv(lo_b), obj.deriv(hi_b)
+    flat = np.abs(d_lo) < 1e-12
+    if flat.all():
+        eta = np.full(K, eta_0 / w.sum()); return float(obj.value(eta).sum()), eta
+    def eta_of(nu):
+        # Solve L_k'(eta) = nu w_k stratum by stratum.  Near 0 the slopes behave like -1/eta^2, so Newton is run on
+        # phi(eta) = (-L_k'(eta))^(-1/2), which is increasing and close to linear (one step if L_k' = -A/eta^2).
+        target = nu * w
+        at_lo, at_hi = (d_lo >= target) | flat, d_hi <= target          # roots clipped to a bound: nothing to solve
+        free = ~(at_lo | at_hi)
+        phi_star = 1 / np.sqrt(np.maximum(-target, 1e-300))
+        a, b = lo_b.copy(), hi_b.copy(); x = (a + b) / 2
+        for _ in range(newton_iters if free.any() else 0):
+            d1, d2 = obj.d12(x); d1 = np.minimum(d1, -1e-300)
+            g = np.where(free, 1 / np.sqrt(-d1) - phi_star, 0.0)
+            a = np.where(g < 0, x, a); b = np.where(g > 0, x, b)
+            free = free & (np.abs(g) > 1e-12 * phi_star) & (b - a > 1e-13)     # converged strata stay put
+            if not free.any():
+                break
+            with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+                dg = 0.5 * d2 / (-d1) ** 1.5
+                xn = x - g / dg
+            ok = np.isfinite(xn) & (xn >= a) & (xn <= b)
+            x = np.where(free, np.where(ok, xn, (a + b) / 2), x)
+        x = np.where(at_lo, lo_b, np.where(at_hi, hi_b, x))
+        return np.where(flat, eps, x)
+    f = lambda s_: float(w @ eta_of(-np.exp(s_))) - eta_0        # nonincreasing in s
+    s_min = -40.0
+    if f(s_min) <= 0:                                             # informative strata can all sit at eta_k = 1
+        nu = -np.exp(s_min)
+    else:
+        s_max = float(np.log(-np.min(d_lo / w)))
+        nu = -np.exp(brentq(f, s_min, s_max, xtol=1e-12, rtol=4 * np.finfo(float).eps, maxiter=200))
+    eta = eta_of(nu)
+    short = eta_0 - w @ eta
+    if short > 1e-12 and flat.any():                              # uninformative strata absorb the remaining null mass
+        eta[flat] = np.minimum(1.0, eps + short / w[flat].sum())
+    return float(obj.value(eta).sum()), eta
+
+
+def waterfill_uits(x, N, allocation_func, strategy = "kelly_ref", eta_0 = 1/2, c_max = 0.9, running_max = "outer", log = True, WOR = False):
+    '''
+    compute the UI-TS for null-free (convexifying) bets lambda_ki(eta_k) = c_ki / eta_k, minimizing over C by water-filling
+    the fraction c_ki for each draw is fixed, before the draw is used, at the minimizing intersection null of the
+    previous time; after each draw the log I-TSM is minimized over C with waterfill_min
+    currently only works for sampling with replacement
+
+    Parameters
+    ----------
+    x: length-K list of np.arrays
+        samples from each stratum in random order
+    N: np.array of length K
+        the number of elements in each stratum in the population; only used to set the stratum weights w = N / sum(N)
+    allocation_func: callable, a function from class Allocations
+        the selection rule; one of the nonadaptive allocations (as for convex_uits) or Allocations.greedy_kelly_hindsight.
+        It is given the minimizing null of the previous time as eta.
+    strategy: str
+        the betting fractions:
+        "inverse": the fractions of Bets.inverse_eta, c_ki = clip(lagged mean - lagged SD, 0.1, 0.9) (as in convex_uits)
+        "kelly_ref": c_ki = kelly_fraction(past draws, eta_ref) at the reference null eta_ref (Bets.kelly_reference)
+        "taylor_ref": c_ki = taylor_fraction(lagged mean, lagged SD, eta_ref) (Bets.taylor_reference)
+        "up": the universal portfolio mixture over c with a uniform prior (Bets.universal_portfolio, up_log_mart)
+        where eta_ref is the k-th entry of the minimizing null at the time the draw is selected
+    eta_0: double in [0,1]
+        the global null mean
+    c_max: double in [0,1)
+        the largest fraction for "kelly_ref" and "taylor_ref" ("inverse" truncates at 0.9 and "up" mixes over [0,1])
+    running_max: str
+        "outer": return the running maximum max_{j <= t} min_eta M_j(eta), which is valid by Ville's inequality
+        "none": return the raw minimum min_eta M_t(eta), as convex_uits does
+    log: Boolean
+        return UI-TS on log-scale
+    WOR: Boolean
+        sampling without replacement is not implemented (raises NotImplementedError if True)
+    Returns
+    --------
+    uits: length-(sum(n_k) + 1) np.array
+        the value of the UI-TS after t = 0, 1, ..., sum(n_k) draws. Unlike convex_uits, it is also computed while some
+        strata are unsampled (they cannot bet, so their null means are as small as possible), and at the final time.
+    eta_stars: (sum(n_k) + 1)-by-K np.array
+        the minimizing intersection null after each draw
+    T_k: (sum(n_k) + 1)-by-K np.array of ints
+        the number of draws from each stratum after each draw
+    '''
+    if WOR:
+        raise NotImplementedError("waterfill_uits is only implemented for sampling with replacement")
+    assert strategy in ["inverse", "kelly_ref", "taylor_ref", "up"], "strategy must be 'inverse', 'kelly_ref', 'taylor_ref', or 'up'"
+    assert running_max in ["outer", "none"], "running_max must be 'outer' or 'none'"
+    assert allocation_func in nonadaptive_allocations + [Allocations.greedy_kelly_hindsight], \
+        "Cannot use an allocation that selects differently for different intersection nulls"
+    x = [np.asarray(x_k, dtype = float) for x_k in x]
+    N = np.asarray(N, dtype = float)
+    w = N / np.sum(N) #stratum weights
+    K = len(N) #number of strata
+    n = np.array([x[k].shape[0] for k in range(K)])
+    n_total = int(np.sum(n))
+    T_k = np.zeros((n_total + 1, K), dtype = int)
+    eta_stars = np.zeros((n_total + 1, K)) #stores minimizing etas
+    log_min = np.zeros(n_total + 1) #stores min_eta log M_t(eta)
+    #fractions c_ki; for inverse bets they do not depend on any null, so they can be computed up front
+    if strategy == "inverse":
+        cs = [Bets.inverse_eta(x[k], 1) for k in range(K)]
+    else:
+        cs = [np.zeros(n[k]) for k in range(K)]
+
+    def objective(T):
+        xs = [x[k][0:T[k]] for k in range(K)]
+        if strategy == "up":
+            return MixtureObjective(xs)
+        return FractionObjective(xs, [cs[k][0:T[k]] for k in range(K)])
+
+    #with no data the I-TSM is 1 for every eta (log_min[0] = 0); with every stratum flat, waterfill_min gives eta_0 * 1
+    eta_stars[0,:] = waterfill_min(objective(T_k[0,:]), w, eta_0)[1]
+    for i in np.arange(1, n_total + 1):
+        #select next stratum, given the minimizing null at the previous time
+        if allocation_func is Allocations.greedy_kelly:
+            #greedy_kelly needs the per-draw log-growth of each stratum's TSM at that null
+            if strategy == "up":
+                terms = [np.diff(_up_log_mart_path(x[k][0:T_k[i-1,k]], eta_stars[i-1,k])) for k in range(K)]
+            else:
+                terms = [np.log(1 - cs[k][0:T_k[i-1,k]] + cs[k][0:T_k[i-1,k]] * x[k][0:T_k[i-1,k]] / eta_stars[i-1,k]) for k in range(K)]
+        else:
+            terms = None
+        S_i = int(np.ravel(allocation_func(x, T_k[i-1,:], n, N, eta = eta_stars[i-1,:], lam = None, terms = terms))[0])
+        #fix the fraction for the new draw at the reference null before the draw is used
+        j = T_k[i-1,S_i]
+        eta_ref = eta_stars[i-1,S_i]
+        if strategy == "kelly_ref":
+            cs[S_i][j] = kelly_fraction(x[S_i][0:j], eta_ref, c_max)
+        elif strategy == "taylor_ref" and j > 0:
+            lag_sd = 1/4 if j == 1 else np.std(x[S_i][0:j], ddof = 1) #lagged SD convention of Bets.lag_welford
+            cs[S_i][j] = taylor_fraction(np.mean(x[S_i][0:j]), lag_sd, eta_ref, c_max)
+        T_k[i,:] = T_k[i-1,:]
+        T_k[i,S_i] += 1
+        log_min[i], eta_stars[i,:] = waterfill_min(objective(T_k[i,:]), w, eta_0)
+    log_uits = np.maximum.accumulate(log_min) if running_max == "outer" else log_min
+    uits = log_uits if log else np.exp(log_uits)
+    return uits, eta_stars, T_k
 
 
 ######## additional helper functions #########
