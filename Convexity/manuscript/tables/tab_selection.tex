@@ -1,0 +1,16 @@
+\begin{tabular}{llrrrrrr}
+\toprule
+ & & \multicolumn{3}{c}{expected draws} & \multicolumn{3}{c}{share of draws from stratum 1}\\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+$(\mu_1,\kappa_1)$, $(\mu_2,\kappa_2)$ & Bet & round robin & greedy & oracle & round robin & greedy & oracle\\
+\midrule
+(0.4, 4), (0.7, 4) & S1 & 157 & 162 & 157 & 0.50 & 0.48 & 0.50\\
+ & S3 & 151 & 146 & 151 & 0.50 & 0.46 & 0.50\\
+\addlinespace
+(0.55, 2), (0.55, 100) & S1 & 145 & 118 & 119 & 0.51 & 0.66 & 0.65\\
+ & S3 & 131 & 122 & 126 & 0.51 & 0.63 & 0.65\\
+\addlinespace
+(0.2, 4), (0.95, 4) & S1 & 56 & 48 & 51 & 0.51 & 0.36 & 0.28\\
+ & S3 & 77 & 59 & 55 & 0.50 & 0.32 & 0.28\\
+\bottomrule
+\end{tabular}
