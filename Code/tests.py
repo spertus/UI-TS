@@ -13,7 +13,8 @@ from utils import Bets, Weights, Allocations, mart, selector, lower_confidence_b
     construct_eta_grid_plurcomp, construct_vertex_etas, simulate_plurcomp,\
     random_truncated_gaussian, PGD, convex_uits, construct_eta_bands, banded_uits,\
     generate_hybrid_audit_population, generate_oneaudit_population, construct_eta_bands_hybrid,\
-    peak_uits
+    peak_uits, kelly_fraction, taylor_fraction, growth_at, up_log_mart, FractionObjective, MixtureObjective,\
+    waterfill_min, waterfill_uits
 
 
 def test_mart():
@@ -643,3 +644,477 @@ def test_peak_uits_basic():
     assert mart_opt[-1] > np.log(5)
     #sample size should never exceed the total number of samples actually drawn
     assert ss[-1] <= np.sum(N)
+
+
+def test_universal_portfolio_predictable():
+    '''
+    the universal portfolio bet on observation i may only use observations 1, ..., i-1 (predictability):
+    changing x[i] must leave bets 1, ..., i unchanged, while (as a check that the test has teeth) it does
+    change the bet on observation i+1
+    '''
+    rng = np.random.default_rng(2024)
+    x = rng.uniform(0, 1, 12)
+    for eta, step in [(0.3, 1), (0.5, 1), (0.7, 1), (0.5, 3)]:
+        lam = Bets.universal_portfolio(x, eta, step = step)
+        #with no past data, the posterior mean of the (uniformly weighted) fraction is 1/2
+        assert np.isclose(lam[0], 0.5 / eta)
+        for i in range(len(x)):
+            x_new = x.copy()
+            x_new[i] = (x[i] + 0.5) % 1
+            lam_new = Bets.universal_portfolio(x_new, eta, step = step)
+            np.testing.assert_array_equal(lam_new[:(i+1)], lam[:(i+1)])
+            if step == 1 and i + 1 < len(x):
+                assert lam_new[i+1] != lam[i+1]
+
+
+########## water-filling UI-TS, null-free betting fractions, UP mixture, and greedy selection ##########
+# (methods ported from Convexity/code/uits_convexity.py)
+
+def _cvxopt_separable_min(obj, w, eta_0, eps = 1e-6):
+    '''
+    reference solver for the water-filling tests: the interior-point formulation (cvxopt.solvers.cp) of
+    Convexity/code/simulations.py::_cvxopt_min, minimizing a FractionObjective over {eta : w . eta = eta_0, eps <= eta <= 1}
+    returns (minimum, solver status)
+    '''
+    import cvxopt
+    K = len(w)
+    def second(eta): #diagonal of the Hessian
+        e = np.asarray(eta)[:, None]; C, X = obj.C, obj.X
+        D = 1 - C + C * X / e; A = C * X / e ** 2
+        return (2 * C * X / (e ** 3 * D) - A ** 2 / D ** 2).sum(1)
+    x0 = np.full(K, eta_0 / w.sum())
+    def F(x = None, z = None):
+        if x is None:
+            return 0, cvxopt.matrix(x0)
+        e = np.array(x).ravel()
+        if np.any(e <= 0):
+            return None
+        f = float(obj.value(e).sum()); Df = cvxopt.matrix(obj.deriv(e)).T
+        if z is None:
+            return f, Df
+        return f, Df, cvxopt.spdiag(cvxopt.matrix(z[0] * second(e)))
+    G = cvxopt.matrix(np.vstack([-np.eye(K), np.eye(K)])); h = cvxopt.matrix(np.r_[-eps * np.ones(K), np.ones(K)])
+    A = cvxopt.matrix(w[None, :]); b = cvxopt.matrix([float(eta_0)])
+    show_progress = cvxopt.solvers.options.get("show_progress", True)
+    cvxopt.solvers.options["show_progress"] = False
+    try:
+        sol = cvxopt.solvers.cp(F, G, h, A = A, b = b)
+    finally:
+        cvxopt.solvers.options["show_progress"] = show_progress
+    return float(obj.value(np.array(sol["x"]).ravel()).sum()), sol["status"]
+
+
+def test_waterfill_min_matches_cvxopt():
+    '''water-filling agrees with a generic interior-point solve on random problems with K = 5 to 20 and no flat strata'''
+    rng = np.random.default_rng(20261119)
+    for K in [5, 10, 20]:
+        for rep in range(2):
+            w = rng.dirichlet(np.full(K, 5.0))
+            xs = [rng.beta(2.4, 1.6, 30) for _ in range(K)]
+            cs = [rng.uniform(0.1, 0.8, 30) for _ in range(K)]
+            obj = FractionObjective(xs, cs)
+            v_wf, eta_wf = waterfill_min(obj, w, 0.5)
+            v_cv, status = _cvxopt_separable_min(obj, w, 0.5)
+            assert status == "optimal"
+            assert abs(v_wf - v_cv) < 1e-4
+            assert v_wf <= v_cv + 1e-6 #the exact minimizer is no worse than the interior-point solution
+
+
+def test_waterfill_min_matches_grid_K2():
+    '''for K = 2, C is a segment: water-filling matches a brute-force minimum over a fine grid on it'''
+    rng = np.random.default_rng(11)
+    eps = 1e-6
+    for rep in range(3):
+        w = rng.dirichlet([3.0, 3.0])
+        eta_0 = rng.uniform(0.35, 0.65)
+        xs = [rng.beta(2.0, 1.5, 25), rng.beta(1.5, 1.5, 25)]
+        cs = [rng.uniform(0.1, 0.8, 25) for _ in range(2)]
+        lo = max(eps, (eta_0 - w[1]) / w[0])
+        hi = min(1.0, (eta_0 - w[1] * eps) / w[0])
+        eta_1 = np.linspace(lo, hi, 20001)
+        eta_2 = (eta_0 - w[0] * eta_1) / w[1]
+        #within-stratum log-TSMs on the grid, computed directly
+        L_fraction = lambda k, e: np.log(1 - cs[k][None, :] + cs[k][None, :] * xs[k][None, :] / e[:, None]).sum(1)
+        grid_values = {
+            "fraction": L_fraction(0, eta_1) + L_fraction(1, eta_2),
+            "mixture": up_log_mart(xs[0], eta_1) + up_log_mart(xs[1], eta_2)}
+        for name, obj in [("fraction", FractionObjective(xs, cs)), ("mixture", MixtureObjective(xs))]:
+            v_wf, eta_wf = waterfill_min(obj, w, eta_0, eps = eps)
+            v_grid = np.min(grid_values[name])
+            assert v_wf <= v_grid + 1e-10
+            assert v_grid - v_wf < 1e-5
+
+
+def test_separable_objectives_derivatives():
+    '''the derivatives of FractionObjective and MixtureObjective match central differences, and show convexity'''
+    rng = np.random.default_rng(5)
+    xs = [rng.beta(2, 2, 20), rng.beta(3, 1, 12), rng.uniform(0, 1, 5)]
+    cs = [rng.uniform(0, 0.9, 20), rng.uniform(0, 0.9, 12), rng.uniform(0, 0.9, 5)]
+    eta = np.array([0.3, 0.55, 0.8])
+    h = 1e-6
+    for obj in [FractionObjective(xs, cs), MixtureObjective(xs)]:
+        d1, d2 = obj.d12(eta)
+        np.testing.assert_allclose(d1, obj.deriv(eta), rtol = 1e-10)
+        np.testing.assert_allclose(d2, obj.deriv2(eta), rtol = 1e-10)
+        np.testing.assert_allclose(d1, (obj.value(eta + h) - obj.value(eta - h)) / (2 * h), rtol = 1e-6)
+        np.testing.assert_allclose(d2, (obj.deriv(eta + h) - obj.deriv(eta - h)) / (2 * h), rtol = 1e-6)
+        assert np.all(d1 <= 0) and np.all(d2 >= 0) #nonincreasing and convex
+
+
+def test_waterfill_min_feasible_and_kkt():
+    '''
+    the water-filling solution is feasible and satisfies the KKT conditions: interior strata have equal
+    L_k'(eta_k) / w_k (the multiplier nu), and strata at eta_k = 1 have L_k'(1) / w_k <= nu.
+    In the first problem, two strata have so much evidence that they sit at eta_k = 1
+    '''
+    eps = 1e-6
+    def check(obj, w, eta_0, n_at_one = None):
+        v, eta = waterfill_min(obj, w, eta_0, eps = eps)
+        assert abs(w @ eta - eta_0) < 1e-10
+        assert np.all(eta >= eps) and np.all(eta <= 1)
+        assert np.isclose(v, np.sum(obj.value(eta)))
+        at_one = eta >= 1 - 1e-12
+        interior = (eta > eps) & ~at_one
+        if n_at_one is not None:
+            assert at_one.sum() == n_at_one
+        assert interior.sum() >= 2
+        slopes = obj.deriv(eta) / w
+        nu = np.mean(slopes[interior])
+        np.testing.assert_allclose(slopes[interior], nu, rtol = 1e-6)
+        assert np.all(obj.deriv(np.ones(len(w)))[at_one] / w[at_one] <= nu)
+
+    rng = np.random.default_rng(3)
+    K = 8
+    xs = [rng.beta(20, 1, 40) for _ in range(2)] + [rng.beta(1.5, 3.5, 40) for _ in range(6)]
+    cs = [np.full(40, 0.9) for _ in range(2)] + [rng.uniform(0.01, 0.1, 40) for _ in range(6)]
+    for obj in [FractionObjective(xs, cs), MixtureObjective(xs)]:
+        check(obj, np.full(K, 1/K), 0.6, n_at_one = 2)
+    #random problems with unequal weights
+    for K in [3, 12]:
+        w = rng.dirichlet(np.full(K, 2.0))
+        xs = [rng.beta(4 * m, 4 * (1 - m), 30) for m in rng.uniform(0.3, 0.9, K)]
+        cs = [rng.uniform(0.05, 0.9, 30) for _ in range(K)]
+        for obj in [FractionObjective(xs, cs), MixtureObjective(xs)]:
+            check(obj, w, 0.5)
+
+
+def test_waterfill_min_flat_strata():
+    '''
+    strata whose fractions are all zero (they never bet) and unsampled strata are flat: they sit at eps, leaving the
+    most null mass for the informative strata, unless the informative strata all reach eta_k = 1, in which case the flat
+    strata take up the remaining null mass. All-flat problems are handled too
+    '''
+    eps = 1e-6
+    rng = np.random.default_rng(8)
+    K = 6
+    w = rng.dirichlet(np.full(K, 5.0))
+    xs = [rng.beta(2.4, 1.6, 30) for _ in range(K)]
+    cs = [rng.uniform(0.1, 0.8, 30) for _ in range(K)]
+    cs[1] = np.zeros(30) #never bets
+    xs[4] = np.array([]); cs[4] = np.array([]) #unsampled
+    problems = [(FractionObjective(xs, cs), FractionObjective, (xs, cs), np.array([False, True, False, False, True, False])),
+                (MixtureObjective(xs), MixtureObjective, (xs,), np.array([False, False, False, False, True, False]))]
+    for obj, cls, args, flat in problems:
+        v, eta = waterfill_min(obj, w, 0.5, eps = eps)
+        assert abs(w @ eta - 0.5) < 1e-10 and np.all(eta >= eps) and np.all(eta <= 1)
+        assert np.all(eta[flat] == eps)
+        #same as the problem without the flat strata, with their (minimal) null mass taken out of eta_0
+        reduced = cls(*[[a[k] for k in range(K) if not flat[k]] for a in args])
+        v_reduced, eta_reduced = waterfill_min(reduced, w[~flat], 0.5 - eps * w[flat].sum(), eps = eps)
+        assert np.isclose(v, v_reduced + np.sum(obj.value(eta)[flat]), rtol = 0, atol = 1e-10)
+        np.testing.assert_allclose(eta[~flat], eta_reduced, rtol = 0, atol = 1e-8)
+
+    #the informative stratum has little weight, so it sits at eta = 1 and the flat strata absorb the rest
+    w = np.array([0.1, 0.45, 0.45])
+    x_0 = rng.beta(2.4, 1.6, 30)
+    c_0 = rng.uniform(0.1, 0.8, 30)
+    for obj in [FractionObjective([x_0, rng.uniform(0, 1, 30), np.array([])], [c_0, np.zeros(30), np.array([])]),
+                MixtureObjective([x_0, np.array([]), np.array([])])]:
+        v, eta = waterfill_min(obj, w, 0.5, eps = eps)
+        assert eta[0] == 1 and abs(w @ eta - 0.5) < 1e-10
+        np.testing.assert_allclose(eta[1:], 0.4 / 0.9, atol = 1e-12)
+        assert np.isclose(v, obj.value(np.ones(3))[0], rtol = 0, atol = 1e-12)
+
+    #every stratum flat
+    for obj in [FractionObjective([rng.uniform(0, 1, 10), np.array([])], [np.zeros(10), np.array([])]),
+                MixtureObjective([np.array([]), np.array([])])]:
+        v, eta = waterfill_min(obj, np.array([0.3, 0.7]), 0.5)
+        assert abs(v) < 1e-12
+        np.testing.assert_allclose(eta, 0.5)
+
+
+def test_waterfill_min_large_K():
+    '''a K = 500 problem with 50 draws per stratum (S2 fractions at eta_0, as in the note's timing experiment) solves in under 2 s'''
+    import time
+    rng = np.random.default_rng(51)
+    K, n_k = 500, 50
+    w = rng.dirichlet(np.full(K, 5.0))
+    xs = [rng.beta(4 * m, 4 * (1 - m), n_k) for m in rng.uniform(0.5, 0.8, K)]
+    cs = [0.5 * Bets.taylor_reference(x, 0.5) for x in xs] #fractions c = eta * lambda
+    obj = FractionObjective(xs, cs)
+    start = time.perf_counter()
+    v, eta = waterfill_min(obj, w, 0.5)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2
+    assert abs(w @ eta - 0.5) < 1e-10 and np.all(eta >= 1e-6) and np.all(eta <= 1)
+
+
+def test_up_mixture_matches_numerical_integration():
+    '''MixtureObjective and up_log_mart agree with direct numerical integration (scipy.integrate.quad) of the UP mixture'''
+    rng = np.random.default_rng(13)
+    etas = np.array([0.2, 0.5, 0.9])
+    for n in [1, 5, 15]:
+        x = rng.uniform(0, 1, n)
+        for eta in etas:
+            integrand = lambda c: np.prod(1 - c + c * x / eta)
+            uniform = np.log(sp.integrate.quad(integrand, 0, 1, epsabs = 0, epsrel = 1e-12)[0])
+            #Beta(1/2, 1/2) prior: weight c^(-1/2) (1 - c)^(-1/2), normalized by B(1/2, 1/2) = pi
+            jeffreys = np.log(sp.integrate.quad(integrand, 0, 1, weight = "alg", wvar = (-0.5, -0.5), epsabs = 0, epsrel = 1e-12)[0] / np.pi)
+            assert abs(up_log_mart(x, eta) - uniform) < 1e-9
+            assert abs(up_log_mart(x, eta, prior = "jeffreys") - jeffreys) < 1e-9
+            assert abs(MixtureObjective([x]).value(np.array([eta]))[0] - uniform) < 1e-9
+        #vectorized over eta
+        np.testing.assert_allclose(up_log_mart(x, etas), [up_log_mart(x, eta) for eta in etas], rtol = 1e-12)
+    assert up_log_mart(np.array([]), 0.5) == 0
+    with pytest.raises(NotImplementedError):
+        up_log_mart(x, 0.5, N = 100)
+
+
+def test_up_log_mart_matches_universal_portfolio_bets():
+    '''
+    the product of the predictable Bets.universal_portfolio bets equals the UP mixture, exp(up_log_mart)
+    (this needs the predictability fix: bets that use observation i for the bet on observation i overshoot)
+    '''
+    rng = np.random.default_rng(0)
+    x = rng.beta(2.6, 1.4, 25)
+    for eta in [0.3, 0.5, 0.7]:
+        lam = Bets.universal_portfolio(x, eta)
+        np.testing.assert_allclose(np.prod(1 + lam * (x - eta)), np.exp(up_log_mart(x, eta)), rtol = 1e-6)
+        assert abs(mart(x, eta, lam_func = Bets.universal_portfolio)[-1] - up_log_mart(x, eta)) < 1e-6
+
+
+def test_reference_bets_predictable():
+    '''
+    the first bet of Bets.kelly_reference and Bets.taylor_reference is 0, bet i is unchanged when x[i:] changes,
+    and the fractions eta * lambda are in [0, c_max]
+    '''
+    rng = np.random.default_rng(17)
+    x = rng.beta(3, 2, 20)
+    eta_ref = rng.uniform(0.3, 0.6, 20)
+    for bet in [Bets.kelly_reference, Bets.taylor_reference]:
+        for kwargs in [{}, {"eta_ref": 0.45}, {"eta_ref": eta_ref}, {"eta_ref": eta_ref, "c_max": 0.5}]:
+            lam = bet(x, 0.5, **kwargs)
+            assert lam.shape == x.shape and lam[0] == 0
+            assert np.all(lam >= 0) and np.all(0.5 * lam <= kwargs.get("c_max", 0.9))
+            for i in range(1, len(x)):
+                x_new = x.copy()
+                x_new[i:] = rng.uniform(0, 1, len(x) - i)
+                np.testing.assert_array_equal(bet(x_new, 0.5, **kwargs)[:(i+1)], lam[:(i+1)])
+        assert len(bet(np.array([]), 0.5)) == 0
+        with pytest.raises(ValueError):
+            bet(x, 0.5, eta_ref = eta_ref[:-1])
+        #works with mart like any other betting function
+        assert mart(x, 0.5, lam_func = bet)[-1] > 0
+
+
+def test_reference_bets_null_free():
+    '''eta * lambda does not depend on eta when the reference nulls are given: the fractions are null-free'''
+    rng = np.random.default_rng(19)
+    x = rng.beta(3, 2, 25)
+    etas = np.linspace(0.1, 0.95, 18)
+    for bet in [Bets.kelly_reference, Bets.taylor_reference]:
+        for eta_ref in [0.5, rng.uniform(0.3, 0.7, 25)]:
+            fractions = np.array([eta * bet(x, eta, eta_ref = eta_ref) for eta in etas])
+            np.testing.assert_allclose(fractions, np.broadcast_to(fractions[0], fractions.shape), rtol = 1e-12, atol = 0)
+        #by contrast, with the default reference null (eta itself) the fractions do depend on eta
+        fractions = np.array([eta * bet(x, eta) for eta in etas])
+        assert not np.allclose(fractions, fractions[0])
+
+
+def test_kelly_fraction():
+    '''kelly_fraction matches a grid argmax of the past log-growth at the reference null, and respects c_max'''
+    rng = np.random.default_rng(23)
+    grid = np.linspace(0, 1, 100001)
+    for c_max in [0.9, 0.5]:
+        for eta_ref in [0.3, 0.5, 0.7]:
+            x = rng.beta(2 * (eta_ref + 0.08), 2 * (0.92 - eta_ref), 30)
+            c_grid = grid[grid <= c_max]
+            growth = np.log(1 - c_grid[:, None] + c_grid[:, None] * x[None, :] / eta_ref).sum(1)
+            c = kelly_fraction(x, eta_ref, c_max)
+            assert 0 <= c <= c_max
+            assert abs(c - c_grid[np.argmax(growth)]) <= 2e-5
+            assert np.sum(np.log(1 - c + c * x / eta_ref)) >= growth.max() - 1e-12
+    #the cap binds when the data are far above the reference null; the fraction is 0 when they are below it or absent
+    assert kelly_fraction(np.ones(10), 0.5, c_max = 0.9) == 0.9
+    assert kelly_fraction(np.ones(10), 0.5, c_max = 0.6) == 0.6
+    assert kelly_fraction(np.full(10, 0.2), 0.5) == 0
+    assert kelly_fraction(np.array([]), 0.5) == 0
+
+
+def test_taylor_fraction_matches_agrapa():
+    '''taylor_fraction(mu, sd, eta_ref) is eta_ref times the AGRAPA bet at eta_ref, wherever neither cap binds'''
+    rng = np.random.default_rng(29)
+    n_checked = 0
+    for eta_ref in [0.3, 0.5, 0.7]:
+        x = rng.beta(4 * (eta_ref + 0.05), 4 * (0.95 - eta_ref), 60)
+        lag_mu, lag_sd = Bets.lag_welford(x)
+        agrapa = Bets.agrapa(x, eta_ref) #defaults: c = 0.75, sd_min = 0.01
+        taylor = np.array([taylor_fraction(m, s, eta_ref) for m, s in zip(lag_mu, lag_sd)]) #defaults: c_max = 0.9, sd_min = 0.01
+        neither = (agrapa > 0) & (agrapa < 0.75 / (eta_ref + 1e-5)) & (taylor > 0) & (taylor < 0.9)
+        np.testing.assert_allclose(taylor[neither], eta_ref * agrapa[neither], rtol = 1e-12)
+        #so Bets.taylor_reference at eta = eta_ref is the AGRAPA bet there (after the first draw, whose bet is 0)
+        neither[0] = False
+        np.testing.assert_allclose(Bets.taylor_reference(x, eta_ref)[neither], agrapa[neither], rtol = 1e-12)
+        n_checked += neither.sum()
+    assert n_checked > 20
+
+
+def test_convexifying_bets_log_convex():
+    '''
+    log mart(x, eta) has nonnegative second differences in eta for the null-free fractions (Bets.kelly_reference and
+    Bets.taylor_reference with given reference nulls) and for the UP mixture. AGRAPA's does not, which is why it is not
+    used with water-filling
+    '''
+    grid = np.linspace(0.06, 0.99, 94)
+    agrapa_min = []
+    for seed in range(3):
+        rng = np.random.default_rng(seed)
+        x = rng.beta(2.4, 1.6, 30)
+        eta_ref = rng.uniform(0.3, 0.7, 30)
+        curves = {
+            "kelly_reference": [mart(x, e, lam_func = lambda x_, e_: Bets.kelly_reference(x_, e_, eta_ref = eta_ref))[-1] for e in grid],
+            "taylor_reference": [mart(x, e, lam_func = lambda x_, e_: Bets.taylor_reference(x_, e_, eta_ref = 0.5))[-1] for e in grid],
+            "up": up_log_mart(x, grid)}
+        for name, log_mart in curves.items():
+            assert np.min(np.diff(log_mart, 2)) >= -1e-9, name
+        agrapa_min.append(np.min(np.diff([mart(x, e, lam_func = Bets.agrapa)[-1] for e in grid], 2)))
+    assert min(agrapa_min) < -1e-9
+
+
+def test_greedy_kelly_hindsight():
+    '''
+    greedy_kelly_hindsight returns a valid index, uses round robin until every stratum has 2 draws, never picks an
+    exhausted stratum, and picks the clearly better stratum
+    '''
+    rng = np.random.default_rng(31)
+    x = [rng.beta(9, 1, 20), rng.beta(5, 5, 20), rng.beta(1, 9, 20)] #stratum 0 is clearly best at eta = 1/2
+    n = np.array([20, 20, 20])
+    eta = np.array([0.5, 0.5, 0.5])
+    select = lambda T_k: Allocations.greedy_kelly_hindsight(x, np.array(T_k), n, n, eta, None)
+    #warm-up
+    for T_k in [[0, 0, 0], [1, 0, 0], [1, 1, 0], [1, 1, 1], [2, 1, 1], [2, 2, 1], [0, 5, 5]]:
+        assert select(T_k) == Allocations.round_robin(x, np.array(T_k), n, n, eta, None)
+    #after warm-up
+    assert select([2, 2, 2]) == 0 and select([5, 5, 5]) == 0
+    #exhausted strata
+    assert select([20, 5, 5]) != 0
+    assert select([20, 20, 5]) == 2
+    #a stratum exhausted with fewer than 2 draws does not prolong the warm-up
+    x_short = [x[0], x[1][:1], x[2]]
+    n_short = np.array([20, 1, 20])
+    assert Allocations.greedy_kelly_hindsight(x_short, np.array([3, 1, 3]), n_short, n_short, eta, None) == 0
+    #valid indices
+    for _ in range(20):
+        T_k = rng.integers(0, 21, 3)
+        if np.all(T_k == n):
+            continue
+        k = select(T_k)
+        assert k in [0, 1, 2] and T_k[k] < n[k]
+
+
+def test_waterfill_uits_matches_convex_uits():
+    '''
+    with inverse bets, round robin, and no running maximum, waterfill_uits reproduces convex_uits (which minimizes with
+    an interior-point solver). Time alignment: convex_uits returns 0 until every stratum has been sampled (t < K with
+    round robin) and stops one step early (its last entry is for time sum(n_k) - 1), so the paths are compared for
+    K <= t <= sum(n_k) - 1
+    '''
+    rng = np.random.default_rng(37)
+    N = np.array([12, 8, 6])
+    x = [rng.beta(2.6, 1.4, 8), rng.beta(2.0, 2.0, 8), rng.beta(3.0, 1.2, 8)]
+    K, n_total = 3, 24
+    uits_cvx, eta_cvx, T_cvx = convex_uits(x, N, Allocations.round_robin, eta_0 = 0.5)
+    uits_wf, eta_wf, T_wf = waterfill_uits(x, N, Allocations.round_robin, strategy = "inverse", running_max = "none")
+    assert len(uits_cvx) == n_total and len(uits_wf) == n_total + 1
+    assert np.all(uits_cvx[:K] == 0)
+    np.testing.assert_array_equal(T_wf[:n_total], T_cvx[:n_total])
+    np.testing.assert_allclose(uits_wf[K:n_total], uits_cvx[K:n_total], rtol = 0, atol = 1e-5)
+
+
+def test_waterfill_uits_strategies_and_selection():
+    '''
+    every strategy runs with round robin and greedy selection; with running_max = "outer" the path is nondecreasing;
+    the minimizers are in C; and the raw minimum equals the I-TSM at the minimizer recomputed with mart and the Bets
+    functions, using the reference nulls that waterfill_uits fixed for each draw
+    '''
+    rng = np.random.default_rng(41)
+    N = np.array([10, 20, 30])
+    w = N / np.sum(N)
+    x = [rng.beta(2.6, 1.4, 10), rng.beta(2.0, 2.0, 10), rng.beta(3.0, 1.2, 10)]
+    n_total = 30
+    for strategy in ["inverse", "kelly_ref", "taylor_ref", "up"]:
+        for allocation in [Allocations.round_robin, Allocations.greedy_kelly_hindsight]:
+            uits, eta_stars, T_k = waterfill_uits(x, N, allocation, strategy = strategy)
+            assert uits.shape == (n_total + 1,) and eta_stars.shape == (n_total + 1, 3) and T_k.shape == (n_total + 1, 3)
+            assert uits[0] == 0 and np.all(np.diff(uits) >= 0)
+            np.testing.assert_array_equal(T_k[-1], [10, 10, 10])
+            assert np.all(np.diff(T_k.sum(1)) == 1)
+            np.testing.assert_allclose(eta_stars @ w, 0.5, rtol = 0, atol = 1e-10)
+            assert np.all(eta_stars > 0) and np.all(eta_stars <= 1)
+
+        raw, eta_stars, T_k = waterfill_uits(x, N, Allocations.round_robin, strategy = strategy, running_max = "none")
+        eta_final = eta_stars[-1]
+        log_mart = 0
+        for k in range(3):
+            #the reference null for draw j is the minimizer just before the draw was selected
+            selected_at = np.searchsorted(T_k[:,k], np.arange(1, 11))
+            eta_ref = eta_stars[selected_at - 1, k]
+            if strategy == "inverse":
+                lam = Bets.inverse_eta(x[k], eta_final[k])
+            elif strategy == "kelly_ref":
+                lam = Bets.kelly_reference(x[k], eta_final[k], eta_ref = eta_ref)
+            elif strategy == "taylor_ref":
+                lam = Bets.taylor_reference(x[k], eta_final[k], eta_ref = eta_ref)
+            else:
+                lam = Bets.universal_portfolio(x[k], eta_final[k])
+            log_mart += mart(x[k], eta_final[k], lam = lam)[-1]
+        assert abs(raw[-1] - log_mart) < 1e-6
+
+    #log scale and assertions
+    tiny = [x_k[:3] for x_k in x]
+    np.testing.assert_allclose(waterfill_uits(tiny, N, Allocations.round_robin, log = False)[0],
+        np.exp(waterfill_uits(tiny, N, Allocations.round_robin)[0]))
+    with pytest.raises(NotImplementedError):
+        waterfill_uits(tiny, N, Allocations.round_robin, WOR = True)
+    with pytest.raises(AssertionError):
+        waterfill_uits(tiny, N, Allocations.predictable_kelly)
+
+
+def test_aoas_submission_manifest():
+    '''
+    AoAS_submission/ is a sealed copy of the code and results behind the AoAS submission: every file must match its
+    SHA-256 hash in AoAS_submission/MANIFEST.sha256, and no file may be added or removed
+    (Python and OS cruft, such as __pycache__/ and .DS_Store, is ignored)
+    '''
+    import hashlib, os
+    sealed = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "AoAS_submission")
+    manifest = {}
+    with open(os.path.join(sealed, "MANIFEST.sha256")) as f:
+        for line in f:
+            if line.strip():
+                digest, path = line.rstrip("\n").split("  ", 1)
+                manifest[path] = digest
+    found = []
+    for root, dirs, files in os.walk(sealed):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", ".ipynb_checkpoints")]
+        for name in files:
+            path = os.path.relpath(os.path.join(root, name), sealed).replace(os.sep, "/")
+            if path != "MANIFEST.sha256" and name not in (".DS_Store", ".Rhistory") and not name.endswith(".pyc"):
+                found.append(path)
+    assert sorted(found) == sorted(manifest), "files added to or removed from AoAS_submission/"
+    changed = []
+    for path, digest in manifest.items():
+        with open(os.path.join(sealed, path), "rb") as f:
+            if hashlib.sha256(f.read()).hexdigest() != digest:
+                changed.append(path)
+    assert changed == [], "sealed files changed: " + ", ".join(changed)
