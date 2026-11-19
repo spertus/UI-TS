@@ -643,3 +643,24 @@ def test_peak_uits_basic():
     assert mart_opt[-1] > np.log(5)
     #sample size should never exceed the total number of samples actually drawn
     assert ss[-1] <= np.sum(N)
+
+
+def test_universal_portfolio_predictable():
+    '''
+    the universal portfolio bet on observation i may only use observations 1, ..., i-1 (predictability):
+    changing x[i] must leave bets 1, ..., i unchanged, while (as a check that the test has teeth) it does
+    change the bet on observation i+1
+    '''
+    rng = np.random.default_rng(2024)
+    x = rng.uniform(0, 1, 12)
+    for eta, step in [(0.3, 1), (0.5, 1), (0.7, 1), (0.5, 3)]:
+        lam = Bets.universal_portfolio(x, eta, step = step)
+        #with no past data, the posterior mean of the (uniformly weighted) fraction is 1/2
+        assert np.isclose(lam[0], 0.5 / eta)
+        for i in range(len(x)):
+            x_new = x.copy()
+            x_new[i] = (x[i] + 0.5) % 1
+            lam_new = Bets.universal_portfolio(x_new, eta, step = step)
+            np.testing.assert_array_equal(lam_new[:(i+1)], lam[:(i+1)])
+            if step == 1 and i + 1 < len(x):
+                assert lam_new[i+1] != lam[i+1]

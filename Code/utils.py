@@ -150,8 +150,11 @@ class Bets:
         out = np.zeros(len(x))
         for i in range(1,n+1):
             if (i == 1) or (i % step == 0):
-                num = lambda l : (l * np.prod(1 + l * z[:i], dtype=np.float128))
-                denom = lambda l : (np.prod(1 + l * z[:i], dtype=np.float128))
+                #the bet on observation i may only use observations 1, ..., i-1 (predictability);
+                #with no past data the posterior mean of the (uniform) weight is 1/2
+                past = z[:i-1]
+                num = lambda l : (l * np.prod(1 + l * past, dtype=np.float128))
+                denom = lambda l : (np.prod(1 + l * past, dtype=np.float128))
 
                 num_val = sp.integrate.quad(num, 0, 1)
                 denom_val = sp.integrate.quad(denom, 0, 1)
