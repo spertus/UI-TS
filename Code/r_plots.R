@@ -6,11 +6,8 @@ library(xtable)
 
 
 
-
-
-
 ###### significance levels at different sample sizes for stratified mixture distributions ######3
-significance_data <- read_csv("significance_simulation_results.csv")
+significance_data <- read_csv("../Results/significance_simulation_results.csv")
 
 ggplot(significance_data, aes(x = n, y = t_test_level)) +
   geom_line(size = 2) +
@@ -25,8 +22,22 @@ ggplot(significance_data, aes(x = n, y = t_test_level)) +
   ylab("Estimated significance level") +
   xlab("Sample size in each stratum")
 
+
+###### testing thresholds for intersection null and LCB ###########
+
+alpha <- seq(0.01,1,by=.01)
+K <- c(2, 5, 10, 25)
+par(mfrow = c(2,2))
+for(k in K){
+  plot(1/alpha ~ alpha, type = 'l', main = paste("K = ", k), ylab = "Rejection Threshold", col = "steelblue", lwd = 2)
+  points(1/(1-(1-alpha)^(1/k)) ~ alpha, type = 'l', lty = 'dashed', col = "darkorange3", lwd = 2)
+  points(1/(alpha^(1/k)) ~ alpha, type = 'l', lty = 'dashed', col = "forestgreen", lwd = 2)
+} 
+par(mfrow = c(1,1))
+
+
 ####### stopping times for specific intersection nulls ############
-intersection_null_data <- read_csv("intersection_null_stopping_times.csv") %>%
+intersection_null_data <- read_csv("../Results/intersection_null_stopping_times.csv") %>%
   mutate(bet = case_match(bet, "agrapa" ~ "AGRAPA", "fixed" ~ "Fixed", "smooth_predictable" ~ "Smooth Adaptive")) %>%
   #filter(allocation == "round_robin") %>%
   #filter(method == "product") %>%
@@ -51,7 +62,7 @@ ggplot(intersection_null_data, aes(x = alt, y = stopping_time, color = eta)) +
   facet_grid(bet ~ allocation)
 
 ####### stopping times for point mass distributions #######
-point_mass_stopping_times <- read_csv("point_mass_results.csv") %>%
+point_mass_stopping_times <- read_csv("../Results/point_mass_results.csv") %>%
   filter(method != "uinnsm_fisher") %>%
   filter(delta != 0.1) %>%
   filter(allocation != "larger_means") %>%
@@ -96,7 +107,7 @@ ggplot(plot_point_mass_data, aes(x = alt, y = sample_size, color = bet, linetype
   scale_linetype_manual(values = c("solid","dashed","dotted")) +
   ylab("Sample Size") +
   xlab("Global Reported Assorter Mean") +
-  labs(colour = "Selection rule", linetype = "Method") +
+  labs(colour = "Betting rule", linetype = "Method") +
   scale_y_log10() +
   scale_x_continuous(breaks = seq(0.5,0.75,by=0.05))
 
@@ -110,7 +121,13 @@ xtable(G_stopping_time_table)
 
 
 ###### bernoulli stopping times #####
-full_data <- read_csv("all_bernoulli_simulations.csv")
+
+# adding sidak-corrected GLCB stopping times, which were calculated after initial reviews
+uits_data <- read_csv("../Results/all_bernoulli_simulations.csv") %>% 
+  filter(method == "uinnsm_product") 
+lcb_data <- read_csv("../Results/lcb_bernoulli_simulations.csv")
+full_data <- bind_rows(uits_data, lcb_data)
+  
 mean_data <- full_data %>%
   select(-...1) %>%
   filter(!(method %in% c("uitsm_uniform", "uitsm_vertex", "unstrat_fixed"))) %>%
@@ -118,18 +135,18 @@ mean_data <- full_data %>%
   group_by(alt, delta, method, bet, allocation) %>%
   summarize(
     expected_stopping_time = mean(stopping_time), 
-    prob_stop = mean(stopping_time < 4199),
+    prob_stop = mean(stopping_time < 3999),
     sd_stopping_time = sd(stopping_time), 
     min_stopping_time = min(stopping_time), 
     max_stopping_time = max(stopping_time),
     expected_sample_size = mean(sample_size), 
-    prob_stop = mean(stopping_time < 4199),
+    prob_stop = mean(stopping_time < 3999),
     sd_sample_size = sd(sample_size), 
     min_sample_size = min(sample_size), 
     max_sample_size = max(sample_size)) %>%
   filter(bet != "smooth_predictable") %>%
-  mutate(method = case_match(method, "lcb" ~ "LCB", "uinnsm_fisher" ~ "UI-TS Fisher",  "uinnsm_product" ~ "UI-TS")) %>%
-  mutate(method = factor(method, levels = c("UI-TS", "UI-TS Fisher", "LCB"))) %>%
+  mutate(method = case_match(method, "lcb" ~ "LCB",  "uinnsm_product" ~ "UI-TS")) %>%
+  mutate(method = factor(method, levels = c("UI-TS", "LCB"))) %>%
   mutate(bet = case_match(bet, "agrapa" ~ "AGRAPA", "inverse" ~ "Inverse", "apriori_bernoulli" ~ "Kelly optimal", "bernoulli" ~ "ALPHA-ST", "fixed_plugin" ~ "Predictable plug-in", "smooth_predictable" ~ "Negative exponential")) %>%
   mutate(allocation = case_match(allocation, "predictable_kelly" ~ "Predictable Kelly", "round_robin" ~ "Round Robin", "greedy_kelly" ~ "Greedy")) %>%
   filter(!is.na(expected_stopping_time)) %>%
@@ -144,24 +161,24 @@ ggplot(mean_data %>% filter(Measure == "Expected Sample Size", allocation == "Ro
   geom_line(size = 1.5) +
   theme_bw() + 
   ylab("Expected Sample Size") +
-  geom_text(
-    data = data.frame(x = 0.68, y = 1400, text = "(A)", method = NA), 
-    aes(x = x, y = y, label = text), 
-    color = "black",
-    size = 16) +
+  # geom_text(
+  #   data = data.frame(x = 0.68, y = 1400, text = "(A)", method = "LCB"), 
+  #   aes(x = x, y = y, label = text), 
+  #   color = "black",
+  #   size = 16) +
   xlab("Global Mean") +
   labs(colour = "Betting Rule", linetype = "Method") +
   theme(
-    text = element_text(size = 18), 
-    axis.text = element_text(size = 14),
+    text = element_text(size = 24), 
+    axis.text = element_text(size = 18),
     legend.key.width = unit(2, "cm"),
-    legend.text = element_text(size = 14)) +
+    legend.text = element_text(size = 18)) +
   scale_y_log10()
 
 ggplot(mean_data %>% filter(Measure == "Probability of Stopping", allocation == "Round Robin"), aes(x = alt, y = value, color = bet, linetype = method)) +
   ylab(TeX("$P(\\tau < 4200)$")) +
   geom_text(
-    data = data.frame(x = 0.68, y = .8, text = "(B)", method = NA), 
+    data = data.frame(x = 0.68, y = .8, text = "(B)", method = "LCB"), 
     aes(x = x, y = y, label = text), 
     color = "black",
     size = 16) +
@@ -242,7 +259,7 @@ expected_stop_plot
 
 
 ######### gradient descent run times ########
-runtime_data <- read_csv("pgd_run_times_short.csv")
+runtime_data <- read_csv("../Results/pgd_run_times_short.csv")
 
 runtime_table <- runtime_data %>% 
   select(N_k, K, run_time, method, sample_size) %>% 
@@ -346,14 +363,14 @@ ggplot(rel_eff_grid, aes(x = stratum_diff, y = relative_efficiency, color = mu))
   geom_hline(yintercept = 2, linetype = 'dotted') +
   geom_line(size = 2) +
   coord_cartesian(xlim = c(0, 0.4), ylim = c(0,10)) +
-  geom_text(
-    data = data.frame(x = 0.065, y = 8, text = "(C)", mu = NA), 
-    aes(x = x, y = y, label = text), 
-    color = "black",
-    size = 16) +
+#  geom_text(
+#    data = data.frame(x = 0.065, y = 8, text = "(C)", mu = NA), 
+#    aes(x = x, y = y, label = text), 
+#    color = "black",
+#    size = 16) +
   scale_color_viridis_d(option = "turbo") +
   theme_bw() +
-  theme(text = element_text(size = 18), axis.text = element_text(size = 14)) +
+  theme(text = element_text(size = 24), axis.text = element_text(size = 20)) +
   xlab(TeX("$\\mu_1 - \\mu_2$")) +
   ylab("Stopping time ratio (unstratified over stratified)") +
   labs(color = TeX("$\\mu = (\\mu_1 + \\mu_2)/2"))

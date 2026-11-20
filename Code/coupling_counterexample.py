@@ -24,7 +24,7 @@ Both UI-TS stopping times are tau = max(tau_A, tau_B), since a UI-TS crosses
 1/alpha only when every constituent has crossed.
 
 Usage:  python coupling_counterexample.py
-Output: the LaTeX table body in the appendix, plus diagnostics.
+Output: LaTeX table body in the appendix, plus diagnostics.
 """
 
 import numpy as np
